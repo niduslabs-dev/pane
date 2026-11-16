@@ -11,20 +11,46 @@ enum PaneTool: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .inspect: "Inspect Layout"
+        case .inspect: "Inspect layout"
         case .measure: "Measure"
-        case .pickColour: "Pick Colour"
+        case .pickColour: "Pick colour"
         }
     }
 
-    /// The line at the top of the screen while the tool is on.
-    var hint: String {
+    /// The tool's glyph in the mode pill.
+    var symbolName: String {
         switch self {
-        case .inspect: "Inspect Layout · Esc to exit"
-        case .measure: "Measure · drag between two points"
-        case .pickColour: "Pick Colour · click to copy"
+        case .inspect: "rectangle.dashed"
+        case .measure: "ruler"
+        case .pickColour: "drop"
         }
     }
+}
+
+/// A view picked out by Inspect layout, with its parent's frame (nil for a root view, whose
+/// parent is the screen).
+struct InspectedView: Equatable {
+    var node: LayoutNode
+    var parentFrame: CGRect?
+}
+
+/// What the mode pill says and offers while a tool is on.
+struct ToolPillState: Equatable {
+    enum Action: Equatable {
+        case done
+        case tryAgain
+
+        var title: String {
+            switch self {
+            case .done: "Done"
+            case .tryAgain: "Try Again"
+            }
+        }
+    }
+
+    var text: String
+    var isBusy = false
+    var action = Action.done
 }
 
 /// State for Inspect Layout, Measure and Pick Colour. Points are the drawn screen's (y down,
@@ -43,20 +69,22 @@ final class ToolsModel {
     /// Why the last read gave no tree, in one line.
     private(set) var layoutProblem: String?
     /// The view under the pointer, and the one a click pinned.
-    private(set) var hovered: LayoutNode?
-    private(set) var pinned: LayoutNode?
-    var inspected: LayoutNode? { pinned ?? hovered }
+    private(set) var hovered: InspectedView?
+    private(set) var pinned: InspectedView?
 
-    /// The line being or last dragged.
+    /// The line being or last dragged, and the view edges its end is snapped to (an x for a
+    /// left or right edge, a y for a top or bottom one), which get a guide.
     private(set) var measurement: MeasuredLine?
+    private(set) var snappedX: CGFloat?
+    private(set) var snappedY: CGFloat?
 
     /// Where the pointer is over the screen, for the loupe.
     private(set) var hoverPoint: CGPoint?
     private(set) var colour: PickedColour?
     /// The pixels around the pointer, row by row.
     private(set) var loupe: [[PickedColour]] = []
-    /// True for a moment after a click copied the hex.
-    private(set) var copied = false
+    /// What a click just copied ("#D3E3FD"), for a moment.
+    private(set) var copied: String?
 
     @ObservationIgnored private var snapEdges: SnapEdges?
     @ObservationIgnored private var dragStart: CGPoint?
@@ -79,8 +107,38 @@ final class ToolsModel {
             viewSize: host.layout.screenRect.size, deviceSize: host.deviceSize, quadrants: host.quadrants)
     }
 
-    var density: DensityScale {
-        DensityScale(density: host?.profile.density ?? Theme.Frame.fallbackDensity)
+    /// Nil when the AVD's config doesn't give a density: sizes are then shown in pixels only.
+    var density: DensityScale? {
+        (host?.profile.density).map(DensityScale.init(density:))
+    }
+
+    /// The mode pill's line and button for the tool that is on.
+    var pill: ToolPillState? {
+        guard let active else { return nil }
+        switch active {
+        case .inspect:
+            if let tree {
+                return ToolPillState(text: tree.frames.isEmpty ? "Nothing to inspect here." : active.title)
+            }
+            if layoutProblem != nil { return ToolPillState(text: "Couldn't read the layout.", action: .tryAgain) }
+            return ToolPillState(text: "Reading layout…", isBusy: true)
+        case .measure:
+            return ToolPillState(text: density == nil ? "Measure · px only" : active.title)
+        case .pickColour:
+            if let copied { return ToolPillState(text: "Copied \(copied)") }
+            return ToolPillState(text: host?.screenView.latestImage == nil ? "The screen is off." : active.title)
+        }
+    }
+
+    /// The pill's button: Done finishes the tool, Try Again reads the layout once more.
+    func runPillAction() {
+        guard let pill else { return }
+        switch pill.action {
+        case .done: deactivate()
+        case .tryAgain:
+            layoutProblem = nil
+            readLayout()
+        }
     }
 
     // MARK: Turning tools on and off
@@ -130,11 +188,13 @@ final class ToolsModel {
         hovered = nil
         pinned = nil
         measurement = nil
+        snappedX = nil
+        snappedY = nil
         dragStart = nil
         hoverPoint = nil
         colour = nil
         loupe = []
-        copied = false
+        copied = nil
     }
 
     // MARK: Pointer
@@ -146,8 +206,8 @@ final class ToolsModel {
         hoverPoint = inside
         switch active {
         case .inspect:
-            let node = inside.flatMap { tree?.node(at: scale.pixels($0)) }
-            if node != hovered { hovered = node }
+            let view = inside.flatMap { inspectedView(at: scale.pixels($0)) }
+            if view != hovered { hovered = view }
         case .pickColour:
             updateColour()
         case .measure:
@@ -158,34 +218,41 @@ final class ToolsModel {
     /// A click or drag on the screen while a tool is on.
     func pointer(_ phase: ScreenView.PointerPhase, at point: CGPoint) {
         guard let active, let scale else { return }
+        // Shift forces the line level or upright; Command stops it snapping to view edges.
+        let modifiers = NSEvent.modifierFlags
+        let edges = modifiers.contains(.command) ? nil : snapEdges
         switch (active, phase) {
         case (.inspect, .down):
-            let node = tree?.node(at: scale.pixels(point))
-            // A click on the pinned view lets it go; any other click pins what is under it.
-            pinned = node == pinned ? nil : node
+            // A click pins what is under it; a click on the pinned view, or on nothing, lets go.
+            let view = inspectedView(at: scale.pixels(point))
+            pinned = view == pinned ? nil : view
         case (.measure, .down):
-            let start = snapped(scale.pixels(point), in: scale)
+            let inside = clamped(scale.pixels(point), to: scale.pixelSize)
+            let start = edges?.snapped(inside, within: edgeSnapPixels(in: scale)) ?? inside
             dragStart = start
             measurement = MeasuredLine(start: start, end: start)
+            (snappedX, snappedY) = (nil, nil)
         case (.measure, .dragged), (.measure, .up):
             guard let start = dragStart else { return }
             let end = MeasuredLine.snappedEnd(
                 start: start, end: clamped(scale.pixels(point), to: scale.pixelSize),
-                axisDegrees: Theme.Tools.axisSnapDegrees, edges: snapEdges, edgeDistance: edgeSnapPixels(in: scale))
+                axisDegrees: Theme.Tools.axisSnapDegrees, edges: edges, edgeDistance: edgeSnapPixels(in: scale),
+                forceAxis: modifiers.contains(.shift))
             measurement = MeasuredLine(start: start, end: end)
+            (snappedX, snappedY) = MeasuredLine.snappedEdges(of: end, edges: edges)
             if phase == .up { dragStart = nil }
         case (.pickColour, .down):
             hoverPoint = point
             updateColour()
-            copyColour()
+            // Option-click copies the colour as rgb().
+            copyColour(asRGB: modifiers.contains(.option))
         default:
             break
         }
     }
 
-    private func snapped(_ point: CGPoint, in scale: ScreenScale) -> CGPoint {
-        let inside = clamped(point, to: scale.pixelSize)
-        return snapEdges?.snapped(inside, within: edgeSnapPixels(in: scale)) ?? inside
+    private func inspectedView(at pixel: CGPoint) -> InspectedView? {
+        tree?.hit(at: pixel).map { InspectedView(node: $0.node, parentFrame: $0.parentFrame) }
     }
 
     private func clamped(_ point: CGPoint, to size: CGSize) -> CGPoint {
@@ -291,9 +358,9 @@ final class ToolsModel {
         layoutProblem = nil
         snapEdges = SnapEdges(frames: tree.frames)
         // A pinned view that is still there (same frame and identity) stays pinned.
-        if let pinned, !tree.contains(pinned) { self.pinned = nil }
+        if let pinned, !tree.contains(pinned.node) { self.pinned = nil }
         if let scale, let point = hoverPoint {
-            hovered = tree.node(at: scale.pixels(point))
+            hovered = inspectedView(at: scale.pixels(point))
         } else {
             hovered = nil
         }
@@ -316,20 +383,21 @@ final class ToolsModel {
         if around != loupe { loupe = around }
     }
 
-    /// Puts the hex on the Mac's clipboard and shows "Copied." for a moment.
-    private func copyColour() {
+    /// Puts the colour on the Mac's clipboard (its hex, or rgb()) and says so for a moment.
+    private func copyColour(asRGB: Bool) {
         guard let colour, let host else { return }
+        let text = asRGB ? colour.rgb : colour.hex
         let pasteboard = PaneModel.pasteboard
         pasteboard.clearContents()
-        pasteboard.setString(colour.hex, forType: .string)
+        pasteboard.setString(text, forType: .string)
         host.noteOwnPasteboardWrite()
         log.info("Copied a colour")
-        copied = true
+        copied = text
         copiedTask?.cancel()
         copiedTask = Task { [weak self] in
             try? await Task.sleep(for: Theme.Tools.copiedDuration)
             guard let self, !Task.isCancelled else { return }
-            self.copied = false
+            self.copied = nil
         }
     }
 }

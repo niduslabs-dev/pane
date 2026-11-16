@@ -45,7 +45,7 @@ public enum DeviceLink {
         let errorLine = lines.first { $0.hasPrefix("Error:") || $0.hasPrefix("error:") }
         guard output.status != 0 || errorLine != nil else { return nil }
         if let errorLine, errorLine.contains("unable to resolve Intent") {
-            return "No app on the device opens this link."
+            return "Nothing on the device opens this link."
         }
         let reason = Adb.shortReason(from: errorLine ?? output.text)
         return reason.isEmpty ? "The link didn't open." : reason
@@ -54,7 +54,7 @@ public enum DeviceLink {
 
 /// The links opened lately on one AVD, newest first, for the Open Link sheet's Recent list.
 public struct RecentLinks: Sendable, Equatable {
-    public static let limit = 8
+    public static let limit = 5
 
     public private(set) var links: [String]
 

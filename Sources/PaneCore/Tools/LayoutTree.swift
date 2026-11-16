@@ -91,6 +91,21 @@ public struct LayoutTree: Sendable, Equatable {
         return find(in: roots)
     }
 
+    /// The deepest view under a point together with its parent's frame (nil for a root view,
+    /// whose parent is the screen), for the distances Inspect shows once a view is pinned.
+    public func hit(at point: CGPoint) -> (node: LayoutNode, parentFrame: CGRect?)? {
+        func find(in nodes: [LayoutNode], parent: CGRect?) -> (LayoutNode, CGRect?)? {
+            for node in nodes.reversed() where Self.contains(node.frame, point) {
+                return find(in: node.children, parent: node.frame) ?? (node, parent)
+            }
+            for node in nodes.reversed() {
+                if let inner = find(in: node.children, parent: node.frame) { return inner }
+            }
+            return nil
+        }
+        return find(in: roots, parent: nil)
+    }
+
     /// Every view's frame, for snapping a measurement to edges.
     public var frames: [CGRect] {
         var all: [CGRect] = []
@@ -174,7 +189,7 @@ public struct DensityScale: Sendable, Equatable {
     }
 }
 
-/// How far a view is from the screen's edges, in device pixels.
+/// How far a view is from the edges of the screen or of its parent, in device pixels.
 public struct EdgeDistances: Sendable, Equatable {
     public var left: CGFloat
     public var top: CGFloat
@@ -186,6 +201,15 @@ public struct EdgeDistances: Sendable, Equatable {
         top = frame.minY
         right = screen.width - frame.maxX
         bottom = screen.height - frame.maxY
+    }
+
+    /// How far a view is inside its parent on each side (never negative: a view that sticks
+    /// out of its parent reads 0 there).
+    public init(frame: CGRect, parent: CGRect) {
+        left = max(0, frame.minX - parent.minX)
+        top = max(0, frame.minY - parent.minY)
+        right = max(0, parent.maxX - frame.maxX)
+        bottom = max(0, parent.maxY - frame.maxY)
     }
 
     public enum Side: Sendable, Equatable {

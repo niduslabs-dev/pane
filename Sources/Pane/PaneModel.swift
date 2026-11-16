@@ -86,11 +86,17 @@ final class PaneModel {
 
     /// Set by the app: whether another window already shows an AVD, and how to bring that
     /// window forward.
-    /// Where the title's device name is drawn (window content, y down), so the window can
-    /// send a click there to the switcher.
+    /// Where the title's device name button is drawn (window content, y down), so the window
+    /// can send a click there to the switcher, and whether the pointer is over it.
     @ObservationIgnored var switcherFrame = CGRect.zero
-    /// The emulator switcher's rows while it is open under the title; nil when closed.
-    var switcher: [SwitcherEntry]?
+    private(set) var pointerOverTitle = false
+    /// The menu panel open over the window (More, the emulator switcher or the emulators
+    /// menu); nil when none is.
+    var menu: PaneMenu?
+    /// Opens or closes More's menu (set by the window).
+    @ObservationIgnored var onShowMore: () -> Void = {}
+    /// Opens the emulators menu under a point in the window (set by the window).
+    @ObservationIgnored var onShowEmulators: (CGPoint) -> Void = { _ in }
     /// The connection ended: the window closes any sheet that was about the device.
     @ObservationIgnored var onDeviceGone: () -> Void = {}
     /// Runs a menu command in this window (set by the window).
@@ -434,9 +440,10 @@ final class PaneModel {
         }
     }
 
-    /// The emulator switcher's "Show in This Window": attaches to a running AVD, or starts a
-    /// stopped one headless. The emulator this window showed keeps running. An AVD another
-    /// window shows brings that window forward instead.
+    /// The emulator switcher's "Show in this window": attaches to a running AVD at once; one
+    /// that isn't running goes to the Start screen, because Pane never starts an emulator on
+    /// its own. The emulator this window showed keeps running. An AVD another window shows
+    /// brings that window forward instead.
     func switchTo(avdName: String) {
         guard avdName != emulator?.avdName, !(status == .starting && launchedAVDName == avdName) else { return }
         if isShownElsewhere(avdName) {
@@ -450,19 +457,19 @@ final class PaneModel {
         if emulator != nil { disconnect() }
         forgetLaunch()
         status = .noEmulator
-        selectedAVDName = avdName
         startProblem = nil
+        selectedAVDName = avdName
+        if let avd = selectedAVD { setProfile(avd.profile) }
         if let running = EmulatorDiscovery.runningEmulators(in: Self.registrationFolder).first(where: {
             $0.avdName == avdName
         }) {
             connect(to: running)
-        } else if let avd = avds.first(where: { $0.name == avdName }) {
-            launch(avdName: avd.name, profile: avd.profile)
         }
     }
 
     /// The window is closing: lets go of the emulator (which keeps running) and stops watching.
     func close() {
+        menu = nil
         tools.deactivate()
         exportTask?.cancel()
         reconnectTask?.cancel()
@@ -472,6 +479,16 @@ final class PaneModel {
     }
 
     // MARK: Notices
+
+    // MARK: Menu panels
+
+    func closeMenu() { menu = nil }
+
+    /// A row was chosen: the menu closes and the window runs its command.
+    func choose(_ command: DeviceCommand) {
+        menu = nil
+        onCommand(command)
+    }
 
     /// Shows a short line over the bottom of the screen. With `busy` it stays (with a spinner)
     /// until the next notice; otherwise it clears itself after `hold`.
@@ -935,6 +952,7 @@ final class PaneModel {
         releaseAll()
         stopRecording()
         tools.deactivate()
+        menu = nil
         onDeviceGone()
         deviceAppearance = nil
         deviceTextSize = nil
@@ -1037,6 +1055,18 @@ final class PaneModel {
 
     /// Sends a key while the window is key. Command shortcuts stay with the Mac's menus.
     func handleKey(_ event: NSEvent, isDown: Bool) -> Bool {
+        if let menu {
+            // An open menu takes the keys: arrows, Return, Esc and letters. None reach the device.
+            guard isDown, !event.modifierFlags.contains(.command) else {
+                return !event.modifierFlags.contains(.command)
+            }
+            switch menu.handleKey(code: Int(event.keyCode), characters: event.charactersIgnoringModifiers) {
+            case .close: closeMenu()
+            case .choose(let command): choose(command)
+            case .handled, .ignored: break
+            }
+            return true
+        }
         if tools.isActive {
             // Esc leaves the tool; every other key is kept from the device.
             if isDown, Int(event.keyCode) == kVK_Escape { tools.deactivate() }
@@ -1240,6 +1270,8 @@ final class PaneModel {
 
     /// The pointer moved over the window (window coordinates, y down), or left it (nil).
     func pointerMoved(to point: CGPoint?) {
+        let overTitle = point.map(switcherFrame.contains) ?? false
+        if overTitle != pointerOverTitle { pointerOverTitle = overTitle }
         if tools.isActive {
             if nearButton != nil { nearButton = nil }
             tools.hover(at: point.map { CGPoint(x: $0.x - layout.screenRect.minX, y: $0.y - layout.screenRect.minY) })

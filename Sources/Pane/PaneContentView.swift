@@ -26,8 +26,8 @@ struct PaneContentView: View {
             DeviceToolbar(model: model)
                 .frame(width: layout.windowContentSize.width, height: Theme.Toolbar.bandHeight)
                 .offset(y: layout.windowContentSize.height - Theme.Toolbar.bandHeight)
-            if let entries = model.switcher {
-                SwitcherLayer(model: model, entries: entries)
+            if let menu = model.menu {
+                PaneMenuLayer(model: model, menu: menu)
             }
         }
         .frame(

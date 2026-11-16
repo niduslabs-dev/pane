@@ -18,47 +18,64 @@ struct TitleBar: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+            .padding(.horizontal, Theme.TitleButton.paddingH)
+            .padding(.vertical, Theme.TitleButton.paddingV)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.TitleButton.radius, style: .continuous)
+                    .fill(
+                        Color(nsColor: Theme.Palette.shade)
+                            .opacity(
+                                model.pointerOverTitle || model.menu?.anchor == .title
+                                    ? Theme.TitleButton.hoverOpacity : 0))
+            )
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { model.switcherFrame = proxy.frame(in: .global) }
+                        .onChange(of: proxy.frame(in: .global)) { _, frame in model.switcherFrame = frame }
+                }
+            )
             .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { model.onShowSwitcher() }
             Spacer(minLength: 0)
         }
-        .padding(.leading, model.titleLeadingInset)
+        .padding(.leading, model.titleLeadingInset - Theme.TitleButton.paddingH)
         .padding(.trailing, Theme.Window.titleRowTrailingPadding)
     }
 }
 
-/// The device name in the title, as a pop-up: it opens the emulator switcher. The title bar
-/// takes real clicks before SwiftUI does, so the window routes a click on `SwitcherButton.frame`
-/// here; Accessibility presses the button itself.
+/// The device name in the title, as a button (board 13): under the pointer it gets a soft
+/// shade and a chevron, and a click opens the emulator switcher under it. The title bar takes
+/// real clicks and pointer moves before SwiftUI does, so the window reports the pointer
+/// (`model.pointerOverTitle`) and routes a click on `model.switcherFrame` here; Accessibility
+/// presses the button itself.
 struct SwitcherButton: View {
     let model: PaneModel
 
     var body: some View {
+        let isOpen = model.menu?.anchor == .title
+        let showsChrome = model.pointerOverTitle || isOpen
         Button {
             model.onShowSwitcher()
         } label: {
-            HStack(spacing: Theme.Window.titleChevronGap) {
+            HStack(spacing: Theme.TitleButton.chevronGap) {
                 Text(model.title)
                     .font(Theme.Typeface.windowTitle)
                     .foregroundStyle(Color(nsColor: Theme.Palette.text))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: Theme.Window.titleChevronSize, weight: .semibold))
+                    .font(.system(size: Theme.TitleButton.chevronSize, weight: .semibold))
                     .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
+                    .opacity(showsChrome ? 1 : 0)
                     .accessibilityHidden(true)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Emulator, \(model.title)")
+        .accessibilityLabel("\(model.title), switch emulator")
         .accessibilityHint("Shows the emulators.")
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear { model.switcherFrame = proxy.frame(in: .global) }
-                    .onChange(of: proxy.frame(in: .global)) { _, frame in model.switcherFrame = frame }
-            }
-        )
     }
 }
 
@@ -70,8 +87,17 @@ struct DeviceToolbar: View {
     let model: PaneModel
 
     var body: some View {
+        // While a tool is on, the pill that names it takes the toolbar's place.
+        if let tool = model.tools.active, let state = model.tools.pill {
+            ToolModePill(tools: model.tools, tool: tool, state: state)
+        } else {
+            toolbar
+        }
+    }
+
+    private var toolbar: some View {
         let live = model.status == .live
-        GlassGroup(spacing: Theme.Toolbar.capsuleGap) {
+        return GlassGroup(spacing: Theme.Toolbar.capsuleGap) {
             HStack(spacing: Theme.Toolbar.capsuleGap) {
                 capsule {
                     ToolbarButton(symbol: PaneSymbol.home, label: "Home") { model.pressHome() }

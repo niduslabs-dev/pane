@@ -1,219 +1,273 @@
 import PaneCore
 import SwiftUI
 
-/// What the tool that is on draws over the live screen. Never takes clicks: the screen view
-/// under it hands them to `ToolsModel`.
+/// What the tool that is on draws over the live screen (boards 9 to 11). Never takes clicks:
+/// the screen view under it hands them to `ToolsModel`.
 struct ToolOverlay: View {
     let tools: ToolsModel
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             switch tools.active {
             case .inspect: InspectOverlay(tools: tools)
             case .measure: MeasureOverlay(tools: tools)
             case .pickColour: ColourOverlay(tools: tools)
             case nil: EmptyView()
             }
-            if let hint {
-                ToolHint(text: hint)
-                    .padding(.top, Theme.Tools.hintTop)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
     }
+}
 
-    private var hint: String? {
-        guard let tool = tools.active else { return nil }
-        if tool == .inspect {
-            if let problem = tools.layoutProblem { return problem }
-            if tools.tree == nil { return "Reading layout…" }
+/// A chip (`tool.chip`): ink with paper text in both modes, for a size, a distance, a length
+/// or a hex. Digits are a fixed width so it doesn't jitter.
+struct ToolChip<Leading: View>: View {
+    let text: String
+    @ViewBuilder var leading: Leading
+
+    var body: some View {
+        HStack(spacing: Theme.Tools.chipGap) {
+            leading
+            Text(text)
+                .font(Theme.Typeface.toolChip)
+                .foregroundStyle(Color(nsColor: Theme.Palette.toolChipText))
+                .lineLimit(1)
+                .fixedSize()
         }
-        return tool.hint
+        .padding(.horizontal, Theme.Tools.chipPaddingH)
+        .frame(height: Theme.Tools.chipHeight)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Tools.chipRadius, style: .continuous)
+                .fill(Color(nsColor: Theme.Palette.toolChip))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Tools.chipRadius, style: .continuous)
+                .strokeBorder(Color(nsColor: Theme.Palette.toolChipRing), lineWidth: Theme.Tools.chipRing)
+        )
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
     }
 }
 
-/// The line at the top of the screen that names the tool and how to leave it.
-struct ToolHint: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(Theme.Typeface.toolHint)
-            .foregroundStyle(Color(nsColor: Theme.Palette.toolText))
-            .lineLimit(1)
-            .padding(.horizontal, Theme.Tools.hintPaddingH)
-            .frame(height: Theme.Tools.hintHeight)
-            .toolSurface(in: Capsule())
-            .accessibilityLabel(text)
+extension ToolChip where Leading == EmptyView {
+    init(text: String) {
+        self.init(text: text) { EmptyView() }
     }
 }
 
-/// A small filled label: a size on an outline, a distance on a guide, a length on a line.
-struct ToolTag: View {
-    let text: String
+/// A straight line in a tool colour with the paper halo on each side. Guides are dashed.
+struct ToolLine: View {
+    let from: CGPoint
+    let to: CGPoint
     let colour: NSColor
+    var dashed = false
 
     var body: some View {
-        Text(text)
-            .font(Theme.Typeface.toolTag)
-            .foregroundStyle(Color(nsColor: Theme.Palette.toolTagText))
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, Theme.Tools.tagPaddingH)
-            .frame(height: Theme.Tools.tagHeight)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Tools.tagRadius, style: .continuous).fill(Color(nsColor: colour)))
+        let path = Path { path in
+            path.move(to: from)
+            path.addLine(to: to)
+        }
+        ZStack {
+            path.stroke(
+                Color(nsColor: Theme.Palette.toolHalo),
+                lineWidth: Theme.Tools.outlineWidth + 2 * Theme.Tools.haloWidth)
+            path.stroke(
+                Color(nsColor: colour),
+                style: StrokeStyle(lineWidth: Theme.Tools.outlineWidth, dash: dashed ? Theme.Tools.guideDash : []))
+        }
     }
 }
 
-extension View {
-    /// The dark surface the tools' cards and readouts sit on, readable over any app.
-    func toolSurface(in shape: some InsettableShape) -> some View {
-        background(shape.fill(Color(nsColor: Theme.Palette.toolSurface)))
-            .overlay(
-                shape.strokeBorder(Color(nsColor: Theme.Palette.toolHairline), lineWidth: Theme.Tools.hairline)
-            )
-            .shadow(
-                color: .black.opacity(Theme.Tools.shadowOpacity), radius: Theme.Tools.shadowRadius,
-                y: Theme.Tools.shadowY)
-    }
-}
-
-/// Inspect Layout: the view under the pointer (or the pinned one) outlined, with its size in
-/// dp, its distance to the nearest screen edges, and a card of details.
+/// Inspect layout: the view under the pointer outlined with its size in a chip. A click pins
+/// it: amber dashed guides show the distance to its parent's edges, and a card lists its type,
+/// frame, pixel size and id.
 struct InspectOverlay: View {
     let tools: ToolsModel
 
     var body: some View {
         GeometryReader { proxy in
-            if let node = tools.inspected, let scale = tools.scale {
-                let rect = scale.view(node.frame)
+            if let view = tools.pinned ?? tools.hovered, let scale = tools.scale {
+                let rect = scale.view(view.node.frame)
                 let isPinned = tools.pinned != nil
-                let colour = isPinned ? Theme.Palette.toolPinned : Theme.Palette.toolOutline
-                let density = tools.density
-                let edges = EdgeDistances(frame: node.frame, screen: scale.pixelSize)
+                let chipX = chipLeading(for: rect, in: proxy.size)
+                let chipY = chipTop(for: rect)
                 ZStack(alignment: .topLeading) {
-                    EdgeGuides(rect: rect, size: proxy.size, edges: edges, density: density)
-                    Rectangle()
-                        .fill(Color(nsColor: Theme.Palette.toolFill))
-                        .overlay(Rectangle().strokeBorder(Color(nsColor: colour), lineWidth: Theme.Tools.outlineWidth))
-                        .frame(
-                            width: max(rect.width, Theme.Tools.outlineWidth),
-                            height: max(rect.height, Theme.Tools.outlineWidth)
-                        )
-                        .offset(x: rect.minX, y: rect.minY)
-                    ToolTag(text: density.sizeText(node.frame.size), colour: colour)
-                        .position(sizeTagCentre(for: rect, in: proxy.size))
-                    InspectCard(node: node, density: density, isPinned: isPinned)
-                        .frame(width: min(Theme.Tools.cardWidth, proxy.size.width - 2 * Theme.Tools.cardMargin))
-                        .frame(
-                            maxWidth: .infinity, maxHeight: .infinity,
-                            alignment: cardAlignment(for: rect, in: proxy.size)
-                        )
-                        .padding(Theme.Tools.cardMargin)
-                        // At the top, the card sits under the hint line.
-                        .padding(.top, Theme.Tools.hintTop + Theme.Tools.hintHeight)
+                    if isPinned {
+                        ParentGuides(view: view, scale: scale, density: tools.density)
+                    }
+                    outline(rect)
+                    ToolChip(text: sizeText(view.node.frame.size))
+                        .alignmentGuide(.leading) { _ in -chipX }
+                        .alignmentGuide(.top) { _ in -chipY }
+                    if isPinned {
+                        InspectCard(node: view.node, density: tools.density)
+                            .frame(width: min(Theme.Tools.cardWidth, proxy.size.width - 2 * Theme.Tools.cardMargin))
+                            .position(cardCentre(for: rect, rows: InspectCard.rowCount(for: view.node), in: proxy.size))
+                    }
                 }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             }
         }
     }
 
-    /// Centred just above the view, or just below when there's no room above.
-    private func sizeTagCentre(for rect: CGRect, in size: CGSize) -> CGPoint {
-        let offset = Theme.Tools.tagHeight / 2 + Theme.Tools.tagGap
-        let above = rect.minY - offset
-        let y = above - Theme.Tools.tagHeight / 2 >= 0 ? above : min(rect.maxY + offset, size.height - offset)
-        return CGPoint(x: min(max(rect.midX, 0), size.width), y: y)
+    private func sizeText(_ size: CGSize) -> String {
+        tools.density?.sizeText(size) ?? DensityScale.pixelText(size)
     }
 
-    /// The card keeps out of the view's way: at the bottom, or at the top for a view low down.
-    private func cardAlignment(for rect: CGRect, in size: CGSize) -> Alignment {
-        rect.midY > size.height / 2 ? .top : .bottom
+    /// Moss with a paper halo outside and inside, over a moss wash.
+    private func outline(_ rect: CGRect) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Tools.outlineRadius, style: .continuous)
+        let width = max(rect.width, 2 * Theme.Tools.outlineWidth)
+        let height = max(rect.height, 2 * Theme.Tools.outlineWidth)
+        return shape.fill(Color(nsColor: Theme.Palette.toolFill))
+            .overlay(
+                shape.inset(by: -Theme.Tools.haloWidth)
+                    .strokeBorder(Color(nsColor: Theme.Palette.toolHalo), lineWidth: Theme.Tools.haloWidth)
+            )
+            .overlay(
+                shape.inset(by: Theme.Tools.outlineWidth)
+                    .strokeBorder(Color(nsColor: Theme.Palette.toolHalo), lineWidth: Theme.Tools.haloWidth)
+            )
+            .overlay(shape.strokeBorder(Color(nsColor: Theme.Palette.toolSelect), lineWidth: Theme.Tools.outlineWidth))
+            .frame(width: width, height: height)
+            .offset(x: rect.minX, y: rect.minY)
+    }
+
+    /// The chip sits above the outline's left end, or inside its top when there's no room.
+    private func chipTop(for rect: CGRect) -> CGFloat {
+        let above = rect.minY - Theme.Tools.chipHeight - Theme.Tools.chipGap
+        return above >= 0 ? above : rect.minY + Theme.Tools.chipGap
+    }
+
+    private func chipLeading(for rect: CGRect, in size: CGSize) -> CGFloat {
+        min(max(rect.minX, 0), max(0, size.width - Theme.Tools.cardWidth / 2))
+    }
+
+    /// Centred under the outline, or above it when the view is low on the screen.
+    private func cardCentre(for rect: CGRect, rows: Int, in size: CGSize) -> CGPoint {
+        let height =
+            CGFloat(rows) * Theme.Tools.cardLineHeight + CGFloat(rows - 1) * Theme.Tools.cardRowGap
+            + 2 * Theme.Tools.cardPaddingV
+        let half = min(Theme.Tools.cardWidth, size.width - 2 * Theme.Tools.cardMargin) / 2
+        let x = min(max(rect.midX, half + Theme.Tools.cardMargin), size.width - half - Theme.Tools.cardMargin)
+        let below = rect.maxY + Theme.Tools.cardGap + height / 2
+        let chipRoom = Theme.Tools.chipHeight + Theme.Tools.chipGap
+        let above = rect.minY - chipRoom - Theme.Tools.cardGap - height / 2
+        let y =
+            below + height / 2 + Theme.Tools.cardMargin <= size.height
+            ? below : max(above, height / 2 + Theme.Tools.cardMargin)
+        return CGPoint(x: x, y: y)
     }
 }
 
-/// Dashed lines from the view to the nearest left or right and top or bottom screen edge, each
-/// tagged with its length in dp.
-private struct EdgeGuides: View {
-    let rect: CGRect
-    let size: CGSize
-    let edges: EdgeDistances
-    let density: DensityScale
+/// Amber dashed guides from a pinned view to its parent's edges, each with its length in dp.
+/// A side the view touches gets none.
+private struct ParentGuides: View {
+    let view: InspectedView
+    let scale: ScreenScale
+    let density: DensityScale?
 
     var body: some View {
-        let horizontal = edges.nearestHorizontal
-        let vertical = edges.nearestVertical
-        let hStart = CGPoint(x: horizontal.side == .left ? 0 : size.width, y: rect.midY)
-        let hEnd = CGPoint(x: horizontal.side == .left ? rect.minX : rect.maxX, y: rect.midY)
-        let vStart = CGPoint(x: rect.midX, y: vertical.side == .top ? 0 : size.height)
-        let vEnd = CGPoint(x: rect.midX, y: vertical.side == .top ? rect.minY : rect.maxY)
-        ZStack {
-            Path { path in
-                path.move(to: hStart)
-                path.addLine(to: hEnd)
-                path.move(to: vStart)
-                path.addLine(to: vEnd)
+        let frame = view.node.frame
+        let parent = view.parentFrame ?? CGRect(origin: .zero, size: scale.pixelSize)
+        let inside = EdgeDistances(frame: frame, parent: parent)
+        let rect = scale.view(frame)
+        let outer = scale.view(parent)
+        ZStack(alignment: .topLeading) {
+            if inside.left > 0 {
+                guide(
+                    from: CGPoint(x: outer.minX, y: rect.midY), to: CGPoint(x: rect.minX, y: rect.midY),
+                    length: inside.left, horizontal: true)
             }
-            .stroke(
-                Color(nsColor: Theme.Palette.toolGuide),
-                style: StrokeStyle(lineWidth: Theme.Tools.guideWidth, dash: Theme.Tools.guideDash))
-            if horizontal.distance > 0 {
-                ToolTag(text: "\(density.wholeDp(horizontal.distance))", colour: Theme.Palette.toolGuide)
-                    .position(x: (hStart.x + hEnd.x) / 2, y: hStart.y)
+            if inside.right > 0 {
+                guide(
+                    from: CGPoint(x: rect.maxX, y: rect.midY), to: CGPoint(x: outer.maxX, y: rect.midY),
+                    length: inside.right, horizontal: true)
             }
-            if vertical.distance > 0 {
-                ToolTag(text: "\(density.wholeDp(vertical.distance))", colour: Theme.Palette.toolGuide)
-                    .position(x: vStart.x, y: (vStart.y + vEnd.y) / 2)
+            if inside.top > 0 {
+                guide(
+                    from: CGPoint(x: rect.midX, y: outer.minY), to: CGPoint(x: rect.midX, y: rect.minY),
+                    length: inside.top, horizontal: false)
             }
+            if inside.bottom > 0 {
+                guide(
+                    from: CGPoint(x: rect.midX, y: rect.maxY), to: CGPoint(x: rect.midX, y: outer.maxY),
+                    length: inside.bottom, horizontal: false)
+            }
+        }
+    }
+
+    /// The line and its chip: under a level guide, beside an upright one.
+    private func guide(from: CGPoint, to: CGPoint, length: CGFloat, horizontal: Bool) -> some View {
+        let middle = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
+        let offset = Theme.Tools.chipHeight / 2 + Theme.Tools.chipGap
+        let text = density.map { "\($0.wholeDp(length))" } ?? "\(Int(length.rounded())) px"
+        return ZStack {
+            ToolLine(from: from, to: to, colour: Theme.Palette.toolGuide, dashed: true)
+            ToolChip(text: text)
+                .position(
+                    x: middle.x + (horizontal ? 0 : offset + Theme.Tools.chipHeight / 2),
+                    y: middle.y + (horizontal ? offset : 0))
         }
     }
 }
 
-/// The inspected view's details: what it says, its type, its frame in dp, its size in pixels
-/// and its resource id.
+/// The pinned view's details: its label when it has one, its type, its frame in dp, its size
+/// in pixels and its resource id.
 struct InspectCard: View {
     let node: LayoutNode
-    let density: DensityScale
-    let isPinned: Bool
+    let density: DensityScale?
+
+    /// How many rows the card shows for a view, for placing it.
+    static func rowCount(for node: LayoutNode) -> Int {
+        3 + (node.label == nil ? 0 : 1) + (node.resourceID.isEmpty ? 0 : 1)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Tools.cardRowGap) {
-            Text(node.label ?? "No label")
-                .font(Theme.Typeface.toolCardTitle)
-                .foregroundStyle(
-                    Color(nsColor: node.label == nil ? Theme.Palette.toolTextSecondary : Theme.Palette.toolText)
-                )
-                .lineLimit(1)
-                .truncationMode(.tail)
+        Grid(alignment: .leading, horizontalSpacing: Theme.Tools.cardColumnGap, verticalSpacing: Theme.Tools.cardRowGap)
+        {
+            if let label = node.label { row("Label", label) }
             row("Type", node.shortClassName)
-            row("Frame", density.frameText(node.frame))
+            row("Frame", density?.frameText(node.frame) ?? "x \(Int(node.frame.minX)), y \(Int(node.frame.minY)) px")
             row("Pixels", DensityScale.pixelText(node.frame.size))
             if !node.resourceID.isEmpty { row("Id", node.resourceID) }
-            if isPinned { row("Pinned", "Click it again to let go.") }
         }
-        .padding(Theme.Tools.cardInset)
+        .padding(.horizontal, Theme.Tools.cardPaddingH)
+        .padding(.vertical, Theme.Tools.cardPaddingV)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .toolSurface(in: RoundedRectangle(cornerRadius: Theme.Tools.cardRadius, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Tools.cardRadius, style: .continuous)
+                .fill(Color(nsColor: Theme.Palette.toolChip))
+                .shadow(
+                    color: .black.opacity(Theme.Tools.cardShadowOpacity), radius: Theme.Tools.cardShadowRadius,
+                    y: Theme.Tools.cardShadowY)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Tools.cardRadius, style: .continuous)
+                .strokeBorder(Color(nsColor: Theme.Palette.toolChipRing), lineWidth: Theme.Tools.chipRing)
+        )
         .accessibilityElement(children: .combine)
     }
 
     private func row(_ key: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Theme.Tools.tagGap) {
+        GridRow {
             Text(key)
-                .font(Theme.Typeface.toolCardKey)
-                .foregroundStyle(Color(nsColor: Theme.Palette.toolTextSecondary))
+                .font(Theme.Typeface.toolCard)
+                .foregroundStyle(Color(nsColor: Theme.Palette.toolChipSecondary))
                 .frame(width: Theme.Tools.cardKeyWidth, alignment: .leading)
             Text(value)
-                .font(Theme.Typeface.toolCardValue)
-                .foregroundStyle(Color(nsColor: Theme.Palette.toolText))
+                .font(Theme.Typeface.toolCard)
+                .foregroundStyle(Color(nsColor: Theme.Palette.toolChipText))
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
     }
 }
 
-/// Measure: the dragged line with its length in dp and px.
+/// Measure: the dragged line in moss with end caps, its length in a chip, and an amber dashed
+/// guide along any view edge its end snapped to.
 struct MeasureOverlay: View {
     let tools: ToolsModel
 
@@ -222,41 +276,61 @@ struct MeasureOverlay: View {
             if let line = tools.measurement, let scale = tools.scale {
                 let start = scale.view(line.start)
                 let end = scale.view(line.end)
-                ZStack {
-                    Path { path in
-                        path.move(to: start)
-                        path.addLine(to: end)
+                ZStack(alignment: .topLeading) {
+                    if let x = tools.snappedX {
+                        let viewX = scale.view(CGPoint(x: x, y: 0)).x
+                        ToolLine(
+                            from: CGPoint(x: viewX, y: 0), to: CGPoint(x: viewX, y: proxy.size.height),
+                            colour: Theme.Palette.toolGuide, dashed: true)
                     }
-                    .stroke(Color(nsColor: Theme.Palette.toolGuide), lineWidth: Theme.Tools.outlineWidth)
-                    ForEach([start, end], id: \.debugDescription) { point in
-                        Circle()
-                            .fill(Color(nsColor: Theme.Palette.toolGuide))
-                            .frame(width: Theme.Tools.handleDiameter, height: Theme.Tools.handleDiameter)
-                            .position(point)
+                    if let y = tools.snappedY {
+                        let viewY = scale.view(CGPoint(x: 0, y: y)).y
+                        ToolLine(
+                            from: CGPoint(x: 0, y: viewY), to: CGPoint(x: proxy.size.width, y: viewY),
+                            colour: Theme.Palette.toolGuide, dashed: true)
                     }
+                    ToolLine(from: start, to: end, colour: Theme.Palette.toolSelect)
                     if line.lengthPixels > 0 {
-                        ToolTag(text: line.text(scale: tools.density), colour: Theme.Palette.toolGuide)
-                            .position(tagCentre(start: start, end: end, in: proxy.size))
+                        cap(at: start, along: start, end)
+                        cap(at: end, along: start, end)
+                        ToolChip(text: tools.density.map { line.text(scale: $0) } ?? line.pixelText)
+                            .position(chipCentre(start: start, end: end, in: proxy.size))
                     }
                 }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             }
         }
     }
 
-    /// Beside the line's middle: above a level line, to the right of an upright one.
-    private func tagCentre(start: CGPoint, end: CGPoint, in size: CGSize) -> CGPoint {
+    /// A short stroke across the line's end.
+    private func cap(at point: CGPoint, along start: CGPoint, _ end: CGPoint) -> some View {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = max(hypot(dx, dy), .leastNonzeroMagnitude)
+        let half = Theme.Tools.capLength / 2
+        let normal = CGVector(dx: -dy / length * half, dy: dx / length * half)
+        return ToolLine(
+            from: CGPoint(x: point.x - normal.dx, y: point.y - normal.dy),
+            to: CGPoint(x: point.x + normal.dx, y: point.y + normal.dy), colour: Theme.Palette.toolSelect)
+    }
+
+    /// Above a level line's middle, beside an upright one's.
+    private func chipCentre(start: CGPoint, end: CGPoint, in size: CGSize) -> CGPoint {
         let middle = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
-        let offset = Theme.Tools.tagHeight / 2 + Theme.Tools.tagGap
+        let lift = Theme.Tools.chipHeight / 2 + Theme.Tools.capLength / 2 + Theme.Tools.chipGap
         let level = abs(end.x - start.x) >= abs(end.y - start.y)
+        // Wide enough for "999 dp · 9999 px" beside an upright line.
+        let side = Theme.Tools.cardWidth / 4 + Theme.Tools.capLength
         let point =
             level
-            ? CGPoint(x: middle.x, y: middle.y - offset < offset ? middle.y + offset : middle.y - offset)
-            : CGPoint(x: middle.x, y: middle.y)
+            ? CGPoint(x: middle.x, y: middle.y - lift < Theme.Tools.chipHeight ? middle.y + lift : middle.y - lift)
+            : CGPoint(x: middle.x + side > size.width - side / 2 ? middle.x - side : middle.x + side, y: middle.y)
         return CGPoint(x: min(max(point.x, 0), size.width), y: min(max(point.y, 0), size.height))
     }
 }
 
-/// Pick Colour: a loupe of the pixels around the pointer and the hex of the one under it.
+/// Pick colour: a round loupe of the pixels around the pointer, the chosen one outlined in
+/// moss, and a chip beside it with the colour and its hex.
 struct ColourOverlay: View {
     let tools: ToolsModel
 
@@ -265,12 +339,29 @@ struct ColourOverlay: View {
             if let point = tools.hoverPoint, let colour = tools.colour, !tools.loupe.isEmpty {
                 let side = CGFloat(tools.loupe.count) * Theme.Tools.loupeCell
                 let centre = loupeCentre(for: point, side: side, in: proxy.size)
-                VStack(spacing: Theme.Tools.loupeReadoutGap) {
+                let chipOnLeft = centre.x + side / 2 + Theme.Tools.cardWidth / 2 > proxy.size.width
+                ZStack(alignment: .topLeading) {
                     Loupe(cells: tools.loupe)
                         .frame(width: side, height: side)
-                    ColourReadout(colour: colour, copied: tools.copied)
+                        .position(centre)
+                    ToolChip(text: tools.copied.map { "Copied \($0)" } ?? colour.hex) {
+                        RoundedRectangle(cornerRadius: Theme.Tools.swatchRadius, style: .continuous)
+                            .fill(Color(colour))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Tools.swatchRadius, style: .continuous)
+                                    .strokeBorder(
+                                        Color(nsColor: Theme.Palette.toolChipRing), lineWidth: Theme.Tools.chipRing)
+                            )
+                            .frame(width: Theme.Tools.swatchSize, height: Theme.Tools.swatchSize)
+                    }
+                    .alignmentGuide(.leading) { dimensions in
+                        chipOnLeft
+                            ? -(centre.x - side / 2 - Theme.Tools.loupeChipGap - dimensions.width)
+                            : -(centre.x + side / 2 + Theme.Tools.loupeChipGap)
+                    }
+                    .alignmentGuide(.top) { _ in -(centre.y - Theme.Tools.chipHeight / 2) }
                 }
-                .position(centre)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             }
         }
     }
@@ -278,15 +369,14 @@ struct ColourOverlay: View {
     /// Below and to the right of the pointer, flipped to the other side near an edge.
     private func loupeCentre(for point: CGPoint, side: CGFloat, in size: CGSize) -> CGPoint {
         let reach = Theme.Tools.loupeOffset + side / 2
-        let block = side + Theme.Tools.loupeReadoutGap + Theme.Tools.hintHeight
-        let x = point.x + reach + side / 2 <= size.width ? point.x + reach : point.x - reach
-        let y =
-            point.y + Theme.Tools.loupeOffset + block <= size.height
-            ? point.y + Theme.Tools.loupeOffset + block / 2 : point.y - Theme.Tools.loupeOffset - block / 2
-        return CGPoint(x: x, y: y)
+        return CGPoint(
+            x: point.x + reach + side / 2 <= size.width ? point.x + reach : point.x - reach,
+            y: point.y + reach + side / 2 <= size.height ? point.y + reach : point.y - reach)
     }
 }
 
+/// The loupe: a grid of pixels in a circle, a paper ring inside an ink ring so its edge shows
+/// on light and dark apps alike, and the middle pixel outlined in moss.
 private struct Loupe: View {
     let cells: [[PickedColour]]
 
@@ -297,55 +387,36 @@ private struct Loupe: View {
             let cell = size.width / count
             for (row, colours) in cells.enumerated() {
                 for (column, colour) in colours.enumerated() {
-                    let rect = CGRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell)
+                    // A hair of overlap keeps seams from showing between cells.
+                    let rect = CGRect(
+                        x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell + Theme.Tools.chipRing,
+                        height: cell + Theme.Tools.chipRing)
                     context.fill(Path(rect), with: .color(Color(colour)))
-                    context.stroke(
-                        Path(rect), with: .color(Color(nsColor: Theme.Palette.loupeGrid)),
-                        lineWidth: Theme.Tools.hairline)
                 }
             }
             let middle = CGFloat(cells.count / 2) * cell
+            let chosen = CGRect(x: middle, y: middle, width: cell, height: cell)
             context.stroke(
-                Path(CGRect(x: middle, y: middle, width: cell, height: cell)),
-                with: .color(Color(nsColor: Theme.Palette.loupeRing)), lineWidth: Theme.Tools.loupeCentreWidth)
+                Path(chosen.insetBy(dx: -Theme.Tools.haloWidth, dy: -Theme.Tools.haloWidth)),
+                with: .color(Color(nsColor: Theme.Palette.toolHalo)), lineWidth: Theme.Tools.haloWidth)
+            context.stroke(
+                Path(chosen.insetBy(dx: Theme.Tools.outlineWidth / 2, dy: Theme.Tools.outlineWidth / 2)),
+                with: .color(Color(nsColor: Theme.Palette.toolSelect)), lineWidth: Theme.Tools.outlineWidth)
         }
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Tools.cardRadius, style: .continuous))
+        .clipShape(Circle())
         .overlay(
-            RoundedRectangle(cornerRadius: Theme.Tools.cardRadius, style: .continuous)
-                .strokeBorder(Color(nsColor: Theme.Palette.loupeRing), lineWidth: Theme.Tools.loupeRingWidth)
+            Circle().inset(by: -Theme.Tools.loupePaperRing)
+                .strokeBorder(Color(nsColor: Theme.Palette.toolChipText), lineWidth: Theme.Tools.loupePaperRing)
+        )
+        .overlay(
+            Circle().inset(by: -Theme.Tools.loupePaperRing - Theme.Tools.loupeInkRing)
+                .strokeBorder(Color(nsColor: Theme.Palette.toolChip), lineWidth: Theme.Tools.loupeInkRing)
         )
         .shadow(
-            color: .black.opacity(Theme.Tools.shadowOpacity), radius: Theme.Tools.shadowRadius, y: Theme.Tools.shadowY
+            color: .black.opacity(Theme.Tools.loupeShadowOpacity), radius: Theme.Tools.cardShadowRadius,
+            y: Theme.Tools.cardShadowY
         )
         .accessibilityHidden(true)
-    }
-}
-
-/// The hex under the pointer with a swatch, or "Copied." right after a click.
-struct ColourReadout: View {
-    let colour: PickedColour
-    let copied: Bool
-
-    var body: some View {
-        HStack(spacing: Theme.Tools.loupeReadoutGap) {
-            RoundedRectangle(cornerRadius: Theme.Tools.swatchRadius)
-                .fill(Color(colour))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Tools.swatchRadius)
-                        .strokeBorder(Color(nsColor: Theme.Palette.toolHairline), lineWidth: Theme.Tools.hairline)
-                )
-                .frame(width: Theme.Tools.swatchSize, height: Theme.Tools.swatchSize)
-            Text(copied ? "Copied." : colour.hex)
-                .font(Theme.Typeface.toolTag)
-                .foregroundStyle(Color(nsColor: Theme.Palette.toolText))
-                .lineLimit(1)
-                .fixedSize()
-        }
-        .padding(.horizontal, Theme.Tools.hintPaddingH)
-        .frame(height: Theme.Tools.hintHeight)
-        .toolSurface(in: Capsule())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(copied ? "Copied." : colour.hex)
     }
 }
 
@@ -355,6 +426,75 @@ extension Color {
         self.init(
             .sRGB, red: Double(colour.red) / channelMax, green: Double(colour.green) / channelMax,
             blue: Double(colour.blue) / channelMax)
+    }
+}
+
+/// The pill that takes the toolbar's place while a tool is on: the tool's glyph (a spinner
+/// while it loads), its name or state, and Done or Try Again.
+struct ToolModePill: View {
+    let tools: ToolsModel
+    let tool: PaneTool
+    let state: ToolPillState
+
+    var body: some View {
+        HStack(spacing: Theme.ModePill.gap) {
+            if state.isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: Theme.ModePill.iconSize, height: Theme.ModePill.iconSize)
+            } else {
+                Image(systemName: tool.symbolName)
+                    .font(.system(size: Theme.ModePill.iconSize, weight: .regular))
+                    .foregroundStyle(Color(nsColor: Theme.Palette.icon))
+                    .frame(width: Theme.ModePill.iconSize, height: Theme.ModePill.iconSize)
+                    .accessibilityHidden(true)
+            }
+            Text(state.text)
+                .font(Theme.Typeface.modePill)
+                .foregroundStyle(Color(nsColor: Theme.Palette.text))
+                .lineLimit(1)
+                .fixedSize()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.updatesFrequently)
+            Button(state.action.title) { tools.runPillAction() }
+                .buttonStyle(ModePillButtonStyle())
+        }
+        .padding(.leading, Theme.ModePill.paddingLeading)
+        .padding(.trailing, Theme.ModePill.paddingTrailing)
+        .frame(minWidth: Theme.ModePill.minWidth)
+        .frame(height: Theme.ModePill.height)
+        .fixedSize()
+        .background(
+            Capsule().fill(Color(nsColor: Theme.Palette.modePill))
+                .shadow(
+                    color: .black.opacity(Theme.ModePill.shadowOpacity), radius: Theme.ModePill.shadowRadius,
+                    y: Theme.ModePill.shadowY)
+        )
+        .overlay(Capsule().strokeBorder(Color(nsColor: Theme.Palette.hairline), lineWidth: Theme.ModePill.hairline))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(tool.title)
+    }
+}
+
+struct ModePillButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Theme.Typeface.modePillButton)
+            .foregroundStyle(Color(nsColor: Theme.Palette.text))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, Theme.ModePill.buttonPaddingH)
+            .frame(height: Theme.ModePill.buttonHeight)
+            .background(Capsule().fill(Color(nsColor: Theme.Palette.modePillButton)))
+            .overlay(
+                Capsule().strokeBorder(Color(nsColor: Theme.Palette.hairline), lineWidth: Theme.ModePill.buttonHairline)
+            )
+            .overlay(
+                Capsule().fill(
+                    Color(nsColor: Theme.Palette.shade).opacity(
+                        configuration.isPressed ? Theme.Toolbar.pressedOpacity : 0))
+            )
+            .contentShape(Capsule())
     }
 }
 
@@ -379,7 +519,14 @@ struct NoticePill: View {
                 }
                 .padding(.horizontal, Theme.Notice.paddingH)
                 .frame(height: Theme.Notice.height)
-                .toolSurface(in: Capsule())
+                .background(Capsule().fill(Color(nsColor: Theme.Palette.toolSurface)))
+                .overlay(
+                    Capsule().strokeBorder(Color(nsColor: Theme.Palette.toolHairline), lineWidth: Theme.Notice.hairline)
+                )
+                .shadow(
+                    color: .black.opacity(Theme.Notice.shadowOpacity), radius: Theme.Notice.shadowRadius,
+                    y: Theme.Notice.shadowY
+                )
                 .padding(.bottom, Theme.Notice.bottomInset)
                 .transition(.opacity)
                 .accessibilityElement(children: .combine)

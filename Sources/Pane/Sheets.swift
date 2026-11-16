@@ -2,14 +2,14 @@ import AppKit
 import PaneCore
 import SwiftUI
 
-/// The sheet's frame (design guide, Sheet): a title, one line of description, the body, and
-/// Cancel and the primary action at the bottom right. Esc cancels, Return runs the primary.
+/// The sheet's frame (design guide, Sheet; board 8): a title, one line of description, the
+/// body, and Cancel and the primary action at the bottom right. Esc cancels, Return runs the
+/// primary.
 struct SheetScaffold<Content: View>: View {
     let title: String
     let description: String
     let primaryTitle: String
     let primaryDisabled: Bool
-    let problem: String?
     let onCancel: () -> Void
     let onPrimary: () -> Void
     @ViewBuilder let content: Content
@@ -19,6 +19,7 @@ struct SheetScaffold<Content: View>: View {
             Text(title)
                 .font(Theme.Typeface.sheetTitle)
                 .foregroundStyle(Color(nsColor: Theme.Palette.text))
+                .accessibilityAddTraits(.isHeader)
             Text(description)
                 .font(Theme.Typeface.sheetBody)
                 .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
@@ -27,15 +28,7 @@ struct SheetScaffold<Content: View>: View {
             content
                 .padding(.top, Theme.Sheet.bodyGap)
             HStack(spacing: Theme.Sheet.buttonGap) {
-                if let problem {
-                    Text(problem)
-                        .font(Theme.Typeface.cardBody)
-                        .foregroundStyle(Color(nsColor: Theme.Palette.problemText))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityIdentifier("sheet.problem")
-                }
-                Spacer(minLength: Theme.Sheet.problemGap)
+                Spacer(minLength: 0)
                 Button("Cancel", action: onCancel)
                     .buttonStyle(SecondaryCapsuleButtonStyle())
                     .keyboardShortcut(.cancelAction)
@@ -52,18 +45,18 @@ struct SheetScaffold<Content: View>: View {
     }
 }
 
-/// The secondary capsule (design guide, Button): the card surface with a hairline.
+/// The secondary capsule (design guide, Button): a raised surface with a hairline.
 struct SecondaryCapsuleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(Theme.Typeface.capsule)
+            .font(Theme.Typeface.sheetSecondary)
             .foregroundStyle(Color(nsColor: Theme.Palette.text))
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, Theme.Capsule.standardPadding)
             .frame(height: Theme.Capsule.height)
             .background(Capsule().fill(Color(nsColor: Theme.Palette.secondaryAction)))
-            .overlay(Capsule().strokeBorder(Color(nsColor: Theme.Palette.hairline), lineWidth: Theme.Sheet.hairline))
+            .overlay(Capsule().strokeBorder(Color(nsColor: Theme.Palette.hairline), lineWidth: Theme.Sheet.fieldBorder))
             .overlay(
                 Capsule().fill(
                     Color(nsColor: Theme.Palette.shade).opacity(
@@ -73,40 +66,61 @@ struct SecondaryCapsuleButtonStyle: ButtonStyle {
     }
 }
 
-/// A one-line text field on a sheet (a value control: radius 8).
+/// A one-line text field on a sheet (a value control: radius 8). Focused, it has the moss
+/// ring; with a problem, a red one and the problem in one line under it.
 struct SheetField: View {
     let label: String
+    var showsLabel = true
     let placeholder: String
     @Binding var text: String
+    var problem: String?
     var onSubmit: () -> Void = {}
+    @FocusState private var isFocused: Bool
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Sheet.fieldRadius, style: .continuous)
+        let ring = problem != nil ? Theme.Palette.problemText : (isFocused ? Theme.Palette.fieldFocus : nil)
+        let halo = problem != nil ? Theme.Palette.problemHalo : Theme.Palette.fieldFocusHalo
         VStack(alignment: .leading, spacing: Theme.Sheet.fieldLabelGap) {
-            Text(label)
-                .font(Theme.Typeface.sheetLabel)
-                .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
+            if showsLabel {
+                Text(label)
+                    .font(Theme.Typeface.sheetLabel)
+                    .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
+                    .accessibilityHidden(true)
+            }
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(Theme.Typeface.sheetBody)
                 .foregroundStyle(Color(nsColor: Theme.Palette.text))
+                .focused($isFocused)
                 .onSubmit(onSubmit)
                 .padding(.horizontal, Theme.Sheet.fieldPaddingH)
                 .frame(height: Theme.Sheet.fieldHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Sheet.fieldRadius, style: .continuous)
-                        .fill(Color(nsColor: Theme.Palette.fieldSurface))
-                )
+                .background(shape.fill(Color(nsColor: Theme.Palette.fieldSurface)))
                 .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Sheet.fieldRadius, style: .continuous)
-                        .strokeBorder(Color(nsColor: Theme.Palette.hairline), lineWidth: Theme.Sheet.hairline)
+                    shape.strokeBorder(
+                        Color(nsColor: ring ?? Theme.Palette.hairline),
+                        lineWidth: ring == nil ? Theme.Sheet.hairline : Theme.Sheet.fieldBorder)
+                )
+                .background(
+                    shape.inset(by: -Theme.Sheet.fieldHalo)
+                        .fill(Color(nsColor: halo).opacity(ring == nil ? 0 : 1))
                 )
                 .accessibilityLabel(label)
+            if let problem {
+                Text(problem)
+                    .font(Theme.Typeface.sheetRecent)
+                    .foregroundStyle(Color(nsColor: Theme.Palette.problemText))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("sheet.problem")
+            }
         }
     }
 }
 
-/// Open Link: a field, the links opened lately on this emulator, and Cancel and Open. A link
-/// that doesn't open leaves the sheet up with adb's reason in one line.
+/// Open link (board 8): a field, the links opened lately on this emulator, and Cancel and
+/// Open. While Android answers, the field dims and Open is disabled in place. A link that
+/// doesn't open leaves the sheet up with one red line under the field.
 struct OpenLinkSheet: View {
     let model: PaneModel
     let close: () -> Void
@@ -117,28 +131,45 @@ struct OpenLinkSheet: View {
 
     var body: some View {
         SheetScaffold(
-            title: "Open Link", description: "Opens on the device. Web links and app links both work.",
+            title: "Open link", description: "Opens on the device. Web links and app links both work.",
             primaryTitle: "Open", primaryDisabled: isOpening || text.trimmingCharacters(in: .whitespaces).isEmpty,
-            problem: problem, onCancel: close, onPrimary: open
+            onCancel: close, onPrimary: open
         ) {
-            VStack(alignment: .leading, spacing: Theme.Sheet.bodyGap) {
-                SheetField(label: "Link", placeholder: "https://", text: $text, onSubmit: open)
-                    .focused($fieldFocused)
+            VStack(alignment: .leading, spacing: 0) {
+                SheetField(
+                    label: "Link", showsLabel: false, placeholder: "https:// or myapp://", text: $text,
+                    problem: problem, onSubmit: open
+                )
+                .focused($fieldFocused)
+                .disabled(isOpening)
+                .opacity(isOpening ? Theme.Sheet.busyOpacity : 1)
                 let recent = model.recentLinks
                 if !recent.isEmpty {
-                    VStack(alignment: .leading, spacing: Theme.Sheet.fieldLabelGap) {
-                        Text("Recent")
-                            .font(Theme.Typeface.sheetLabel)
-                            .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
-                        VStack(alignment: .leading, spacing: Theme.Sheet.listGap) {
-                            ForEach(recent, id: \.self) { link in
-                                RecentLinkRow(link: link) {
-                                    text = link
-                                    problem = nil
-                                }
+                    Text("Recent")
+                        .font(Theme.Typeface.sheetLabel)
+                        .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
+                        .padding(.leading, Theme.Sheet.recentLabelInset)
+                        .padding(.top, Theme.Sheet.bodyGap)
+                    VStack(alignment: .leading, spacing: Theme.Sheet.listGap) {
+                        ForEach(recent, id: \.self) { link in
+                            RecentLinkRow(link: link) {
+                                // A recent link fills the field and opens.
+                                text = link
+                                open()
                             }
                         }
                     }
+                    .padding(Theme.Sheet.cardInset)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Sheet.cardRadius, style: .continuous)
+                            .fill(Color(nsColor: Theme.Palette.sheetCard))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Sheet.cardRadius, style: .continuous)
+                            .strokeBorder(Color(nsColor: Theme.Palette.hairline), lineWidth: Theme.Sheet.hairline)
+                    )
+                    .padding(.top, Theme.Sheet.fieldLabelGap)
+                    .disabled(isOpening)
                 }
             }
         }
@@ -149,11 +180,13 @@ struct OpenLinkSheet: View {
     private func open() {
         guard !isOpening else { return }
         isOpening = true
+        let link = text
         Task {
-            let failure = await model.openLink(text)
+            let failure = await model.openLink(link)
             isOpening = false
             if let failure {
                 problem = failure
+                fieldFocused = true
             } else {
                 close()
             }
@@ -169,22 +202,23 @@ private struct RecentLinkRow: View {
     var body: some View {
         Button(action: action) {
             Text(link)
-                .font(Theme.Typeface.sheetBody)
-                .foregroundStyle(hovered ? Color.white : Color(nsColor: Theme.Palette.text))
+                .font(Theme.Typeface.sheetRecent)
+                .foregroundStyle(Color(nsColor: Theme.Palette.text))
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Theme.Sheet.rowPaddingH)
-                .frame(height: Theme.Sheet.rowHeight)
+                .padding(.vertical, Theme.Sheet.rowPaddingV)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Sheet.rowRadius, style: .continuous)
-                        .fill(hovered ? Color(nsColor: .selectedContentBackgroundColor) : Color.clear)
+                        .fill(Color(nsColor: Theme.Palette.menuHighlight).opacity(hovered ? 1 : 0))
                 )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .accessibilityLabel(link)
+        .accessibilityHint("Opens this link.")
     }
 }
 
@@ -199,17 +233,28 @@ struct LocationSheet: View {
 
     var body: some View {
         SheetScaffold(
-            title: "Custom Location", description: "Moves the device's GPS. Remembered for this emulator.",
-            primaryTitle: "Set Location", primaryDisabled: latitude.isEmpty || longitude.isEmpty, problem: problem,
-            onCancel: close, onPrimary: set
+            title: "Custom location", description: "Moves the device's GPS. Remembered for this emulator.",
+            primaryTitle: "Set Location", primaryDisabled: latitude.isEmpty || longitude.isEmpty, onCancel: close,
+            onPrimary: set
         ) {
-            HStack(alignment: .top, spacing: Theme.Sheet.fieldPairGap) {
-                SheetField(label: "Latitude", placeholder: "12.9716", text: $latitude, onSubmit: set)
-                    .focused($latitudeFocused)
-                SheetField(label: "Longitude", placeholder: "77.5946", text: $longitude, onSubmit: set)
+            VStack(alignment: .leading, spacing: Theme.Sheet.fieldLabelGap) {
+                HStack(alignment: .top, spacing: Theme.Sheet.fieldPairGap) {
+                    SheetField(label: "Latitude", placeholder: "12.9716", text: $latitude, onSubmit: set)
+                        .focused($latitudeFocused)
+                    SheetField(label: "Longitude", placeholder: "77.5946", text: $longitude, onSubmit: set)
+                }
+                if let problem {
+                    Text(problem)
+                        .font(Theme.Typeface.sheetRecent)
+                        .foregroundStyle(Color(nsColor: Theme.Palette.problemText))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("sheet.problem")
+                }
             }
         }
         .onAppear { latitudeFocused = true }
+        .onChange(of: latitude) { problem = nil }
+        .onChange(of: longitude) { problem = nil }
     }
 
     private func set() {

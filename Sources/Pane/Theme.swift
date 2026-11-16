@@ -29,43 +29,10 @@ enum Theme {
         static let progressGap = Space.m
     }
 
-    /// The emulators menu under "Choose another emulator" (canvas EmptyMenu; the guide's Select
-    /// menu metrics): always on the dark screen.
+    /// The emulators menu under "Choose another emulator" (board 6): a menu panel, this far
+    /// under the link.
     enum AvdMenu {
-        static let width: CGFloat = 248
-        static let inset: CGFloat = 6
-        static let radius: CGFloat = 8
-        static let rowSpacing: CGFloat = 2
-        static let rowRadius: CGFloat = 6
-        static let rowPaddingH: CGFloat = 10
-        static let rowPaddingV: CGFloat = 6
-        static let lineSpacing: CGFloat = 1
-        static let tagGap = Space.s
-        static let tagPaddingH = Space.s
-        static let tagPaddingV: CGFloat = 2
-        static let hairline: CGFloat = 0.5
-        static let dividerHeight: CGFloat = 0.5
-        static let dividerPaddingV = Space.xxs
-        /// The link's line height and the gap below it, so the menu opens 4 pt under the link.
-        static let linkHeight: CGFloat = 15
         static let gap = Space.xxs
-        static let shadowOpacity: Double = 0.45
-        static let shadowRadius: CGFloat = 15
-        static let shadowY: CGFloat = 10
-        static let highlightedDetailOpacity: Double = 0.82
-        static let highlightedTagStrokeOpacity: Double = 0.6
-    }
-
-    /// The emulator switcher under the title's device name. Rows and surface are `AvdMenu`'s.
-    enum Switcher {
-        /// Below the title row's bottom edge (the menu overlaps the row a little, as a pop-up
-        /// under its button does).
-        static let topOverlap = Space.s
-        static let headerPaddingV = Space.xxs
-        static let checkSlot: CGFloat = 14
-        static let checkSize: CGFloat = 11
-        static let chevronSize: CGFloat = 10
-        static let edgeMargin = Space.s
     }
 
     /// The can't-connect card, which takes the frame's place (canvas error state).
@@ -128,9 +95,6 @@ enum Theme {
         static let titleLineSpacing: CGFloat = 0
         /// How far a second window opens down and right of the one in front.
         static let cascadeStep: CGFloat = 28
-        /// Between the device name and its pop-up chevron.
-        static let titleChevronGap = Space.xxs
-        static let titleChevronSize: CGFloat = 8
     }
 
     /// The floating toolbar under the device (Device Hub's): a glass capsule with Home,
@@ -282,10 +246,6 @@ enum Theme {
         /// The screen before the first frame and in the no-emulator state.
         static let screenOff = NSColor(hex: 0x000000)
         static let screenEmpty = NSColor(hex: 0x111116)
-        /// The emulators menu on the dark screen.
-        static let menuSurface = NSColor(hex: 0x2C2B33, alpha: 0.96)
-        static let menuHairline = NSColor(hex: 0xF4F4F6, alpha: 0.16)
-        static let menuDivider = NSColor(hex: 0xF4F4F6, alpha: 0.14)
 
         /// A colour for light and dark, with optional Increase Contrast variants (which default
         /// to the normal ones).
@@ -353,6 +313,9 @@ extension Theme {
         static let height: CGFloat = 28
         static let gap = Space.s
         static let hairline: CGFloat = 0.5
+        static let shadowOpacity: Double = 0.3
+        static let shadowRadius: CGFloat = 8
+        static let shadowY: CGFloat = 3
         static let fadeDuration: Double = 0.15
     }
 
@@ -363,7 +326,7 @@ extension Theme {
 
     /// Sheets (design guide, Sheet): Open Link and Custom Location.
     enum Sheet {
-        static let width: CGFloat = 420
+        static let width: CGFloat = 355
         static let inset = Space.xl
         static let descriptionGap = Space.s
         static let bodyGap: CGFloat = 16
@@ -371,60 +334,144 @@ extension Theme {
         static let buttonGap = Space.s
         static let fieldHeight: CGFloat = 28
         static let fieldRadius: CGFloat = 8
-        static let fieldPaddingH: CGFloat = 10
+        static let fieldPaddingH: CGFloat = 11
         static let fieldLabelGap: CGFloat = 6
+        static let fieldBorder: CGFloat = 1
+        static let fieldHalo: CGFloat = 3
+        static let busyOpacity: CGFloat = 0.45
+        static let recentLabelInset = Space.xxs
+        static let cardInset = Space.xxs
+        static let cardRadius: CGFloat = 14
+        static let rowPaddingV: CGFloat = 9
         static let hairline: CGFloat = 0.5
-        static let rowHeight: CGFloat = 28
-        static let rowRadius: CGFloat = 6
-        static let rowPaddingH = Space.s
+        static let rowRadius: CGFloat = 7
+        static let rowPaddingH = Space.m
         static let listGap: CGFloat = 2
         static let problemGap = Space.s
         /// Two fields side by side (latitude and longitude).
         static let fieldPairGap = Space.m
     }
 
-    /// Inspect Layout, Measure and Pick Colour: what they draw over the live screen.
-    enum Tools {
-        /// The outline around the inspected view and the measured line.
-        static let outlineWidth: CGFloat = 1.5
-        /// The lines from the view to the nearest screen edges.
-        static let guideWidth: CGFloat = 1
-        static let guideDash: [CGFloat] = [3, 3]
-        /// The dp labels on the outline, the guides and the measured line.
-        static let tagHeight: CGFloat = 18
-        static let tagPaddingH: CGFloat = 6
-        static let tagRadius: CGFloat = 4
-        static let tagGap = Space.xxs
-        /// The details card (label, type, frame, pixels, id).
-        static let cardWidth: CGFloat = 236
-        static let cardInset: CGFloat = 10
-        static let cardRadius: CGFloat = 10
-        static let cardRowGap: CGFloat = 3
-        static let cardKeyWidth: CGFloat = 44
-        static let cardMargin = Space.s
+    /// Pane's own menu panel (boards 7 and 13, kit board 16): More, the emulator switcher and
+    /// the emulators menu. Never an `NSMenu`, so the highlight is moss.
+    enum Menu {
+        static let width: CGFloat = 232
+        static let switcherWidth: CGFloat = 262
+        static let submenuWidth: CGFloat = 150
+        static let switcherSubmenuWidth: CGFloat = 242
+        static let inset: CGFloat = 6
+        static let radius: CGFloat = 10
+        static let rowSpacing: CGFloat = 2
+        static let rowHeight: CGFloat = 32
+        /// A row with a second line (an emulator: name over model and Android version).
+        static let tallRowHeight: CGFloat = 44
+        static let rowRadius: CGFloat = 7
+        static let rowPaddingH: CGFloat = 10
+        static let rowGap: CGFloat = 10
+        static let lineSpacing: CGFloat = 1
+        static let checkSlot: CGFloat = 14
+        static let checkSize: CGFloat = 11
+        static let chevronSize: CGFloat = 9
+        static let headerHeight: CGFloat = 22
+        static let headerBottomPadding: CGFloat = 2
+        static let dividerHeight: CGFloat = 0.5
+        static let dividerMarginV = Space.xxs
         static let hairline: CGFloat = 0.5
-        /// The hint line at the top of the screen ("Inspect Layout · Esc to exit").
-        static let hintTop = Space.xxl
-        static let hintHeight: CGFloat = 24
-        static let hintPaddingH: CGFloat = 10
-        /// The measured line's round end points.
-        static let handleDiameter: CGFloat = 7
-        /// The loupe: this many screen pixels on each side of the one under the pointer, drawn
-        /// in cells of this many points.
-        static let loupeRadius = 5
-        static let loupeCell: CGFloat = 9
-        static let loupeRingWidth: CGFloat = 2
-        static let loupeCentreWidth: CGFloat = 1.5
-        /// From the pointer to the loupe's edge, and from the loupe to its readout.
-        static let loupeOffset = Space.m
-        static let loupeReadoutGap: CGFloat = 6
+        static let tagPaddingH = Space.s
+        static let tagPaddingV: CGFloat = 2
+        static let shadowOpacity: Double = 0.22
+        static let shadowRadius: CGFloat = 14
+        static let shadowY: CGFloat = 10
+        static let disabledOpacity: CGFloat = 0.45
+        /// More's menu opens this far under the title row's button, right edges this far in.
+        static let moreTop: CGFloat = 48
+        static let moreTrailing = Space.s
+        /// The switcher opens under the device name, its left edge on the name button's.
+        static let switcherTop: CGFloat = 49
+        /// A submenu to the side sits this far from its menu; the switcher's opens over the
+        /// menu, this far right of its edge and below its row.
+        static let submenuGap = Space.xxs
+        static let switcherSubmenuShift: CGFloat = 51
+        static let switcherSubmenuDrop: CGFloat = 7
+        static let edgeMargin = Space.xxs
+    }
+
+    /// The device name in the title as a button (board 13): a soft shade and a chevron under
+    /// the pointer.
+    enum TitleButton {
+        static let paddingH: CGFloat = 9
+        static let paddingV = Space.xxs
+        static let radius: CGFloat = 8
+        static let hoverOpacity: Double = 0.06
+        static let chevronGap: CGFloat = 6
+        static let chevronSize: CGFloat = 8
+    }
+
+    /// The pill that takes the toolbar's place while a tool is on (boards 9 to 11): the tool's
+    /// icon and name, or its state, and Done.
+    enum ModePill {
+        static let height: CGFloat = 36
+        static let minWidth: CGFloat = 216
+        static let paddingLeading = Space.m
+        static let paddingTrailing = Space.xxs
+        static let gap = Space.s
+        static let iconSize: CGFloat = 13
+        static let buttonHeight: CGFloat = 28
+        static let buttonPaddingH: CGFloat = 14
+        static let hairline: CGFloat = 0.5
+        static let buttonHairline: CGFloat = 1
+        static let shadowOpacity: Double = 0.10
+        static let shadowRadius: CGFloat = 1.5
+        static let shadowY: CGFloat = 1
+    }
+
+    /// Inspect layout, Measure and Pick colour: what they draw over the live screen (boards 9
+    /// to 11). Their colours are fixed, not per mode, because they sit on the device's screen.
+    enum Tools {
+        /// The outline around the inspected view, the measured line and the snap guides.
+        static let outlineWidth: CGFloat = 1.5
+        static let outlineRadius: CGFloat = 6
+        /// The paper halo on each side of an outline or line, so it holds up on any app.
+        static let haloWidth: CGFloat = 1
+        static let guideDash: [CGFloat] = [4, 3]
+        /// Chips: a size on an outline, a distance on a guide, a length on a line, a hex.
+        static let chipHeight: CGFloat = 20
+        static let chipPaddingH: CGFloat = 7
+        static let chipRadius: CGFloat = 6
+        static let chipGap: CGFloat = 6
+        static let chipRing: CGFloat = 0.5
+        /// The pinned view's details card.
+        static let cardWidth: CGFloat = 250
+        static let cardPaddingH = Space.m
+        static let cardPaddingV: CGFloat = 10
+        static let cardRadius: CGFloat = 10
+        static let cardRowGap: CGFloat = 5
+        static let cardColumnGap: CGFloat = 10
+        static let cardKeyWidth: CGFloat = 52
+        /// One line of the card's 11 pt text, for placing the card.
+        static let cardLineHeight: CGFloat = 14
+        /// From the outline to the card, and from the screen's edge to either.
+        static let cardGap: CGFloat = 14
+        static let cardMargin = Space.s
+        static let cardShadowOpacity: Double = 0.3
+        static let cardShadowRadius: CGFloat = 10
+        static let cardShadowY: CGFloat = 8
+        /// The measured line's end caps.
+        static let capLength: CGFloat = 12
+        /// The loupe: this many screen pixels on each side of the one under the pointer, each
+        /// drawn 12 pt square, in a circle with a paper ring inside an ink ring.
+        static let loupeRadius = 3
+        static let loupeCell: CGFloat = 12
+        static let loupePaperRing: CGFloat = 1.5
+        static let loupeInkRing: CGFloat = 1.5
+        /// From the pointer to the loupe's edge, and from the loupe to its chip.
+        static let loupeOffset: CGFloat = 14
+        static let loupeChipGap = Space.s
         static let swatchSize: CGFloat = 10
-        static let swatchRadius: CGFloat = 2
-        static let shadowOpacity: Double = 0.35
-        static let shadowRadius: CGFloat = 8
-        static let shadowY: CGFloat = 3
-        /// Measure snaps a line to level or upright within this many degrees.
-        static let axisSnapDegrees: CGFloat = 4
+        static let swatchRadius: CGFloat = 3
+        static let loupeShadowOpacity: Double = 0.35
+        /// Measure locks a line to level or upright within this many degrees.
+        static let axisSnapDegrees: CGFloat = 8
         /// Measure snaps an end to a view's edge within this many screen points.
         static let edgeSnapPoints: CGFloat = 5
         /// Wait this long after the screen last changed before reading the layout again, and
@@ -435,8 +482,8 @@ extension Theme {
         /// first value up to the second.
         static let unchangedBackoffStart: Duration = .seconds(2)
         static let unchangedBackoffMax: Duration = .seconds(16)
-        /// How long "Copied." stays in the colour readout.
-        static let copiedDuration: Duration = .milliseconds(1500)
+        /// How long "Copied" stays in the chip and the pill.
+        static let copiedDuration: Duration = .seconds(2)
         /// A layout read may take this long (animations make uiautomator wait for idle).
         static let dumpTimeout: Duration = .seconds(15)
     }
@@ -446,38 +493,58 @@ extension Theme.Typeface {
     static let sheetTitle = Font.system(size: 15, weight: .semibold)
     static let sheetBody = Font.system(size: 13)
     static let sheetLabel = Font.system(size: 11, weight: .medium)
-    static let toolTag = Font.system(size: 11, weight: .medium).monospacedDigit()
-    static let toolHint = Font.system(size: 11, weight: .medium)
-    static let toolCardTitle = Font.system(size: 12, weight: .semibold)
-    static let toolCardKey = Font.system(size: 11)
-    static let toolCardValue = Font.system(size: 11).monospacedDigit()
+    static let toolChip = Font.system(size: 11, weight: .medium).monospacedDigit()
+    static let toolCard = Font.system(size: 11).monospacedDigit()
+    static let modePill = Font.system(size: 12, weight: .medium)
+    static let modePillButton = Font.system(size: 12)
+    static let menuShortcut = Font.system(size: 12)
+    static let menuHeader = Font.system(size: 11, weight: .medium)
+    static let sheetRecent = Font.system(size: 12)
+    static let sheetSecondary = Font.system(size: 13, weight: .medium)
     static let notice = Font.system(size: 12, weight: .medium)
 }
 
 extension Theme.Palette {
-    /// The outline around the inspected view and its size tag: moss for dark surfaces.
-    static let toolOutline = NSColor(hex: 0x8DBB82)
-    /// A pinned view's outline.
-    static let toolPinned = NSColor(hex: 0xF2C14E)
-    /// The inspected view's wash.
-    static let toolFill = NSColor(hex: 0x8DBB82, alpha: 0.16)
-    /// Guides to the screen edges and the measured line.
-    static let toolGuide = NSColor(hex: 0xFF6B9A)
-    /// Text on the outline and guide tags.
-    static let toolTagText = NSColor(hex: 0x111116)
-    /// The details card, hint and readouts: always dark, over any app.
-    static let toolSurface = NSColor(hex: 0x1C1B22, alpha: 0.94)
-    static let toolHairline = NSColor(hex: 0xF4F4F6, alpha: 0.18)
+    /// `tool.select`: outlines, the measured line and the loupe's chosen pixel. Moss, the same
+    /// in both modes (4.2:1 on a light device screen, 3.7:1 on a dark one).
+    static let toolSelect = NSColor(hex: 0x4F7A4A)
+    /// `tool.guide`: distances and snap guides. Amber, always dashed.
+    static let toolGuide = NSColor(hex: 0xB25E00)
+    /// `tool.halo`: paper on each side of an outline or line.
+    static let toolHalo = NSColor(hex: 0xF4F4F6, alpha: 0.9)
+    /// `tool.fill`: the inspected view's wash.
+    static let toolFill = NSColor(hex: 0x4F7A4A, alpha: 0.16)
+    /// `tool.chip`: chips, the details card and the loupe's outer ring. Ink with paper text in
+    /// both modes, because they sit on the device, not on Pane.
+    static let toolChip = NSColor(hex: 0x17161C, alpha: 0.92)
+    static let toolChipText = NSColor(hex: 0xF4F4F6)
+    static let toolChipSecondary = NSColor(hex: 0xB9B8C2)
+    static let toolChipRing = NSColor(hex: 0xF4F4F6, alpha: 0.30)
+    /// Menu panels: white in light, raised ink in dark.
+    static let menuPanel = dynamic(light: 0xFFFFFF, dark: 0x24232B, darkAlpha: 0.96)
+    static let menuPanelHairline = dynamic(light: 0x17161C, lightAlpha: 0.12, dark: 0xF4F4F6, darkAlpha: 0.12)
+    /// The row under the pointer or the keys: moss 10% in light, light moss 16% in dark.
+    static let menuHighlight = dynamic(light: 0x4F7A4A, lightAlpha: 0.10, dark: 0x8DBB82, darkAlpha: 0.16)
+    /// A menu's tick: the link moss of each mode.
+    static let menuCheck = dynamic(light: 0x466E41, dark: 0x8DBB82)
+    /// The mode pill: `surfaceRaised` with its Done button on paper or raised ink.
+    static let modePill = dynamic(light: 0xFFFFFF, dark: 0x2C2B33)
+    static let modePillButton = dynamic(light: 0xF4F4F6, dark: 0x2C2B33, darkAlpha: 0.9)
+    /// The short notice line over the screen (always dark, over any app).
+    static let toolSurface = NSColor(hex: 0x17161C, alpha: 0.92)
+    static let toolHairline = NSColor(hex: 0xF4F4F6, alpha: 0.30)
     static let toolText = NSColor(hex: 0xF4F4F6)
-    static let toolTextSecondary = NSColor(hex: 0xB9B8C2)
-    /// The loupe's ring and its centre cell's outline.
-    static let loupeRing = NSColor(hex: 0xF4F4F6)
-    static let loupeGrid = NSColor(hex: 0x000000, alpha: 0.18)
     /// Sheet surfaces (design guide roles): the sheet itself, fields on it, secondary buttons.
-    static let sheetSurface = dynamic(light: 0xF4F4F6, dark: 0x1C1B22)
-    static let fieldSurface = dynamic(light: 0xFFFFFF, dark: 0x2C2B33)
-    static let secondaryAction = dynamic(light: 0xECECEF, dark: 0x24232B)
-    static let problemText = dynamic(light: 0xB0281B, dark: 0xFF7A6E)
+    static let sheetSurface = dynamic(light: 0xFFFFFF, dark: 0x24232B)
+    static let fieldSurface = dynamic(light: 0xFFFFFF, dark: 0x2C2B33, darkAlpha: 0.9)
+    static let secondaryAction = dynamic(light: 0xF4F4F6, dark: 0x2C2B33, darkAlpha: 0.9)
+    /// The Recent list's card on a sheet.
+    static let sheetCard = dynamic(light: 0xF4F4F6, dark: 0x1C1B22)
+    /// A field's focus ring (moss) and its halo; red when the field's value was refused.
+    static let fieldFocus = NSColor(hex: 0x4F7A4A)
+    static let fieldFocusHalo = dynamic(light: 0x4F7A4A, lightAlpha: 0.25, dark: 0x8DBB82, darkAlpha: 0.6)
+    static let problemText = dynamic(light: 0xC4271B, dark: 0xFF8A80)
+    static let problemHalo = dynamic(light: 0xFDECEA, dark: 0xFF8A80, darkAlpha: 0.25)
 }
 
 extension Theme {

@@ -13,6 +13,9 @@ public struct PickedColour: Sendable, Equatable, Hashable {
         self.blue = blue
     }
 
+    /// "rgb(26, 27, 34)", as CSS writes it.
+    public var rgb: String { "rgb(\(red), \(green), \(blue))" }
+
     /// "#1A1B22".
     public var hex: String { String(format: "#%02X%02X%02X", red, green, blue) }
 }

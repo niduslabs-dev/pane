@@ -29,9 +29,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     init(settings: PaneSettings = .shared, initialAVD: String? = nil) {
         model = PaneModel(settings: settings, initialAVD: initialAVD)
         super.init()
-        let more = NSMenu(title: "More")
-        for item in DeviceMenu.moreItems(target: self, action: #selector(runDeviceCommand(_:))) { more.addItem(item) }
-        window = PaneWindow(model: model, moreMenu: more)
+        window = PaneWindow(model: model, onMore: { [weak self] in self?.toggleMoreMenu() })
         window.delegate = self
         model.onWindowContentSizeChange = { [weak self] size in
             guard let self else { return }
@@ -40,6 +38,8 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
             self.isAdjustingFrame = false
         }
         model.onShowSwitcher = { [weak self] in self?.showSwitcher() }
+        model.onShowMore = { [weak self] in self?.toggleMoreMenu() }
+        model.onShowEmulators = { [weak self] anchor in self?.showEmulatorsMenu(under: anchor) }
         model.onCommand = { [weak self] command in self?.perform(command) }
         model.onDeviceGone = { [weak self] in
             guard let self, let sheet = self.openSheet, sheet.sheetParent != nil else { return }
@@ -114,6 +114,9 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         case .showHere(let avd): model.switchTo(avdName: avd)
         case .openInNewWindow(let avd): openInNewWindow(avd)
         case .showEmulatorsInFinder: NSWorkspace.shared.open(PaneModel.avdHome)
+        case .chooseAVD(let name):
+            if let avd = model.avds.first(where: { $0.name == name }) { model.choose(avd) }
+        case .settings: NSApp.sendAction(DeviceMenu.settingsAction, to: nil, from: self)
         }
     }
 
@@ -203,18 +206,46 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
 
     // MARK: Emulator switcher
 
-    /// Opens the menu under the title's device name, or closes it when it is open.
+    // MARK: Menu panels
+
+    /// Opens More's menu under its button, or closes it when it is open.
+    func toggleMoreMenu() {
+        guard !close(menuAt: .more), window.attachedSheet == nil else { return }
+        model.refreshDeviceSettings()
+        model.menu = PaneMenu(
+            label: "More", anchor: .more, items: DeviceMenu.morePanelItems(model: model), width: Theme.Menu.width,
+            submenuWidth: Theme.Menu.submenuWidth)
+    }
+
+    /// Opens the emulator switcher under the title's device name, or closes it when it is open.
     func showSwitcher() {
-        if model.switcher != nil {
-            model.switcher = nil
-            return
-        }
-        guard window.attachedSheet == nil else { return }
+        guard !close(menuAt: .title), window.attachedSheet == nil else { return }
         model.reloadAVDs()
         let running = EmulatorDiscovery.runningEmulators(in: PaneModel.registrationFolder).map(\.avdName)
-        model.switcher = SwitcherEntry.entries(
+        let entries = SwitcherEntry.entries(
             avds: model.avds, running: running, current: model.shownAVDName,
             shownElsewhere: Set(model.avds.map(\.name) + running).filter(model.isShownElsewhere))
+        model.menu = PaneMenu(
+            label: "Emulators", anchor: .title, items: DeviceMenu.switcherPanelItems(entries: entries),
+            width: Theme.Menu.switcherWidth, submenuWidth: Theme.Menu.switcherSubmenuWidth)
+    }
+
+    /// The no-emulator screen's "Choose another emulator": every AVD, under the link.
+    func showEmulatorsMenu(under anchor: CGPoint) {
+        guard !close(menuAt: .below(anchor)) else { return }
+        model.reloadAVDs()
+        model.menu = PaneMenu(
+            label: "Emulators", anchor: .below(anchor),
+            items: DeviceMenu.emulatorsPanelItems(avds: model.avds, running: model.runningAVDNames),
+            width: Theme.Menu.switcherWidth, submenuWidth: Theme.Menu.switcherSubmenuWidth)
+    }
+
+    /// Closes the open menu. True when it was the one at `anchor` (its trigger was pressed
+    /// again, which only closes it).
+    private func close(menuAt anchor: PaneMenu.Anchor) -> Bool {
+        guard let open = model.menu else { return false }
+        model.menu = nil
+        return open.anchor == anchor
     }
 
     // MARK: Window delegate
@@ -225,7 +256,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         #else
             let staysOpen = false
         #endif
-        if !staysOpen { model.switcher = nil }
+        if !staysOpen { model.menu = nil }
         model.releaseAll()
         model.windowResignedKey()
     }

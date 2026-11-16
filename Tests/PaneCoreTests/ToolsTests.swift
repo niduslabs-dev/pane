@@ -46,6 +46,28 @@ private func fixtureDump() throws -> String {
         #expect(tree.node(at: CGPoint(x: -1, y: 100)) == nil)
     }
 
+    @Test func hitAlsoGivesTheParentsFrame() throws {
+        let tree = try LayoutTree.parse(try fixtureDump())
+        let icon = try #require(tree.hit(at: CGPoint(x: 500, y: 800)))
+        #expect(icon.node.resourceID == "android:id/icon")
+        #expect(icon.parentFrame == CGRect(x: 330, y: 587, width: 420, height: 420))
+        let inside = EdgeDistances(frame: icon.node.frame, parent: try #require(icon.parentFrame))
+        #expect(inside.left == 115)
+        #expect(inside.top == 115)
+        #expect(inside.right == 116)
+        #expect(inside.bottom == 116)
+        // A root view has no parent: the screen stands in.
+        let root = LayoutTree(roots: [LayoutNode(frame: CGRect(x: 0, y: 0, width: 10, height: 10))])
+        #expect(root.hit(at: CGPoint(x: 5, y: 5))?.parentFrame == nil)
+        #expect(tree.hit(at: CGPoint(x: -5, y: 5)) == nil)
+        // A view that sticks out of its parent reads 0 on that side.
+        let out = EdgeDistances(
+            frame: CGRect(x: -5, y: 0, width: 20, height: 5), parent: CGRect(x: 0, y: 0, width: 10, height: 10))
+        #expect(out.left == 0)
+        #expect(out.right == 0)
+        #expect(out.bottom == 5)
+    }
+
     @Test func laterSiblingsAreOnTopAndChildrenMayLeaveTheirParent() {
         let under = LayoutNode(className: "a.Under", frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         let over = LayoutNode(className: "a.Over", frame: CGRect(x: 50, y: 0, width: 100, height: 100))
@@ -156,6 +178,33 @@ private func fixtureDump() throws -> String {
         #expect(MeasuredLine.snappedEnd(start: start, end: start, axisDegrees: 4, edges: nil, edgeDistance: 0) == start)
     }
 
+    @Test func shiftForcesTheNearerAxis() {
+        let start = CGPoint(x: 100, y: 100)
+        #expect(
+            MeasuredLine.snappedEnd(
+                start: start, end: CGPoint(x: 300, y: 180), axisDegrees: 8, edges: nil, edgeDistance: 0,
+                forceAxis: true) == CGPoint(x: 300, y: 100))
+        #expect(
+            MeasuredLine.snappedEnd(
+                start: start, end: CGPoint(x: 180, y: 300), axisDegrees: 8, edges: nil, edgeDistance: 0,
+                forceAxis: true) == CGPoint(x: 100, y: 300))
+        // Eight degrees is the board's lock: about 7 degrees snaps, about 11 doesn't.
+        #expect(
+            MeasuredLine.snappedEnd(
+                start: start, end: CGPoint(x: 300, y: 125), axisDegrees: 8, edges: nil, edgeDistance: 0)
+                == CGPoint(x: 300, y: 100))
+        #expect(MeasuredLine(start: .zero, end: CGPoint(x: 66, y: 88)).pixelText == "110 px")
+    }
+
+    @Test func namesTheEdgesAnEndSitsOn() {
+        let edges = SnapEdges(frames: [CGRect(x: 42, y: 722, width: 996, height: 182)])
+        let on = MeasuredLine.snappedEdges(of: CGPoint(x: 1038, y: 300), edges: edges)
+        #expect(on.x == 1038)
+        #expect(on.y == nil)
+        #expect(MeasuredLine.snappedEdges(of: CGPoint(x: 50, y: 50), edges: edges) == (nil, nil))
+        #expect(MeasuredLine.snappedEdges(of: CGPoint(x: 42, y: 722), edges: nil) == (nil, nil))
+    }
+
     @Test func snapsToViewEdges() {
         let edges = SnapEdges(frames: [
             CGRect(x: 42, y: 722, width: 996, height: 182), CGRect(x: 42, y: 100, width: 200, height: 50),
@@ -185,6 +234,7 @@ private func fixtureDump() throws -> String {
 
     @Test func hex() {
         #expect(PickedColour(red: 0x1A, green: 0x1B, blue: 0x22).hex == "#1A1B22")
+        #expect(PickedColour(red: 0x1A, green: 0x1B, blue: 0x22).rgb == "rgb(26, 27, 34)")
         #expect(PickedColour(red: 0, green: 0, blue: 0).hex == "#000000")
         #expect(PickedColour(red: 255, green: 255, blue: 255).hex == "#FFFFFF")
     }
@@ -267,10 +317,10 @@ private func fixtureDump() throws -> String {
             Error: Activity not started, unable to resolve Intent { act=android.intent.action.VIEW dat=nosuchscheme://x/... flg=0x10000000 }
             """
         #expect(
-            DeviceLink.failure(in: Adb.Output(status: 1, text: unresolved)) == "No app on the device opens this link.")
+            DeviceLink.failure(in: Adb.Output(status: 1, text: unresolved)) == "Nothing on the device opens this link.")
         // `am` can report an error and still exit 0.
         #expect(
-            DeviceLink.failure(in: Adb.Output(status: 0, text: unresolved)) == "No app on the device opens this link.")
+            DeviceLink.failure(in: Adb.Output(status: 0, text: unresolved)) == "Nothing on the device opens this link.")
         #expect(
             DeviceLink.failure(in: Adb.Output(status: 1, text: "adb: device 'emulator-5554' not found\n"))
                 == "device 'emulator-5554' not found")
@@ -279,16 +329,16 @@ private func fixtureDump() throws -> String {
         #expect(long?.count == 48)
     }
 
-    @Test func recentKeepsTheLastEightNewestFirst() {
+    @Test func recentKeepsTheLastFiveNewestFirst() {
         var recent = RecentLinks()
         for index in 1...10 { recent.add("https://a.b/\(index)") }
-        #expect(recent.links.count == 8)
+        #expect(recent.links.count == 5)
         #expect(recent.links.first == "https://a.b/10")
-        #expect(recent.links.last == "https://a.b/3")
-        recent.add("https://a.b/5")
-        #expect(recent.links.count == 8)
-        #expect(recent.links.prefix(2) == ["https://a.b/5", "https://a.b/10"])
-        #expect(RecentLinks((1...20).map(String.init)).links.count == 8)
+        #expect(recent.links.last == "https://a.b/6")
+        recent.add("https://a.b/7")
+        #expect(recent.links.count == 5)
+        #expect(recent.links.prefix(2) == ["https://a.b/7", "https://a.b/10"])
+        #expect(RecentLinks((1...20).map(String.init)).links.count == 5)
     }
 }
 

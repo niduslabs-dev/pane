@@ -21,8 +21,11 @@ public struct MeasuredLine: Sendable, Equatable {
     /// The drag's end after snapping: to a nearby view edge on each axis, then onto the
     /// horizontal or vertical through `start` when the line is within `axisDegrees` of it.
     /// `edgeDistance` is how near (in pixels) an edge must be to pull the point.
+    /// `forceAxis` (Shift) locks the line to whichever of level and upright is nearer, at any
+    /// angle.
     public static func snappedEnd(
-        start: CGPoint, end: CGPoint, axisDegrees: CGFloat, edges: SnapEdges?, edgeDistance: CGFloat
+        start: CGPoint, end: CGPoint, axisDegrees: CGFloat, edges: SnapEdges?, edgeDistance: CGFloat,
+        forceAxis: Bool = false
     ) -> CGPoint {
         var point = edges?.snapped(end, within: edgeDistance) ?? end
         let dx = point.x - start.x
@@ -31,13 +34,23 @@ public struct MeasuredLine: Sendable, Equatable {
         let degreesPerRadian = 180 / CGFloat.pi
         let angle = atan2(abs(dy), abs(dx)) * degreesPerRadian
         let rightAngle: CGFloat = 90
-        if angle <= axisDegrees {
+        if angle <= axisDegrees || (forceAxis && angle <= rightAngle / 2) {
             point.y = start.y
-        } else if angle >= rightAngle - axisDegrees {
+        } else if angle >= rightAngle - axisDegrees || forceAxis {
             point.x = start.x
         }
         return point
     }
+
+    /// The view edges the end sits on after snapping: an x when it is on a left or right
+    /// edge, a y when on a top or bottom one. Inspect draws a guide along each.
+    public static func snappedEdges(of point: CGPoint, edges: SnapEdges?) -> (x: CGFloat?, y: CGFloat?) {
+        guard let edges else { return (nil, nil) }
+        return (edges.xs.contains(point.x) ? point.x : nil, edges.ys.contains(point.y) ? point.y : nil)
+    }
+
+    /// "110 px", for a device whose density isn't known.
+    public var pixelText: String { "\(Int(lengthPixels.rounded())) px" }
 }
 
 /// The view edges a measurement can snap to: every distinct left and right (x) and top and

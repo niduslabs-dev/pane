@@ -276,8 +276,8 @@ final class PaneWindow: NSWindow {
     private weak var hosting: FirstClickHostingView<PaneContentView>?
     private let model: PaneModel
 
-    init(model: PaneModel, moreMenu: NSMenu) {
-        toolbarController = TitlebarToolbar(moreMenu: moreMenu)
+    init(model: PaneModel, onMore: @escaping () -> Void) {
+        toolbarController = TitlebarToolbar(onMore: onMore)
         self.model = model
         let size = model.layout.windowContentSize
         super.init(
@@ -368,7 +368,7 @@ final class PaneWindow: NSWindow {
             }
             // Any other click in the title row closes the open switcher, as a click outside
             // a menu does.
-            if point.y < Theme.Window.titleRowHeight { model.switcher = nil }
+            if point.y < Theme.Window.titleRowHeight, !toolbarController.isOverMore(event) { model.closeMenu() }
         }
         super.sendEvent(event)
     }
@@ -441,15 +441,15 @@ final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
 }
 
 /// The title bar's one toolbar item, More, as Device Hub has it: a real `NSToolbar` item, so the
-/// system draws its glass pill and sizes the traffic lights as in Device Hub. Its menu is the
-/// window's device menu (`DeviceMenu.moreItems`).
+/// system draws its glass pill and sizes the traffic lights as in Device Hub. It opens Pane's
+/// own menu panel, not an `NSMenu`.
 @MainActor
 final class TitlebarToolbar: NSObject, NSToolbarDelegate {
     private static let more = NSToolbarItem.Identifier("pane.more")
-    private let moreMenu: NSMenu
+    private let onMore: () -> Void
 
-    init(moreMenu: NSMenu) {
-        self.moreMenu = moreMenu
+    init(onMore: @escaping () -> Void) {
+        self.onMore = onMore
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -465,14 +465,23 @@ final class TitlebarToolbar: NSObject, NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         guard itemIdentifier == Self.more else { return nil }
-        let item = NSMenuToolbarItem(itemIdentifier: itemIdentifier)
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
         item.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More")
         item.label = "More"
         item.toolTip = "More"
-        item.showsIndicator = false
         // Bordered gives the system's glass pill, as Device Hub's More has.
         item.isBordered = true
-        item.menu = moreMenu
+        item.target = self
+        item.action = #selector(pressMore(_:))
         return item
+    }
+
+    @objc private func pressMore(_ sender: Any?) { onMore() }
+
+    /// Whether a click is on More, which opens and closes its menu on its own: the system
+    /// owns the button's view, so this takes the title row's right end, which More fills.
+    func isOverMore(_ event: NSEvent) -> Bool {
+        guard let window = event.window else { return false }
+        return event.locationInWindow.x > window.frame.width - Theme.Window.titleRowTrailingPadding
     }
 }
