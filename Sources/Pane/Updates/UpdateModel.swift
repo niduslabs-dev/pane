@@ -205,6 +205,10 @@ final class UpdateModel {
     /// The running cycle began with Check for Updates…, so it reports back.
     @ObservationIgnored private var userInitiated = false
     @ObservationIgnored private var published: UpdatePresentation?
+    #if DEBUG
+        /// Holds `pane://check-update`'s stand-in engine (`engine` is weak).
+        @ObservationIgnored private var demoEngine: DemoUpdateEngine?
+    #endif
 
     init(currentVersion: String) {
         self.currentVersion = currentVersion
@@ -469,12 +473,32 @@ final class UpdateModel {
         /// Sets a state directly, for screenshots of the surfaces (`pane://check-update`).
         func demo(_ phase: Phase, surface: Bool, lastChecked: Date?) {
             isEnabled = true
+            if demoEngine == nil {
+                let stand = DemoUpdateEngine()
+                demoEngine = stand
+                engine = stand
+            }
             self.lastChecked = lastChecked
             self.phase = phase
             wantsSurface = surface
         }
     #endif
 }
+
+#if DEBUG
+    /// Stands in for Sparkle under `pane://check-update`, so the Version row shows what a
+    /// release build shows: Check for Updates enabled after a result and off only while a check
+    /// or a download runs. It never checks.
+    @MainActor
+    final class DemoUpdateEngine: UpdateEngine {
+        var canCheckForUpdates = true
+        var lastUpdateCheckDate: Date?
+        var automaticallyChecksForUpdates = true
+        var updateCheckInterval = UpdateCheckInterval.daily.rawValue
+        var automaticallyDownloadsUpdates = false
+        func checkForUpdates() {}
+    }
+#endif
 
 /// Release-note lines for a surface from a feed item's description, which is HTML (a `<ul>`
 /// from the release workflow) or plain lines.

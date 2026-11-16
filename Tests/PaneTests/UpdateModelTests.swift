@@ -166,6 +166,16 @@ private final class RecordingSurface: UpdateSurface {
 
     // MARK: Check for Updates…
 
+    @Test func demoStatesEnableCheckLikeARelease() {
+        let model = UpdateModel(currentVersion: "1.0")
+        model.demo(.upToDate, surface: false, lastChecked: .now)
+        #expect(model.canCheck)
+        model.demo(.failed(message: "The feed is down."), surface: false, lastChecked: .now)
+        #expect(model.canCheck)
+        model.demo(.checking, surface: false, lastChecked: .now)
+        #expect(!model.canCheck)
+    }
+
     @Test func menuItemIsOffWithoutAnEngine() {
         let model = UpdateModel(currentVersion: "1.0")
         #expect(!model.isEnabled)
