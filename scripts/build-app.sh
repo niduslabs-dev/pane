@@ -13,7 +13,7 @@
 # a check that flips settings never changes another copy's.
 #
 # Environment (all optional):
-#   VERSION             CFBundleShortVersionString (default 0.1.0)
+#   VERSION             CFBundleShortVersionString (default 1.0.0)
 #   BUILD               CFBundleVersion, what Sparkle compares (default: VERSION)
 #   SIGN_IDENTITY       codesign identity (default "-", ad hoc); a real identity also gets a
 #                       secure timestamp
@@ -32,13 +32,13 @@ DISPLAY_NAME=Pane
 if [ "$CONFIG" = debug ]; then BUNDLE_ID=dev.niduslabs.pane.debug; DISPLAY_NAME="Pane (Debug)"; fi
 BUNDLE_ID=${PANE_BUNDLE_ID:-$BUNDLE_ID}
 
-VERSION=${VERSION:-0.1.0}
+VERSION=${VERSION:-1.0.0}
 BUILD_NUMBER=${BUILD:-$VERSION}
 SIGN_IDENTITY=${SIGN_IDENTITY:--}
 # The public half of the EdDSA key that signs release DMGs (private half: the
 # SPARKLE_ED_PRIVATE_KEY secret). Sparkle refuses any update not signed with it.
 # Empty until the key is generated (plans/pane-ship.md in the workspace repo, "Jatin's steps").
-RELEASE_SPARKLE_PUBLIC_KEY=
+RELEASE_SPARKLE_PUBLIC_KEY=vcVC2W8coD6K6t7BGaMJqP2zpOhUAvzovyMvHbA6xxo=
 FEED_URL=https://github.com/niduslabs-dev/pane/releases/latest/download/appcast.xml
 MIN_MACOS=15.0
 APP=${PANE_APP:-build/Pane.app}
