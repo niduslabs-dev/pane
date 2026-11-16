@@ -1,6 +1,6 @@
 # Pane
 
-A Mac app that mirrors a running Android emulator in a clean window, inside a device frame we draw, and forwards clicks and frame-button presses to it over the emulator's own gRPC interface (`EmulatorController`). Android emulator only. Status: spike (discovery, live frames, tap, frame buttons).
+A Mac app that mirrors an Android emulator in a clean window, inside a device frame we draw, and forwards clicks, scrolls, keys and frame-button presses to it over the emulator's own gRPC interface (`EmulatorController`). It also starts emulators headless. Android emulator only. Status: v1 built (2026-11-17), waiting for Jatin to try it.
 
 - Plan and decisions: `../plans/pane.md` (Nidus Labs workspace). Research with sources: `~/Work/personal/.claude/research/emulator-mirror-grpc.md`.
 - Design canvas: [Pane design](https://claude.ai/artifact/SSy48PyDrNEapFzTWwoybJ). Studio design rules: `../docs/mac-app-design.md`.
@@ -9,9 +9,22 @@ A Mac app that mirrors a running Android emulator in a clean window, inside a de
 
 A Swift package, no Xcode project. Swift 6, strict concurrency, macOS 15+.
 
-- `PaneCore` (no UI): `Discovery/` reads `~/Library/Caches/TemporaryItems/avd/running/pid_*.ini` (port, token, AVD) and the AVD's `config.ini`, and watches the folder; `Client/EmulatorConnection` is the plaintext HTTP/2 gRPC client with the bearer token, `streamScreenshot` (RGBA8888, both width and height set) and one long-lived `streamInputEvent`; `Geometry/` maps window points to device pixels and lays out the frame; `Generated/` is protoc output, committed.
-- `Pane`: the app. `Theme.swift` holds every size and colour (from the board); `PaneModel` owns the connection and the input rules; `ScreenView` draws frames as a `CGImage` on a layer (Metal is v1); `PaneContentView` is the title row and the drawn frame.
+- `PaneCore` (no UI, all unit-tested):
+  - `Discovery/`: running emulators from `~/Library/Caches/TemporaryItems/avd/running/pid_*.ini` (port, token, AVD) with a folder watcher; AVDs from `~/.android/avd`; the SDK's emulator binary; each AVD's `config.ini` (model, Android version, screen, density).
+  - `Launcher/`: starts an AVD headless through `Process` and stops emulators by PID.
+  - `Client/`: `EmulatorConnection` (plaintext HTTP/2 gRPC with the bearer token: `streamScreenshot` in RGBA with both sides set, one long-lived `streamInputEvent`, status, rotate, PNG screenshot) and the reconnect backoff.
+  - `Geometry/`: the frame layout for any size and the four orientations, window points to device pixels, the Window menu sizes.
+  - `Input/`: key mapping (W3C names, typed text) and scrolling as a touch drag (phone AVDs have no wheel device, so `WheelEvent`s are dropped).
+  - `Capture/`: file names like macOS's own, and `FrameRecorder` (H.264 `.mov` from the frames, variable frame rate).
+  - `Generated/`: protoc output, committed.
+- `Pane`: the app. `Theme.swift` holds every size and colour; `PaneModel` owns the connection, the emulator Pane started, sizes, recording and the input rules; `Chrome.swift` is the title bar and the toolbar under the device (kept apart so the chrome can change alone); `StateViews.swift` holds the no-emulator, progress and can't-connect screens and the emulators menu; `PaneContentView` lays out the frame; `MainMenu` is the menu bar; `main.swift` holds the window, its toolbar item (More) and resizing.
 - `Protos/`: the vendored proto and the emulator version it came from.
+
+## Design
+
+- Chrome measured from Apple's Device Hub with the Accessibility API (title 28 pt past the traffic lights, 36 pt glass capsule and circle under the device). Boards: the [Pane design](https://claude.ai/artifact/SSy48PyDrNEapFzTWwoybJ) canvas (live, empty option A, error, EmptyMenu, layout 2).
+- **Deviation from the studio guide:** the window background is glass in light mode too, not solid paper (Jatin, 2026-11-17). Paper tint 92% and ink tint 86% keep secondary text at 4.5:1 over pure black or white; Reduce Transparency and Increase Contrast make it solid.
+- `scripts/build-app.sh` stamps the real SDK version into the binary with `vtool`. SwiftPM records the deployment target there, which makes AppKit draw the pre-macOS 26 look (12 pt traffic lights, no glass toolbar items).
 
 ## Commands
 
@@ -25,12 +38,20 @@ scripts/format.sh                   # swift format; --lint for the strict check
 scripts/generate-protos.sh          # regenerate Sources/PaneCore/Generated (pinned protoc in .claude/tools)
 ```
 
-**Checking the app without taking focus** (`.claude/checks/`, gitignored): launch with `open -g build/Pane.app` (append `--args -NSRequiresAquaSystemAppearance YES` for light), find the window with `window-info.swift <pid>`, capture with `screencapture -l <id> -o -x`, and click with `click <pid> <windowID> <x> <y> [hold] [toX toY steps]` (window-local points; it posts an `NSEvent`'s `CGEvent` to the PID, so nothing activates). The debug build logs pointer, key and per-second frame stats (fps, drops, latency) under subsystem `dev.niduslabs.pane`. Quit by PID.
+**Checking the app without taking focus** (`.claude/checks/`, gitignored; `lib.sh` wraps the common steps):
+- `relaunch.sh [args]` quits the Pane it started (menu Quit, then SIGTERM) and opens a new one with `open -g`; `-NSRequiresAquaSystemAppearance YES` for light.
+- `window-info.swift <pid>` finds the window; capture with `screencapture -l <id> -o -x`.
+- Input posted to the PID, window-local points, nothing activates: `click` (with hold or drag), `move.swift` (pointer moves), `scroll.swift`, `key.swift`.
+- Accessibility: `axpress.swift <pid> <title> [--menu]` presses a button or menu item (a trailing `*` matches a prefix); `axdump.swift` prints the tree with bounds; `axsize.swift` resizes.
+- `movinfo.swift` checks a recording; `pixels.swift` and `contrast.py` sample colours.
+- Debug-build flags: `-PaneCaptureFolder <dir>` (screenshots and recordings never go to the Desktop in checks), `-PaneReduceTransparency YES`, `-PaneIncreaseContrast YES`, `-PaneAVDHome <dir>` (fixture AVDs in `.claude/checks/fixture-avd`), `-PaneNoAutoAttach YES` (keeps the no-emulator screen up).
+- The debug build logs at debug level under subsystem `dev.niduslabs.pane`; `log show` skips debug lines, so use `log stream --level debug`.
 
 ## Conventions
 
 - **Never log or print the gRPC token.** `GRPCToken` redacts every textual form; only the `authorization` header sees it.
-- **Every press ends in a release:** mouse up, drag off the screen, pointer exit, window or app losing focus.
+- **Every press ends in a release:** mouse up, drag off the screen, pointer exit, window or app losing focus. Held keys and a wheel's scrolling finger too.
+- **Pane only stops emulators it started** (by PID); restarting any other asks first in a sheet.
 - **Dependencies pinned with `exact:`** and `Package.resolved` committed. gRPC Swift 2 needs macOS 15.
 - **Generated code is committed and never edited.** To update: copy the new proto into `Protos/`, note its emulator version there, run `scripts/generate-protos.sh`.
 - **Theme constants only;** views hold no raw numbers. Format and lint with Apple's `swift format` (`.swift-format`, lint `--strict` clean); generated code is excluded.
