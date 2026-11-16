@@ -27,6 +27,8 @@ final class PaneModel {
     private(set) var emulator: RunningEmulator?
     private(set) var profile = DeviceProfile()
     private(set) var layout = DeviceFrameLayout(spec: Theme.Frame.spec, deviceSize: Theme.Frame.fallbackDeviceSize)
+    /// The frame button the pointer is near, which slides out.
+    private(set) var nearButton: FrameButton?
     /// Frame buttons held down right now, so focus loss can release them.
     private(set) var heldButtons: Set<FrameButton> = []
     /// Quarter turns counter-clockwise from portrait, from the latest frame.
@@ -787,6 +789,12 @@ final class PaneModel {
         guard let point = pressedAt else { return }
         connection?.send(.release(point))
         pressedAt = nil
+    }
+
+    /// The pointer moved over the window (window coordinates, y down), or left it (nil).
+    func pointerMoved(to point: CGPoint?) {
+        let near = point.flatMap { layout.nearestButton(to: $0, within: Theme.Frame.buttonProximity) }
+        if near != nearButton { nearButton = near }
     }
 
     /// Presses or releases a frame button. Power is held for as long as the mouse is down, so a

@@ -276,6 +276,19 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         return height
     }
 
+    /// The button nearest a point (window coordinates) within `distance` of its drawn outline,
+    /// measured from any side, or nil. Only this one slides out, as in the iOS Simulator.
+    public func nearestButton(to point: CGPoint, within distance: CGFloat) -> FrameButton? {
+        let distances = buttons.map { button -> (FrameButton, CGFloat) in
+            let rect = button.visibleRect
+            let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
+            let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
+            return (button.button, (dx * dx + dy * dy).squareRoot())
+        }
+        guard let nearest = distances.min(by: { $0.1 < $1.1 }), nearest.1 <= distance else { return nil }
+        return nearest.0
+    }
+
     /// The button whose hit area contains a point in window coordinates.
     public func button(at point: CGPoint) -> FrameButton? {
         buttons.first { $0.hitRect.contains(point) }?.button

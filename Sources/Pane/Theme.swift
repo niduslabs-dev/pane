@@ -129,9 +129,18 @@ enum Theme {
         static let edgeWidth: CGFloat = 1
         static let innerEdgeInset: CGFloat = 3
         static let innerEdgeWidth: CGFloat = 0.5
+        /// How far a button stands proud of the body at rest (the layout's depth).
         static let buttonDepth: CGFloat = 3
-        /// The power button widens by a point on hover, to show it's clickable.
-        static let buttonDepthHover: CGFloat = 4
+        /// Out when the pointer comes near, as the iOS Simulator's buttons slide out.
+        static let buttonDepthNear: CGFloat = 7
+        /// Pushed in while the mouse is down.
+        static let buttonDepthPressed: CGFloat = 1
+        /// How close the pointer must come to a button's outline to slide it out.
+        static let buttonProximity: CGFloat = 24
+        static let buttonSpringResponse: Double = 0.25
+        static let buttonSpringDamping: Double = 0.85
+        /// The faint light outline every button has.
+        static let buttonEdgeWidth: CGFloat = 0.75
         static let buttonCornerRadius: CGFloat = 2
         static let buttonHitDepth: CGFloat = 14
         static let buttonHitOutset: CGFloat = 4
@@ -204,7 +213,11 @@ enum Theme {
         static let frameEdge = dynamic(light: 0x17161C, lightAlpha: 0.55, dark: 0xF4F4F6, darkAlpha: 0.22)
         static let frameInnerEdge = dynamic(light: 0xFFFFFF, lightAlpha: 0.08, dark: 0xFFFFFF, darkAlpha: 0.06)
         static let frameButton = dynamic(light: 0x2B2A32, dark: 0x3A3943)
-        static let frameButtonHover = dynamic(light: 0x5A5964, dark: 0x7A7984)
+        /// A button near the pointer or pressed: slightly lighter.
+        static let frameButtonNear = dynamic(light: 0x3A3943, dark: 0x4A4953)
+        static let frameButtonEdge = dynamic(
+            light: 0xFFFFFF, lightAlpha: 0.22, dark: 0xFFFFFF, darkAlpha: 0.26, contrastLight: 0xFFFFFF,
+            contrastLightAlpha: 0.5, contrastDark: 0xFFFFFF, contrastDarkAlpha: 0.55)
         static let punchHole = NSColor(hex: 0x0B0B0E)
         static let punchHoleRing = NSColor(hex: 0x1E1E24)
         /// The screen before the first frame and in the no-emulator state.

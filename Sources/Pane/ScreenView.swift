@@ -132,29 +132,18 @@ enum FrameImage {
 @MainActor
 final class FrameButtonHitView: NSView {
     var onPress: ((Bool) -> Void)?
-    var onHover: ((Bool) -> Void)?
     private var isPressed = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) { setPressed(true) }
     override func mouseUp(with event: NSEvent) { setPressed(false) }
-    override func mouseEntered(with event: NSEvent) { onHover?(true) }
-    override func mouseExited(with event: NSEvent) { onHover?(false) }
 
     /// Called on focus loss too, through the model's `releaseAll`; this only guards repeats.
     private func setPressed(_ pressed: Bool) {
         guard pressed != isPressed else { return }
         isPressed = pressed
         onPress?(pressed)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(
-            NSTrackingArea(
-                rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     override func isAccessibilityElement() -> Bool { true }
@@ -169,13 +158,11 @@ final class FrameButtonHitView: NSView {
 struct FrameButtonHitArea: NSViewRepresentable {
     let label: String
     let onPress: (Bool) -> Void
-    let onHover: (Bool) -> Void
 
     func makeNSView(context: Context) -> FrameButtonHitView { FrameButtonHitView() }
 
     func updateNSView(_ view: FrameButtonHitView, context: Context) {
         view.onPress = onPress
-        view.onHover = onHover
         view.toolTip = label
         view.setAccessibilityLabel(label)
     }

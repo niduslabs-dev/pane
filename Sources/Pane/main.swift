@@ -137,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 @MainActor
 final class PaneWindow: NSWindow {
     private let toolbarController: TitlebarToolbar
+    private weak var hosting: FirstClickHostingView<PaneContentView>?
 
     init(model: PaneModel) {
         toolbarController = TitlebarToolbar(model: model)
@@ -164,6 +165,9 @@ final class PaneWindow: NSWindow {
         collectionBehavior.insert(.fullScreenNone)
 
         let hosting = FirstClickHostingView(rootView: PaneContentView(model: model))
+        hosting.onPointerMove = { [weak model] point in model?.pointerMoved(to: point) }
+        self.hosting = hosting
+        acceptsMouseMovedEvents = true
         hosting.safeAreaRegions = []
         // The model sizes the window (`setContentSizeKeepingTop`); SwiftUI must not pin it.
         hosting.sizingOptions = []
@@ -189,6 +193,13 @@ final class PaneWindow: NSWindow {
         return container.convert(zoom.frame, to: nil).maxX
     }
 
+    /// Moves while the window is key arrive here; the hosting view's tracking area covers the
+    /// rest (an inactive window).
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .mouseMoved { hosting?.reportPointer(event) }
+        super.sendEvent(event)
+    }
+
     /// Lets a window taller than the screen (Pixel Accurate on a small display) hang off the
     /// bottom, as the Simulator does; only the title bar is kept below the menu bar.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
@@ -211,7 +222,42 @@ app.run()
 /// Lets the title row's tools and the screen's buttons act on the first click into an inactive
 /// window, as the iOS Simulator's toolbar does, instead of that click only focusing the window.
 final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    /// Where the pointer is over the window (y down), or nil when it leaves; drives the frame
+    /// buttons sliding out.
+    var onPointerMove: ((CGPoint?) -> Void)?
+    private var pointerTracking: NSTrackingArea?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTracking { removeTrackingArea(pointerTracking) }
+        let area = NSTrackingArea(
+            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self)
+        addTrackingArea(area)
+        pointerTracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        reportPointer(event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        super.mouseDragged(with: event)
+        reportPointer(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onPointerMove?(nil)
+    }
+
+    func reportPointer(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        onPointerMove?(isFlipped ? point : CGPoint(x: point.x, y: bounds.height - point.y))
+    }
 }
 
 /// The title bar's one toolbar item, More, as Device Hub has it: a real `NSToolbar` item, so the

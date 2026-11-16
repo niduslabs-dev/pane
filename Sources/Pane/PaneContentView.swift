@@ -39,7 +39,7 @@ struct PaneContentView: View {
 struct DeviceFrameView: View {
     let model: PaneModel
     let layout: DeviceFrameLayout
-    @State private var hovered: FrameButton?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -99,9 +99,18 @@ struct DeviceFrameView: View {
         .offset(x: rect.minX, y: rect.minY)
     }
 
+    /// A side button as the iOS Simulator draws them: nearly flush with a faint light outline,
+    /// sliding out when the pointer comes near and pushing in while pressed. Reduce Motion keeps
+    /// it in place and changes only the fill.
     private func buttonShape(_ button: DeviceFrameLayout.Button) -> some View {
-        let isHovered = hovered == button.button && button.button == .power
-        let rect = isHovered ? button.visibleRect(depth: Theme.Frame.buttonDepthHover) : button.visibleRect
+        let isPressed = model.heldButtons.contains(button.button)
+        let isNear = model.status == .live && model.nearButton == button.button
+        let depth =
+            reduceMotion
+            ? Theme.Frame.buttonDepth
+            : (isPressed
+                ? Theme.Frame.buttonDepthPressed : (isNear ? Theme.Frame.buttonDepthNear : Theme.Frame.buttonDepth))
+        let rect = button.visibleRect(depth: depth)
         let radius = Theme.Frame.buttonCornerRadius
         let corners = button.roundedCorners
         let radii = RectangleCornerRadii(
@@ -109,19 +118,25 @@ struct DeviceFrameView: View {
             bottomLeading: corners.contains(.bottomLeft) ? radius : 0,
             bottomTrailing: corners.contains(.bottomRight) ? radius : 0,
             topTrailing: corners.contains(.topRight) ? radius : 0)
-        return UnevenRoundedRectangle(cornerRadii: radii)
-            .fill(Color(nsColor: isHovered ? Theme.Palette.frameButtonHover : Theme.Palette.frameButton))
+        let shape = UnevenRoundedRectangle(cornerRadii: radii)
+        return
+            shape
+            .fill(Color(nsColor: isNear || isPressed ? Theme.Palette.frameButtonNear : Theme.Palette.frameButton))
+            .overlay(
+                shape.strokeBorder(
+                    Color(nsColor: Theme.Palette.frameButtonEdge), lineWidth: Theme.Frame.buttonEdgeWidth)
+            )
             .frame(width: rect.width, height: rect.height)
             .offset(x: rect.minX, y: rect.minY)
+            .animation(
+                .spring(response: Theme.Frame.buttonSpringResponse, dampingFraction: Theme.Frame.buttonSpringDamping),
+                value: depth)
     }
 
     private func hitArea(_ button: DeviceFrameLayout.Button) -> some View {
         FrameButtonHitArea(
             label: helpText(button.button),
-            onPress: { isDown in model.setButton(button.button, isDown: isDown) },
-            onHover: { inside in
-                hovered = inside ? button.button : (hovered == button.button ? nil : hovered)
-            }
+            onPress: { isDown in model.setButton(button.button, isDown: isDown) }
         )
         .frame(width: button.hitRect.width, height: button.hitRect.height)
         .offset(x: button.hitRect.minX, y: button.hitRect.minY)

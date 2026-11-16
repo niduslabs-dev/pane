@@ -201,6 +201,18 @@ import Testing
         #expect(power?.visibleRect(depth: 4).width == 4)
     }
 
+    @Test func onlyTheNearestButtonWithinReachReacts() {
+        let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8)
+        // Power is drawn at x 362...365, y 202...258.
+        #expect(layout.nearestButton(to: CGPoint(x: 340, y: 230), within: 24) == .power)  // from the screen side
+        #expect(layout.nearestButton(to: CGPoint(x: 389, y: 230), within: 24) == .power)  // from outside the frame
+        #expect(layout.nearestButton(to: CGPoint(x: 330, y: 230), within: 24) == nil)  // 32 pt away
+        // Between power and volume up (280...330), the closer one wins.
+        #expect(layout.nearestButton(to: CGPoint(x: 364, y: 262), within: 24) == .power)
+        #expect(layout.nearestButton(to: CGPoint(x: 364, y: 276), within: 24) == .volumeUp)
+        #expect(layout.nearestButton(to: CGPoint(x: 364, y: 340), within: 24) == .volumeDown)
+    }
+
     @Test func keyNamesAreW3C() {
         #expect(FrameButton.power.keyName == "Power")
         #expect(FrameButton.volumeUp.keyName == "AudioVolumeUp")
