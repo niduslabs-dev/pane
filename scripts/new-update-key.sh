@@ -5,6 +5,9 @@
 # memory and in the secret: it is never printed, written to disk or put in a keychain.
 # Prints the public half, which goes into scripts/build-app.sh as RELEASE_SPARKLE_PUBLIC_KEY.
 #
+# Pane's key was made on 2026-11-17 with a copy kept in the workspace's creds/ folder
+# (PANE_SPARKLE_ED_PRIVATE_KEY.txt, out of git); restore from there rather than replacing it.
+#
 # There is no other copy. Losing the secret, or replacing it after a release, means
 # installed copies refuse every later update and people must reinstall by hand; so this
 # refuses to run when the secret already exists, unless given --replace.
