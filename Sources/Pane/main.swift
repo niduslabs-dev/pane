@@ -268,8 +268,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return model.isAvailable(mode)
         case #selector(zoomIn(_:)): return model?.canZoom(in: true) ?? false
         case #selector(zoomOut(_:)): return model?.canZoom(in: false) ?? false
-        case #selector(zoomIn(_:)): return model.canZoom(in: true)
-        case #selector(zoomOut(_:)): return model.canZoom(in: false)
         case #selector(checkForUpdates(_:)): return updates.canCheck
         case #selector(toggleTakeover(_:)):
             item.state = EmulatorTakeover.isInstalled() ? .on : .off
