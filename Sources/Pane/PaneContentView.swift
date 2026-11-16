@@ -93,6 +93,7 @@ struct DeviceFrameView: View {
             case .starting, .booting, .connecting: ProgressScreen(model: model)
             case .live, .failed: EmptyView()
             }
+            DropOverlay(model: model, cornerRadius: layout.screenRadius)
         }
         .frame(width: rect.width, height: rect.height)
         .clipShape(RoundedRectangle(cornerRadius: layout.screenRadius))

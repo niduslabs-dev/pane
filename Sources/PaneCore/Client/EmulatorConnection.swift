@@ -146,6 +146,40 @@ public final class EmulatorConnection: Sendable {
         return try await controller.getScreenshot(format, options: callOptions).image
     }
 
+    /// Sets the device's clipboard text. The text is never logged.
+    public func setClipboard(_ text: String) async throws {
+        var data = Android_Emulation_Control_ClipData()
+        data.text = text
+        _ = try await controller.setClipboard(data, options: callOptions)
+    }
+
+    /// The device's clipboard text as it is now. The text is never logged.
+    public func clipboardText() async throws -> String {
+        try await controller.getClipboard(Google_Protobuf_Empty(), options: callOptions).text
+    }
+
+    /// The device's clipboard text: its current state first when it has one (emulator 37.2.13
+    /// sends nothing for an empty clipboard), then each change made on the device (the emulator
+    /// leaves out this connection's own `setClipboard`). Cancelling the
+    /// iteration ends the RPC.
+    public func clipboardUpdates() -> AsyncThrowingStream<String, any Error> {
+        let controller = controller
+        let options = callOptions
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await controller.streamClipboard(Google_Protobuf_Empty(), options: options) { response in
+                        for try await data in response.messages { continuation.yield(data.text) }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// Turns the device to `quadrants` quarter turns counter-clockwise from portrait, the way
     /// Android Studio's rotate buttons do: by setting the physical model's rotation about z.
     public func rotate(toQuadrants quadrants: Int) async throws {

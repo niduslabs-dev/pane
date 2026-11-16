@@ -16,6 +16,8 @@ A Swift package, no Xcode project. Swift 6, strict concurrency, macOS 15+.
   - `Geometry/`: the frame layout for any size and the four orientations, window points to device pixels, the Window menu sizes.
   - `Input/`: key mapping (W3C names, typed text) and scrolling as a touch drag (phone AVDs have no wheel device, so `WheelEvent`s are dropped).
   - `Capture/`: file names like macOS's own, the save folder (`CaptureLocation`: macOS's screenshot `location`, else the Desktop), and `FrameRecorder` (H.264 `.mov` from the frames, variable frame rate).
+  - `Transfer/`: `DropPlan` (dropped files: `.apk` installs, the rest copy to `/sdcard/Download`, media is scanned) and `Adb` (the real SDK's adb through `Process`, serial `emulator-<console port>`, errors cut to one line).
+  - `Clipboard/`: `ClipboardSync`, the rules for text moving between the Mac's clipboard and the device's (gRPC `setClipboard`, `getClipboard`, `streamClipboard`).
   - `Takeover/`: "Show All Emulators in Pane" state and runner, and `AttachRequest` (`pane://attach?avd=` and `--attach <avd>`).
   - `Generated/`: protoc output, committed.
 - `Pane`: the app. `Theme.swift` holds every size and colour; `PaneModel` owns the connection, the emulator Pane started, sizes, recording and the input rules; `Chrome.swift` is the title bar and the toolbar under the device (kept apart so the chrome can change alone); `StateViews.swift` holds the no-emulator, progress and can't-connect screens and the emulators menu; `PaneContentView` lays out the frame; `MainMenu` is the menu bar; `main.swift` holds the window, its toolbar item (More) and resizing.
@@ -48,6 +50,7 @@ scripts/generate-protos.sh          # regenerate Sources/PaneCore/Generated (pin
 - Accessibility: `axpress.swift <pid> <title> [--menu]` presses a button or menu item (a trailing `*` matches a prefix); `axdump.swift` prints the tree with bounds; `axsize.swift` resizes.
 - `movinfo.swift` checks a recording; `pixels.swift` and `contrast.py` sample colours.
 - Debug-build flags: `-PaneCaptureFolder <dir>` (screenshots and recordings never go to the Desktop in checks), `-PaneReduceTransparency YES`, `-PaneIncreaseContrast YES`, `-PaneAVDHome <dir>` (fixture AVDs in `.claude/checks/fixture-avd`), `-PaneNoAutoAttach YES` (keeps the no-emulator screen up), `-PaneScreenCaptureLocation <value>` (stands in for macOS's screenshot setting; never change the real one), `-PaneRegistrationFolder <dir>` (fake emulators: `.claude/checks/fake-sdk` registers on a dead port, run with `open --env ANDROID_HOME=…`).
+- Drops and paste can't be posted to a background window, so the debug build takes `pane://check-hover?file=…`, `check-hover-end`, `check-drop?file=…` and `check-paste` (same handlers), plus `-PaneTreatAsKey YES` and `-PanePasteboard <name>` (a private pasteboard; `pb.swift <name> [text]` reads or writes it), so checks never touch the real clipboard. `uidump.py` prints the device's text nodes.
 - `debug-run.sh` / `debug-quit.sh` run a separate debug copy (`.claude/checks/debug/`) by PID, leaving Jatin's release copy alone; `windows-of.swift <pid>` lists a process's windows (a headless emulator has none).
 - The debug build logs at debug level under subsystem `dev.niduslabs.pane`; `log show` skips debug lines, so use `log stream --level debug`.
 
@@ -56,6 +59,7 @@ scripts/generate-protos.sh          # regenerate Sources/PaneCore/Generated (pin
 - **Never log or print the gRPC token.** `GRPCToken` redacts every textual form; only the `authorization` header sees it.
 - **Every press ends in a release:** mouse up, drag off the screen, pointer exit, window or app losing focus. Held keys and a wheel's scrolling finger too.
 - **Pane only stops emulators it started** (by PID); restarting any other asks first in a sheet.
+- **Never log clipboard contents,** only that text moved. **The clipboard moves only while Pane's window is key:** text copied elsewhere on the Mac reaches the device only when pasted (Command-V) into Pane.
 - **Pane never starts an emulator on its own:** only Start and Restart do (both logged). One stopped from outside (`adb emu kill`) shows Start.
 - **Dependencies pinned with `exact:`** and `Package.resolved` committed. gRPC Swift 2 needs macOS 15.
 - **Generated code is committed and never edited.** To update: copy the new proto into `Protos/`, note its emulator version there, run `scripts/generate-protos.sh`.

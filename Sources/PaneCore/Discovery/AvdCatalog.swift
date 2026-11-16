@@ -84,4 +84,20 @@ public enum AndroidSDK {
             .filter { $0.standardizedFileURL.path(percentEncoded: false) != shadow }
             .map { $0.appending(path: "emulator/emulator") }.first(where: isExecutable)
     }
+
+    /// The real SDK's `adb`, found the same way (never through the shadow SDK).
+    public static func adbExecutable(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        isExecutable: (URL) -> Bool = { FileManager.default.isExecutableFile(atPath: $0.path) }
+    ) -> URL? {
+        emulatorExecutable(
+            environment: environment, home: home,
+            isExecutable: { isExecutable(adb(besideEmulator: $0)) }
+        ).map(adb(besideEmulator:))
+    }
+
+    private static func adb(besideEmulator emulator: URL) -> URL {
+        emulator.deletingLastPathComponent().deletingLastPathComponent().appending(path: "platform-tools/adb")
+    }
 }

@@ -52,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     /// `pane://attach?avd=<name>` from the emulator wrapper: show that AVD.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
+            #if DEBUG
+                if handleCheckURL(url) { continue }
+            #endif
             guard let name = AttachRequest.avdName(from: url) else {
                 log.error("Ignored URL \(url.absoluteString, privacy: .public)")
                 continue
@@ -63,6 +66,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             }
         }
     }
+
+    #if DEBUG
+        /// Background checks can't drag files or press keys in a window that isn't in front, so
+        /// the debug build takes `pane://check-hover?file=…`, `check-hover-end`,
+        /// `check-drop?file=…` and `check-paste`, which call the same handlers.
+        private func handleCheckURL(_ url: URL) -> Bool {
+            let files = (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                .filter { $0.name == "file" }.compactMap(\.value).map { URL(filePath: $0) }
+            switch url.host() {
+            case "check-hover": _ = model.dragChanged(files: files)
+            case "check-hover-end": _ = model.dragChanged(files: nil)
+            case "check-drop": _ = model.drop(files: files)
+            case "check-paste": model.paste()
+            default: return false
+            }
+            return true
+        }
+    #endif
 
     // MARK: Show All Emulators in Pane
 
@@ -94,11 +115,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func applicationWillResignActive(_ notification: Notification) { model.releaseAll() }
-    func windowDidResignKey(_ notification: Notification) { model.releaseAll() }
+    func windowDidResignKey(_ notification: Notification) {
+        model.releaseAll()
+        model.windowResignedKey()
+    }
 
     /// Keys go to the emulator's screen whenever the window is key.
     func windowDidBecomeKey(_ notification: Notification) {
         (notification.object as? NSWindow)?.makeFirstResponder(model.screenView)
+        model.windowBecameKey()
     }
 
     /// Snaps every resize to the device's shape: the largest frame that fits the proposed size.
@@ -200,9 +225,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 final class PaneWindow: NSWindow {
     private let toolbarController: TitlebarToolbar
     private weak var hosting: FirstClickHostingView<PaneContentView>?
+    private let model: PaneModel
 
     init(model: PaneModel) {
         toolbarController = TitlebarToolbar(model: model)
+        self.model = model
         let size = model.layout.windowContentSize
         super.init(
             contentRect: NSRect(origin: .zero, size: size),
@@ -234,6 +261,29 @@ final class PaneWindow: NSWindow {
         // The model sizes the window (`setContentSizeKeepingTop`); SwiftUI must not pin it.
         hosting.sizingOptions = []
         contentView = GlassBackgroundView(content: hosting)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    // MARK: Dropping files (the window is the drop target; the screen shows the highlight)
+
+    private func files(in sender: any NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+            as? [URL] ?? []
+    }
+
+    func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        model.dragChanged(files: files(in: sender)) ? .copy : []
+    }
+
+    func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        model.dropHover == nil ? [] : .copy
+    }
+
+    func draggingExited(_ sender: (any NSDraggingInfo)?) { _ = model.dragChanged(files: nil) }
+    func draggingEnded(_ sender: any NSDraggingInfo) { _ = model.dragChanged(files: nil) }
+
+    func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        model.drop(files: files(in: sender))
     }
 
     /// Resizes the content, keeping the window's top edge and horizontal centre where they are
@@ -390,7 +440,15 @@ final class MoreMenu: NSObject, NSMenuDelegate {
         let restart = NSMenuItem(title: "Restart Emulator", action: #selector(restart), keyEquivalent: "")
         restart.target = self
         menu.addItem(restart)
+        menu.addItem(.separator())
+        let share = NSMenuItem(title: "Share Clipboard", action: #selector(toggleClipboard), keyEquivalent: "")
+        share.target = self
+        share.state = model.sharesClipboard ? .on : .off
+        share.toolTip = "Copied text moves between this Mac and the device while Pane is in front."
+        menu.addItem(share)
     }
+
+    @objc private func toggleClipboard() { model.sharesClipboard.toggle() }
 
     @objc private func restart() { model.restartEmulator() }
 }

@@ -220,6 +220,46 @@ struct ProgressScreen: View {
     }
 }
 
+/// Over the live screen while files are dragged over the window (an accent outline and what a
+/// drop would do) and while a drop runs (the `blurSwap` status line: "Installing Splito…",
+/// "Installed.", or adb's error). Never takes clicks.
+struct DropOverlay: View {
+    let model: PaneModel
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        let hover = model.dropHover
+        let status = model.transferStatus
+        ZStack {
+            if hover != nil || status != nil {
+                Color(nsColor: Theme.Palette.screenEmpty).opacity(Theme.Drop.scrimOpacity)
+                if let hover {
+                    Text(hover)
+                        .font(Theme.Typeface.screenTitle)
+                        .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .strokeBorder(Color(nsColor: Theme.Palette.screenLink), lineWidth: Theme.Drop.outlineWidth)
+                } else if let status {
+                    VStack(spacing: Theme.Screen.progressGap) {
+                        if model.isTransferring {
+                            ProgressView()
+                                .controlSize(.small)
+                                .colorScheme(.dark)
+                        }
+                        StatusLine(text: status)
+                            .font(Theme.Typeface.status)
+                            .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
+                    }
+                    .padding(.horizontal, Theme.Screen.horizontalPadding)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeOut(duration: Theme.Drop.fadeDuration), value: hover != nil || status != nil)
+        .allowsHitTesting(false)
+    }
+}
+
 /// A status line that swaps in place (`blurSwap`): the old text blurs and drifts up as the new
 /// one sharpens in from below. Reduce Motion makes it a plain crossfade.
 struct StatusLine: View {

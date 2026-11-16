@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Observation
 import PaneCore
 import Synchronization
@@ -46,6 +47,19 @@ final class PaneModel {
     /// Why the last Start didn't work, shown under the Start button.
     private(set) var startProblem: String?
 
+    /// The label while files are dragged over the window ("Install app"), or nil.
+    private(set) var dropHover: String?
+    /// The drop's status line ("Installing Splito…", "Installed.", or adb's error), or nil.
+    private(set) var transferStatus: String?
+    /// True while adb runs, for the spinner.
+    private(set) var isTransferring = false
+
+    /// Share Clipboard (More menu): text moves both ways while the window is key. On unless
+    /// turned off, remembered.
+    var sharesClipboard: Bool = UserDefaults.standard.object(forKey: PaneModel.shareClipboardKey) as? Bool ?? true {
+        didSet { UserDefaults.standard.set(sharesClipboard, forKey: Self.shareClipboardKey) }
+    }
+
     /// The AVD Start launches, remembered across launches.
     var selectedAVDName: String? {
         didSet { UserDefaults.standard.set(selectedAVDName, forKey: Self.selectedAVDKey) }
@@ -84,6 +98,13 @@ final class PaneModel {
     @ObservationIgnored private let log = Logger(subsystem: "dev.niduslabs.pane", category: "model")
 
     private static let selectedAVDKey = "selectedAVD"
+    private static let shareClipboardKey = "shareClipboard"
+    @ObservationIgnored private var transferTask: Task<Void, Never>?
+    @ObservationIgnored private var clipboardSync = ClipboardSync()
+    @ObservationIgnored private var clipboardTask: Task<Void, Never>?
+    @ObservationIgnored private var pasteboardPollTask: Task<Void, Never>?
+    /// The Mac clipboard's change count last seen, so only later changes are sent.
+    @ObservationIgnored private var pasteboardChangeCount = PaneModel.pasteboard.changeCount
 
     var title: String {
         switch status {
@@ -130,6 +151,9 @@ final class PaneModel {
         startWatcher()
         refresh()
         applyRememberedSize()
+        #if DEBUG
+            if UserDefaults.standard.bool(forKey: "PaneTreatAsKey") { windowBecameKey() }
+        #endif
     }
 
     func reloadAVDs() {
@@ -675,6 +699,7 @@ final class PaneModel {
         }
         watchBoot(on: connection)
         startFrames(on: connection)
+        startClipboard(on: connection)
     }
 
     /// Polls `getStatus` until Android has booted, then shows the screen.
@@ -799,6 +824,13 @@ final class PaneModel {
     private func disconnect() {
         releaseAll()
         stopRecording()
+        clipboardTask?.cancel()
+        clipboardTask = nil
+        transferTask?.cancel()
+        transferTask = nil
+        dropHover = nil
+        transferStatus = nil
+        isTransferring = false
         framesTask?.cancel()
         connectionTask?.cancel()
         bootTask?.cancel()
@@ -887,7 +919,12 @@ final class PaneModel {
     /// Sends a key while the window is key. Command shortcuts stay with the Mac's menus.
     func handleKey(_ event: NSEvent, isDown: Bool) -> Bool {
         guard let connection, status == .live else { return false }
-        if event.modifierFlags.contains(.command) { return false }
+        if event.modifierFlags.contains(.command) {
+            let shortcut = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            guard shortcut == .command, Int(event.keyCode) == kVK_ANSI_V else { return false }
+            if isDown { paste() }
+            return true
+        }
         if let name = KeyMapping.keyName(macKeyCode: event.keyCode) {
             if isDown {
                 heldKeys.insert(name)
@@ -903,6 +940,173 @@ final class PaneModel {
         connection.send(.text(text))
         return true
     }
+
+    // MARK: Drag and drop
+
+    /// Files are being dragged over the window: shows what a drop would do. False when nothing
+    /// in the drag can be dropped now.
+    func dragChanged(files: [URL]?) -> Bool {
+        guard let files, status == .live, !isTransferring else {
+            dropHover = nil
+            return false
+        }
+        let plan = DropPlan(files: files)
+        dropHover = plan.isEmpty ? nil : plan.hoverLabel
+        return !plan.isEmpty
+    }
+
+    /// Files dropped on the window: installs the apps and copies the rest with adb, one at a
+    /// time, showing each on the status line.
+    func drop(files: [URL]) -> Bool {
+        dropHover = nil
+        guard status == .live, !isTransferring, let emulator else { return false }
+        let plan = DropPlan(files: files)
+        guard !plan.isEmpty else { return false }
+        guard let adb = Adb(emulator: emulator) else {
+            finishTransfer("adb not found.", after: Theme.Drop.errorDuration)
+            return false
+        }
+        log.info("Drop: \(plan.steps.count) file(s)")
+        isTransferring = true
+        transferTask = Task { [weak self] in
+            var result = plan.doneText
+            var hold = Theme.Drop.doneDuration
+            for step in plan.steps {
+                guard let self, !Task.isCancelled else { return }
+                self.transferStatus = DropPlan.progressText(for: step)
+                do {
+                    try await adb.run(step)
+                } catch let failure as Adb.Failure {
+                    self.log.error("Drop failed: \(failure.message, privacy: .public)")
+                    (result, hold) = (failure.message, Theme.Drop.errorDuration)
+                    break
+                } catch {
+                    self.log.error("Drop failed: \(String(describing: error), privacy: .public)")
+                    (result, hold) = ("adb didn't run.", Theme.Drop.errorDuration)
+                    break
+                }
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.isTransferring = false
+            self.finishTransfer(result, after: hold)
+        }
+        return true
+    }
+
+    /// Shows the result, then clears the status line.
+    private func finishTransfer(_ text: String, after hold: Duration) {
+        transferStatus = text
+        transferTask = Task { [weak self] in
+            try? await Task.sleep(for: hold)
+            guard let self, !Task.isCancelled, !self.isTransferring else { return }
+            self.transferStatus = nil
+            self.transferTask = nil
+        }
+    }
+
+    // MARK: Clipboard
+
+    private var isKey: Bool {
+        #if DEBUG
+            if UserDefaults.standard.bool(forKey: "PaneTreatAsKey") { return true }
+        #endif
+        return NSApp.isActive && screenView.window?.isKeyWindow == true
+    }
+
+    /// The Mac's clipboard. Debug builds take `-PanePasteboard <name>` (a private pasteboard)
+    /// and `-PaneTreatAsKey YES`, so background checks never touch the real clipboard or need
+    /// the window in front.
+    static var pasteboard: NSPasteboard {
+        #if DEBUG
+            if let name = UserDefaults.standard.string(forKey: "PanePasteboard") {
+                return NSPasteboard(name: NSPasteboard.Name(name))
+            }
+        #endif
+        return .general
+    }
+
+    /// Follows the device's clipboard for as long as the connection lasts. Contents are never
+    /// logged.
+    private func startClipboard(on connection: EmulatorConnection) {
+        clipboardSync.reset()
+        clipboardTask?.cancel()
+        clipboardTask = Task { [weak self] in
+            do {
+                // An unreadable clipboard counts as empty: the first copy on the device is new.
+                let baseline = (try? await connection.clipboardText()) ?? ""
+                guard let self, self.connection === connection else { return }
+                self.clipboardSync.deviceBaseline(baseline)
+                for try await text in connection.clipboardUpdates() {
+                    guard self.connection === connection else { return }
+                    self.log.debug("Clipboard: device update")
+                    let action = self.clipboardSync.deviceChanged(
+                        to: text, isKey: self.isKey, isEnabled: self.sharesClipboard)
+                    if case .setMac(let text) = action {
+                        Self.pasteboard.clearContents()
+                        Self.pasteboard.setString(text, forType: .string)
+                        self.pasteboardChangeCount = Self.pasteboard.changeCount
+                        self.log.info("Clipboard: device to Mac")
+                    }
+                }
+            } catch is CancellationError {
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.log.error("Clipboard stream ended: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// The window became key: from now on a change to the Mac's clipboard goes to the device.
+    /// What is on it already stays put until pasted.
+    func windowBecameKey() {
+        pasteboardChangeCount = Self.pasteboard.changeCount
+        pasteboardPollTask?.cancel()
+        pasteboardPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Theme.Timing.clipboardPoll)
+                guard let self, !Task.isCancelled else { return }
+                let count = Self.pasteboard.changeCount
+                guard count != self.pasteboardChangeCount else { continue }
+                self.pasteboardChangeCount = count
+                guard let connection = self.connection, self.status == .live else { continue }
+                let action = self.clipboardSync.macChanged(
+                    to: Self.pasteboard.string(forType: .string), isKey: self.isKey,
+                    isEnabled: self.sharesClipboard)
+                if case .setDevice(let text) = action {
+                    self.log.info("Clipboard: Mac to device")
+                    try? await connection.setClipboard(text)
+                }
+            }
+        }
+    }
+
+    func windowResignedKey() {
+        pasteboardPollTask?.cancel()
+        pasteboardPollTask = nil
+    }
+
+    /// Command-V in the window: the Mac's text goes to the device (when sharing is on), then
+    /// Android's paste shortcut is pressed.
+    func paste() {
+        guard let connection, status == .live else { return }
+        let action = clipboardSync.pasteRequested(
+            macText: Self.pasteboard.string(forType: .string), isEnabled: sharesClipboard)
+        Task { [weak self] in
+            if case .setDevice(let text) = action {
+                self?.log.info("Clipboard: Mac to device for paste")
+                do {
+                    try await connection.setClipboard(text)
+                    try? await Task.sleep(for: Theme.Timing.pasteAfterClipboard)
+                } catch {
+                    self?.log.error("Clipboard not set: \(String(describing: error), privacy: .public)")
+                }
+            }
+            for (name, isDown) in Self.pasteKeys { connection.send(.key(name: name, isDown: isDown)) }
+        }
+    }
+
+    /// Control-V, Android's paste shortcut on a hardware keyboard.
+    private static let pasteKeys: [(String, Bool)] = [("Control", true), ("v", true), ("v", false), ("Control", false)]
 
     private func releasePointer() {
         guard let point = pressedAt else { return }

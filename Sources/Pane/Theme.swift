@@ -78,6 +78,18 @@ enum Theme {
     }
 
     /// The `blurSwap` status line (design guide 2).
+    /// Dropping files on the device: the highlight while dragging and the status line after.
+    enum Drop {
+        /// The accent outline around the screen while files are dragged over the window.
+        static let outlineWidth: CGFloat = 1.5
+        /// The scrim under the label and the status line, so both read over any app.
+        static let scrimOpacity: Double = 0.72
+        /// How long "Installed." stays; an error stays longer so it can be read.
+        static let doneDuration: Duration = .seconds(2)
+        static let errorDuration: Duration = .seconds(5)
+        static let fadeDuration: Double = 0.15
+    }
+
     enum StatusSwap {
         static let blur: CGFloat = 6
         static let offsetY: CGFloat = 5
@@ -328,6 +340,11 @@ extension Theme {
         static let wheelRelease: Duration = .milliseconds(150)
         /// How long a turn may take to show before Pane stops waiting for it.
         static let rotationSettle: Duration = .seconds(10)
+        /// How often the Mac's clipboard is checked for a change while the window is key.
+        static let clipboardPoll: Duration = .milliseconds(500)
+        /// Between setting the device's clipboard and pressing paste: `setClipboard` returns
+        /// once scheduled, before Android has the text.
+        static let pasteAfterClipboard: Duration = .milliseconds(150)
         /// Wait this long after the last resize before asking for frames at the new size.
         static let frameRestartDebounce: Duration = .milliseconds(200)
     }
