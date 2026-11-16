@@ -9,6 +9,8 @@ import PackageDescription
 /// - `Pane` (product `Pane`): the AppKit + SwiftUI app, assembled into `build/Pane.app` by
 ///   `scripts/build-app.sh`.
 ///
+/// Updates come through Sparkle with Pane's own surfaces (`Sources/Pane/Updates`).
+///
 /// Direct dependencies are pinned exactly; `Package.resolved` (committed) pins the rest.
 let package = Package(
     name: "Pane",
@@ -24,6 +26,10 @@ let package = Package(
         .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", exact: "2.5.0"),
         // 1.39.0: 1.40.0 and 1.41.0 were under two weeks old when pinned.
         .package(url: "https://github.com/apple/swift-protobuf.git", exact: "1.39.0"),
+        // Updates (Developer ID builds from GitHub Releases), with Pane's own surfaces. The same
+        // version Drop ships (pinned there 2026-11-17): a new Sparkle is a deliberate change,
+        // checked against its changelog and `UpdateDriver`.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
         .target(
@@ -37,7 +43,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Pane",
-            dependencies: ["PaneCore"],
+            dependencies: ["PaneCore", .product(name: "Sparkle", package: "Sparkle")],
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("SwiftUI")]
         ),
         .testTarget(

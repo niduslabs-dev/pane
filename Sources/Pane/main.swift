@@ -16,6 +16,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var started = false
     /// True while the takeover script runs, so the menu item can't start a second run.
     private var takeoverRunning = false
+    /// The state every update surface and Check for Updates… read; fed by `updateDriver`
+    /// when Sparkle runs.
+    let updates = UpdateModel(
+        currentVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+    private var updateDriver: UpdateDriver?
     private let log = Logger(subsystem: "dev.niduslabs.pane", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             pendingAttach = nil
             first.model.requestAttach(avdName: name)
         }
+        startUpdates()
         #if DEBUG
             // Shows whether mouse events reach the app at all, for scripted background checks.
             NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .scrollWheel, .keyDown]) {
@@ -173,6 +179,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     #endif
 
+    // MARK: Updates
+
+    /// Starts Sparkle in a release build that carries a feed. Debug builds leave it off,
+    /// except with `-PaneUpdateFeed <url>`, which runs it against a local test appcast.
+    private func startUpdates() {
+        updates.openURL = { NSWorkspace.shared.open($0) }
+        var feed: URL?
+        var isDebug = false
+        #if DEBUG
+            isDebug = true
+            feed = UserDefaults.standard.string(forKey: UpdateDriver.feedOverrideKey).flatMap(URL.init(string:))
+        #endif
+        guard
+            UpdateDriver.shouldStart(
+                isDebug: isDebug, feedOverride: feed, info: Bundle.main.infoDictionary ?? [:])
+        else { return }
+        let driver = UpdateDriver(model: updates, feedOverride: feed)
+        driver.start()
+        updateDriver = driver
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) { updates.perform(.check) }
+
     // MARK: Show All Emulators in Pane
 
     /// Turns the emulator takeover on or off by running the bundled script.
@@ -239,6 +268,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return model.isAvailable(mode)
         case #selector(zoomIn(_:)): return model?.canZoom(in: true) ?? false
         case #selector(zoomOut(_:)): return model?.canZoom(in: false) ?? false
+        case #selector(zoomIn(_:)): return model.canZoom(in: true)
+        case #selector(zoomOut(_:)): return model.canZoom(in: false)
+        case #selector(checkForUpdates(_:)): return updates.canCheck
         case #selector(toggleTakeover(_:)):
             item.state = EmulatorTakeover.isInstalled() ? .on : .off
             return !takeoverRunning

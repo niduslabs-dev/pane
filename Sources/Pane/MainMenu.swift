@@ -13,6 +13,8 @@ enum MainMenu {
         (.fit, "Fit Screen", "4", "As large as fits on this screen."),
     ]
 
+    static let checkForUpdatesTitle = "Check for Updates\u{2026}"
+
     static func make(target: AppDelegate) -> NSMenu {
         let main = NSMenu()
 
@@ -21,6 +23,10 @@ enum MainMenu {
         appMenu.addItem(
             withTitle: "About Pane", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: "")
+        let checkForUpdates = NSMenuItem(
+            title: checkForUpdatesTitle, action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: "")
+        checkForUpdates.target = target
+        appMenu.addItem(checkForUpdates)
         appMenu.addItem(.separator())
         let takeover = NSMenuItem(
             title: "Show All Emulators in Pane", action: #selector(AppDelegate.toggleTakeover(_:)), keyEquivalent: "")
