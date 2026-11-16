@@ -11,17 +11,60 @@ public enum EmulatorLauncher {
         ["-avd", avdName, "-no-window"] + (withoutSound ? ["-no-audio"] : []) + ["-no-boot-anim", "-no-snapshot-save"]
     }
 
-    /// Launches the emulator and returns its process. Output is discarded; the emulator writes
-    /// its registration file once its gRPC endpoint is up.
-    public static func launch(executable: URL, avdName: String, withoutSound: Bool = true) throws -> Process {
+    /// Launches the emulator and returns its process. The emulator writes its registration
+    /// file once its gRPC endpoint is up.
+    ///
+    /// Its output goes to `outputLog` (the previous launch's is kept beside it), or nowhere
+    /// when that is nil or can't be written. The emulator's last lines are the only place a
+    /// crash in its graphics code says why (a Metal assertion is printed, not put in the crash
+    /// report), so Pane keeps them.
+    public static func launch(
+        executable: URL, avdName: String, withoutSound: Bool = true, outputLog: URL? = nil
+    ) throws -> Process {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments(avdName: avdName, withoutSound: withoutSound)
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let output = outputLog.flatMap(openOutputLog(at:)) ?? FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = output
         try process.run()
         return process
+    }
+
+    /// Where a launch's output is kept: `~/Library/Logs/Pane/emulator-<avd>.log`. Characters
+    /// that can't be in a file name become `_`.
+    public static func outputLog(
+        avdName: String, home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        let safe = String(avdName.map { $0.isLetter || $0.isNumber || "-_.".contains($0) ? $0 : "_" })
+        return home.appending(path: "Library/Logs/Pane/emulator-\(safe).log")
+    }
+
+    /// The log that `url` held before the launch that is writing it now.
+    public static func previousOutputLog(for url: URL) -> URL {
+        url.deletingPathExtension().appendingPathExtension("previous.log")
+    }
+
+    /// Moves the last launch's log aside and opens an empty one, readable by the user only.
+    /// Nil when the folder or the file can't be made.
+    static func openOutputLog(at url: URL) -> FileHandle? {
+        let files = FileManager.default
+        do {
+            try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if files.fileExists(atPath: url.path) {
+                let previous = previousOutputLog(for: url)
+                try? files.removeItem(at: previous)
+                try files.moveItem(at: url, to: previous)
+            }
+            let ownerReadWrite = 0o600
+            guard
+                files.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: ownerReadWrite])
+            else { return nil }
+            return try FileHandle(forWritingTo: url)
+        } catch {
+            return nil
+        }
     }
 
     /// Asks a process to quit (SIGTERM), then kills it (SIGKILL) if it is still alive after

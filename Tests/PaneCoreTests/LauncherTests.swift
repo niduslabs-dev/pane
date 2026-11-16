@@ -110,4 +110,34 @@ import Testing
         sleeper.waitUntilExit()
         #expect(stopped)
     }
+
+    @Test func outputLogIsNamedForTheAvd() {
+        let home = URL(filePath: "/Users/someone", directoryHint: .isDirectory)
+        #expect(
+            EmulatorLauncher.outputLog(avdName: "dev_android36", home: home).path
+                == "/Users/someone/Library/Logs/Pane/emulator-dev_android36.log")
+        #expect(
+            EmulatorLauncher.outputLog(avdName: "../my avd", home: home).lastPathComponent == "emulator-.._my_avd.log")
+        #expect(
+            EmulatorLauncher.previousOutputLog(for: URL(filePath: "/logs/emulator-a.log")).path
+                == "/logs/emulator-a.previous.log")
+    }
+
+    /// The launcher's output lands in the log, and the launch before it is kept beside it.
+    @Test func keepsThisLaunchsOutputAndTheLastOnes() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "pane-log-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let log = folder.appending(path: "Logs/emulator-test.log")
+        let echo = URL(filePath: "/bin/echo")
+        for name in ["first", "second"] {
+            let process = try EmulatorLauncher.launch(executable: echo, avdName: name, outputLog: log)
+            process.waitUntilExit()
+        }
+        let current = try String(contentsOf: log, encoding: .utf8)
+        let previous = try String(contentsOf: EmulatorLauncher.previousOutputLog(for: log), encoding: .utf8)
+        #expect(current.hasPrefix("-avd second "))
+        #expect(previous.hasPrefix("-avd first "))
+        let mode = try FileManager.default.attributesOfItem(atPath: log.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+    }
 }

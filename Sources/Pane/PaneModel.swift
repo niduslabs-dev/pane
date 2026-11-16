@@ -343,7 +343,8 @@ final class PaneModel {
         let process: Process
         do {
             process = try EmulatorLauncher.launch(
-                executable: executable, avdName: avdName, withoutSound: settings.startsWithoutSound)
+                executable: executable, avdName: avdName, withoutSound: settings.startsWithoutSound,
+                outputLog: EmulatorLauncher.outputLog(avdName: avdName))
         } catch {
             log.error("Launch failed: \(String(describing: error), privacy: .public)")
             startProblem = "The emulator didn't start."
