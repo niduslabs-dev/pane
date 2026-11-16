@@ -1,6 +1,8 @@
 #!/bin/sh
 # Builds Pane.app into build/Pane.app: compiles the Pane product through scripts/swift.sh,
-# writes the Info.plist and signs it ad hoc with the hardened runtime. No keychain or signing
+# compiles the asset catalog (Pane's custom symbols, from scripts/make-symbols.py) with actool,
+# bundles the emulator takeover script, writes the Info.plist and signs it ad hoc with the
+# hardened runtime. No keychain or signing
 # identity is used; Developer ID signing comes with shipping. Not sandboxed: the App Sandbox
 # blocks the emulator's registration folder.
 #
@@ -33,6 +35,12 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 SDK_VERSION=$(xcrun --sdk macosx --show-sdk-version)
 vtool -set-build-version macos "$MIN_MACOS" "$SDK_VERSION" -replace -output "$APP/Contents/MacOS/Pane" "$BIN_DIR/Pane"
 
+# actool is Xcode's; clear Homebrew's LLVM env for it as swift.sh does.
+env -u CC -u CXX -u CPPFLAGS -u LDFLAGS -u LIBRARY_PATH xcrun actool Resources/Assets.xcassets \
+    --compile "$APP/Contents/Resources" --platform macosx --minimum-deployment-target "$MIN_MACOS" \
+    --output-partial-info-plist "build/assets-partial.plist" >/dev/null
+cp scripts/emulator-takeover.sh "$APP/Contents/Resources/emulator-takeover.sh"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -51,6 +59,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSHumanReadableCopyright</key><string>Nidus Labs</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>$BUNDLE_ID.attach</string>
+            <key>CFBundleURLSchemes</key><array><string>pane</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST

@@ -21,6 +21,13 @@ enum MainMenu {
             withTitle: "About Pane", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: "")
         appMenu.addItem(.separator())
+        let takeover = NSMenuItem(
+            title: "Show All Emulators in Pane", action: #selector(AppDelegate.toggleTakeover(_:)), keyEquivalent: "")
+        takeover.target = target
+        takeover.toolTip =
+            "Emulators started anywhere, like Expo or a terminal, open here without a window. Applies to new terminals."
+        appMenu.addItem(takeover)
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Pane", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(
             withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")

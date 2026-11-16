@@ -63,6 +63,15 @@ import Testing
                 == "/b/emulator/emulator")
         #expect(AndroidSDK.emulatorExecutable(environment: [:], home: home, isExecutable: { _ in false }) == nil)
     }
+
+    /// Pane starts emulators from the real SDK even when the shell points at its shadow SDK.
+    @Test func skipsPanesShadowSdk() {
+        let exists: (URL) -> Bool = { _ in true }
+        let env = ["ANDROID_HOME": "/Users/someone/Library/Android/pane-sdk/"]
+        #expect(
+            AndroidSDK.emulatorExecutable(environment: env, home: home, isExecutable: exists)?.path
+                == "/Users/someone/Library/Android/sdk/emulator/emulator")
+    }
 }
 
 @Suite struct EmulatorLauncherTests {

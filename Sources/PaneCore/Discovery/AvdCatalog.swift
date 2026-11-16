@@ -66,16 +66,22 @@ public enum AvdCatalog {
 /// Finds the Android SDK and its emulator binary.
 public enum AndroidSDK {
     /// `ANDROID_HOME`, then `ANDROID_SDK_ROOT`, then `~/Library/Android/sdk` (Android Studio's
-    /// default on a Mac); the first that holds an emulator wins.
+    /// default on a Mac); the first that holds an emulator wins. Pane's own shadow SDK
+    /// (`EmulatorTakeover`) is skipped: its launcher is the wrapper, which would ask Pane to
+    /// attach to an emulator Pane is already starting.
     public static func emulatorExecutable(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         isExecutable: (URL) -> Bool = { FileManager.default.isExecutableFile(atPath: $0.path) }
     ) -> URL? {
+        let shadow = EmulatorTakeover.shadowSDK(home: home).standardizedFileURL.path(percentEncoded: false)
         let roots =
             [environment["ANDROID_HOME"], environment["ANDROID_SDK_ROOT"]]
             .compactMap { $0 }.filter { !$0.isEmpty }.map { URL(filePath: $0, directoryHint: .isDirectory) }
             + [home.appending(path: "Library/Android/sdk", directoryHint: .isDirectory)]
-        return roots.map { $0.appending(path: "emulator/emulator") }.first(where: isExecutable)
+        return
+            roots
+            .filter { $0.standardizedFileURL.path(percentEncoded: false) != shadow }
+            .map { $0.appending(path: "emulator/emulator") }.first(where: isExecutable)
     }
 }

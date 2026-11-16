@@ -88,7 +88,7 @@ final class PaneModel {
     var title: String {
         switch status {
         case .noEmulator: "Pane"
-        case .starting: selectedAVD?.name ?? "Pane"
+        case .starting: launchedAVDName ?? selectedAVD?.name ?? "Pane"
         case .connecting, .booting, .live, .failed: emulator?.avdName ?? "Pane"
         }
     }
@@ -124,6 +124,8 @@ final class PaneModel {
 
     /// Starts watching for emulators and attaches to the first one running.
     func start() {
+        log.info(
+            "Screenshots and recordings save to \(Self.captureFolder.path(percentEncoded: false), privacy: .public)")
         reloadAVDs()
         startWatcher()
         refresh()
@@ -132,7 +134,7 @@ final class PaneModel {
 
     func reloadAVDs() {
         avds = AvdCatalog.list(in: Self.avdHome)
-        runningAVDNames = Set(EmulatorDiscovery.runningEmulators().map(\.avdName))
+        runningAVDNames = Set(EmulatorDiscovery.runningEmulators(in: Self.registrationFolder).map(\.avdName))
         if status == .noEmulator, let avd = selectedAVD { setProfile(avd.profile) }
     }
 
@@ -150,11 +152,24 @@ final class PaneModel {
         return AvdCatalog.directory()
     }
 
+    /// The emulators' registration folder. Debug builds take `-PaneRegistrationFolder <path>`,
+    /// so checks can fake an emulator starting and stopping without touching real ones.
+    static var registrationFolder: URL {
+        #if DEBUG
+            if let path = UserDefaults.standard.string(forKey: "PaneRegistrationFolder") {
+                return URL(filePath: path, directoryHint: .isDirectory)
+            }
+        #endif
+        return EmulatorDiscovery.registrationDirectory()
+    }
+
     /// Chosen in the menu: attaches when that AVD is running, otherwise shows it with Start ready.
     func choose(_ avd: AvdInfo) {
         selectAVD(avd.name)
         guard runningAVDNames.contains(avd.name),
-            let running = EmulatorDiscovery.runningEmulators().first(where: { $0.avdName == avd.name })
+            let running = EmulatorDiscovery.runningEmulators(in: Self.registrationFolder).first(where: {
+                $0.avdName == avd.name
+            })
         else { return }
         if emulator != nil { disconnect() }
         connect(to: running)
@@ -168,7 +183,7 @@ final class PaneModel {
 
     private func startWatcher() {
         guard watcher == nil else { return }
-        let watcher = RegistrationWatcher { [weak self] in
+        let watcher = RegistrationWatcher(directory: Self.registrationFolder) { [weak self] in
             Task { @MainActor in self?.refresh() }
         }
         if watcher.start() {
@@ -181,12 +196,17 @@ final class PaneModel {
     /// Re-reads the registration folder: drops a gone emulator, attaches to a new one (the
     /// selected AVD's first, else any).
     func refresh() {
-        let running = EmulatorDiscovery.runningEmulators()
+        let running = EmulatorDiscovery.runningEmulators(in: Self.registrationFolder)
         if let current = emulator, !running.contains(where: { $0.pid == current.pid }) {
-            log.info("Emulator \(current.avdName, privacy: .public) is gone")
+            // Stopped from outside (`adb emu kill`, a crash): show Start, never relaunch it. The
+            // launch that started it is forgotten, so nothing can pick it up again.
+            log.info("Emulator \(current.avdName, privacy: .public) is gone; showing Start")
             disconnect()
             if ownedEmulatorPID == current.pid { ownedEmulatorPID = nil }
-            if status != .starting { status = .noEmulator }
+            if status != .starting {
+                forgetLaunch()
+                status = .noEmulator
+            }
         }
         guard emulator == nil else { return }
         #if DEBUG
@@ -202,10 +222,21 @@ final class PaneModel {
 
     // MARK: Starting and restarting
 
-    @ObservationIgnored private var launchedAVDName: String?
+    /// The AVD being started (by Pane, or elsewhere for an attach request), for the title.
+    private(set) var launchedAVDName: String?
 
-    /// Launches the selected AVD headless and shows its progress until it is live.
+    /// Drops what Pane knows about the emulator it launched (once it is gone).
+    private func forgetLaunch() {
+        startTask?.cancel()
+        startTask = nil
+        launchedProcess = nil
+        launchedAVDName = nil
+    }
+
+    /// Launches the selected AVD headless and shows its progress until it is live. Only the
+    /// Start button calls this: Pane never starts an emulator on its own.
     func startSelectedEmulator() {
+        log.info("Start pressed")
         reloadAVDs()
         guard let avd = selectedAVD else {
             startProblem = "No emulators set up."
@@ -233,6 +264,12 @@ final class PaneModel {
         }
         log.info("Launched \(avdName, privacy: .public) as PID \(process.processIdentifier)")
         launchedProcess = process
+        waitForStart(of: avdName, process: process)
+    }
+
+    /// Shows `avdName` starting and attaches once it registers. `process` is the launch when
+    /// Pane started it; nil for one started elsewhere (the emulator wrapper's attach request).
+    private func waitForStart(of avdName: String, process: Process?) {
         launchedAVDName = avdName
         status = .starting
         startTask?.cancel()
@@ -243,9 +280,10 @@ final class PaneModel {
                 guard let self, self.status == .starting else { return }
                 self.startWatcher()
                 self.refresh()
-                if !process.isRunning, self.emulator == nil, self.status == .starting {
+                if let process, !process.isRunning, self.emulator == nil, self.status == .starting {
                     self.log.error("Emulator exited while starting, status \(process.terminationStatus)")
                     self.startProblem = "The emulator quit while starting."
+                    self.forgetLaunch()
                     self.status = .noEmulator
                     return
                 }
@@ -253,13 +291,39 @@ final class PaneModel {
             }
             guard let self, self.status == .starting, !Task.isCancelled else { return }
             self.startProblem = "The emulator didn't start."
+            self.forgetLaunch()
             self.status = .noEmulator
+        }
+    }
+
+    /// Shows an AVD that something else is starting or has started (the emulator wrapper:
+    /// `pane://attach?avd=` or `--attach`). Attaches if it is running, else waits for it. Never
+    /// launches anything, and never stops the emulator on screen.
+    func requestAttach(avdName: String) {
+        log.info("Attach requested for \(avdName, privacy: .public)")
+        reloadAVDs()
+        selectedAVDName = avdName
+        startProblem = nil
+        let running = EmulatorDiscovery.runningEmulators(in: Self.registrationFolder).first { $0.avdName == avdName }
+        if let running, emulator?.pid == running.pid { return }
+        if status == .starting, launchedAVDName == avdName { return }
+        reconnectTask?.cancel()
+        reconnectAttempt = 0
+        if emulator != nil { disconnect() }
+        if let avd = avds.first(where: { $0.name == avdName }) { setProfile(avd.profile) }
+        if let running {
+            status = .noEmulator
+            connect(to: running)
+        } else {
+            launchedProcess = nil
+            waitForStart(of: avdName, process: nil)
         }
     }
 
     /// Restarts the emulator on screen. Callers confirm first unless `ownsEmulator`.
     func restartEmulator() {
         guard let current = emulator else { return }
+        log.info("Restart chosen")
         reconnectAttempt = 0
         reconnectTask?.cancel()
         let avdName = current.avdName
@@ -461,7 +525,7 @@ final class PaneModel {
         }
     }
 
-    /// Records the frames already arriving into a movie on the Desktop.
+    /// Records the frames already arriving into a movie in the screenshot folder.
     private func startRecording() {
         guard status == .live, let size = streamRequest?.size else { return }
         let url = CaptureFileName.unusedURL(
@@ -495,7 +559,7 @@ final class PaneModel {
 
     // MARK: Screenshot
 
-    /// Saves a full-size PNG of the screen to the Desktop, named as macOS names its own.
+    /// Saves a full-size PNG of the screen to the screenshot folder, named as macOS names its own.
     func saveScreenshot() {
         guard let connection, status == .live else { return }
         let folder = Self.captureFolder
@@ -512,15 +576,22 @@ final class PaneModel {
         }
     }
 
-    /// The Desktop. Debug builds take `-PaneCaptureFolder <path>`, so checks never write there.
+    /// Where macOS saves screenshots (`CaptureLocation`), read at each capture so a change in
+    /// the Screenshot app applies at once. Debug builds take `-PaneCaptureFolder <path>` (checks
+    /// never write to the real folder) and `-PaneScreenCaptureLocation <value>`, which stands in
+    /// for the system setting so checks never change it.
     static var captureFolder: URL {
         #if DEBUG
             if let path = UserDefaults.standard.string(forKey: "PaneCaptureFolder") {
                 return URL(filePath: path, directoryHint: .isDirectory)
             }
+            let configured =
+                UserDefaults.standard.string(forKey: "PaneScreenCaptureLocation")
+                ?? CaptureLocation.configuredLocation()
+        #else
+            let configured = CaptureLocation.configuredLocation()
         #endif
-        return FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Desktop")
+        return CaptureLocation.folder(configured: configured)
     }
 
     // MARK: Rotation
@@ -664,7 +735,7 @@ final class PaneModel {
             try? await Task.sleep(for: delay)
             guard let self, !Task.isCancelled, self.status == .connecting, self.connection == nil else { return }
             // Re-read the registration: a restarted emulator has a new port and token.
-            let running = EmulatorDiscovery.runningEmulators()
+            let running = EmulatorDiscovery.runningEmulators(in: Self.registrationFolder)
             guard let fresh = running.first(where: { $0.pid == current.pid }) else {
                 self.emulator = nil
                 self.status = .noEmulator

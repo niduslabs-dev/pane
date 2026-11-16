@@ -8,6 +8,12 @@ import os
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let model = PaneModel()
     private var window: NSWindow?
+    /// An attach request (`pane://attach?avd=`) that arrived before the model started.
+    private var pendingAttach: String?
+    private var started = false
+    /// True while the takeover script runs, so the menu item can't start a second run.
+    private var takeoverRunning = false
+    private let log = Logger(subsystem: "dev.niduslabs.pane", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make(target: self)
@@ -20,8 +26,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if let trailing = window.trafficLightsTrailingEdge {
             model.titleLeadingInset = trailing + Theme.Window.titleGap
         }
-        NSApp.activate()
+        let launchAttach = AttachRequest.avdName(fromArguments: CommandLine.arguments)
+        // Opened by the emulator wrapper: stay in the background, as `open -g` asked.
+        if launchAttach == nil { NSApp.activate() }
         model.start()
+        started = true
+        if let name = pendingAttach ?? launchAttach {
+            pendingAttach = nil
+            model.requestAttach(avdName: name)
+        }
         #if DEBUG
             // Shows whether mouse events reach the app at all, for scripted background checks.
             NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .scrollWheel, .keyDown]) {
@@ -35,6 +48,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// `pane://attach?avd=<name>` from the emulator wrapper: show that AVD.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let name = AttachRequest.avdName(from: url) else {
+                log.error("Ignored URL \(url.absoluteString, privacy: .public)")
+                continue
+            }
+            if started {
+                model.requestAttach(avdName: name)
+            } else {
+                pendingAttach = name
+            }
+        }
+    }
+
+    // MARK: Show All Emulators in Pane
+
+    /// Turns the emulator takeover on or off by running the bundled script.
+    @objc func toggleTakeover(_ sender: NSMenuItem) {
+        guard !takeoverRunning else { return }
+        guard let script = Bundle.main.url(forResource: "emulator-takeover", withExtension: "sh") else {
+            log.error("emulator-takeover.sh is missing from the app")
+            NSSound.beep()
+            return
+        }
+        let action: EmulatorTakeover.Action = EmulatorTakeover.isInstalled() ? .uninstall : .install
+        let app = Bundle.main.bundleURL
+        takeoverRunning = true
+        log.info("Takeover \(action.rawValue, privacy: .public)")
+        Task {
+            defer { takeoverRunning = false }
+            do {
+                let output = try await EmulatorTakeover.run(action, script: script, app: app)
+                log.info("Takeover output: \(output, privacy: .public)")
+            } catch {
+                log.error("Takeover failed: \(String(describing: error), privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Couldn't change where emulators open."
+                alert.informativeText = (error as? EmulatorTakeover.Failure)?.output ?? error.localizedDescription
+                if let window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
+            }
+        }
+    }
 
     func applicationWillResignActive(_ notification: Notification) { model.releaseAll() }
     func windowDidResignKey(_ notification: Notification) { model.releaseAll() }
@@ -99,6 +156,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return model.isAvailable(mode)
         case #selector(zoomIn(_:)): return model.canZoom(in: true)
         case #selector(zoomOut(_:)): return model.canZoom(in: false)
+        case #selector(toggleTakeover(_:)):
+            item.state = EmulatorTakeover.isInstalled() ? .on : .off
+            return !takeoverRunning
         default: return true
         }
     }
