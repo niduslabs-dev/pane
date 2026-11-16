@@ -32,8 +32,8 @@ struct TitleBar: View {
 
 /// The floating toolbar under the device, as in Device Hub: a glass capsule with Home,
 /// Screenshot and Record, and a glass circle with Rotate. Back is an edge swipe on the screen,
-/// as on the phone. Symbols are Device Hub's (`app.grid.3x3` is private, so Home uses its
-/// public look-alike).
+/// as on the phone. Screenshot and Record are Device Hub's SF Symbols; its Home and Rotate glyphs
+/// are private to Apple, so Pane draws its own (`PaneSymbol`).
 struct DeviceToolbar: View {
     let model: PaneModel
 
@@ -42,12 +42,12 @@ struct DeviceToolbar: View {
         GlassGroup(spacing: Theme.Toolbar.capsuleGap) {
             HStack(spacing: Theme.Toolbar.capsuleGap) {
                 capsule {
-                    ToolbarButton(symbol: "square.grid.3x3.fill", label: "Home") { model.pressHome() }
-                    ToolbarButton(symbol: "camera.viewfinder", label: "Screenshot") { model.saveScreenshot() }
+                    ToolbarButton(symbol: PaneSymbol.home, label: "Home") { model.pressHome() }
+                    ToolbarButton(symbol: .system("camera.viewfinder"), label: "Screenshot") { model.saveScreenshot() }
                     RecordButton(model: model)
                 }
                 ToolbarButton(
-                    symbol: "rectangle.portrait.rotate", label: "Rotate Left", width: Theme.Toolbar.circleSize,
+                    symbol: PaneSymbol.rotateLeft, label: "Rotate Left", width: Theme.Toolbar.circleSize,
                     height: Theme.Toolbar.circleSize
                 ) { model.rotate() }
                 .glassSurface(in: Circle())
@@ -71,7 +71,7 @@ struct RecordButton: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             ToolbarButton(
-                symbol: model.recordingStartedAt == nil ? "record.circle" : "record.circle.fill",
+                symbol: .system(model.recordingStartedAt == nil ? "record.circle" : "record.circle.fill"),
                 label: label(at: context.date),
                 tint: model.recordingStartedAt == nil ? nil : Color(nsColor: Theme.Palette.recording)
             ) { model.toggleRecording() }
@@ -89,7 +89,7 @@ struct RecordButton: View {
 /// A toolbar icon button in the primary text colour (as Device Hub's are): hover and press
 /// shades per the guide, dimmed in place when disabled.
 struct ToolbarButton: View {
-    let symbol: String
+    let symbol: PaneSymbol
     let label: String
     var tint: Color?
     var width = Theme.Toolbar.buttonWidth
@@ -98,7 +98,7 @@ struct ToolbarButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            symbol.image
                 .font(.system(size: Theme.Toolbar.iconSize, weight: .regular))
                 .foregroundStyle(tint ?? Color(nsColor: Theme.Palette.text))
                 .frame(width: width, height: height)
@@ -162,6 +162,30 @@ struct GlassGroup<Content: View>: View {
             GlassEffectContainer(spacing: spacing) { content }
         } else {
             content
+        }
+    }
+}
+
+/// A toolbar symbol: an SF Symbol, or one of Pane's own custom symbols. Pane's are drawn by
+/// `scripts/make-symbols.py` from measurements of Device Hub's toolbar (Apple's are private) and
+/// compiled into the app's asset catalog by `scripts/build-app.sh`. A bare `swift build` has no
+/// catalog, so each falls back to the nearest SF Symbol.
+enum PaneSymbol: Equatable {
+    case system(String)
+    case custom(String, fallback: String)
+
+    /// Nine rounded app-icon squares, like Device Hub's Home.
+    static let home = PaneSymbol.custom("pane.home", fallback: "square.grid.3x3.fill")
+    /// A device with two arrows turning counter-clockwise, like Device Hub's Rotate Left.
+    static let rotateLeft = PaneSymbol.custom("pane.rotate.left", fallback: "rectangle.portrait.rotate")
+
+    var image: Image {
+        switch self {
+        case .system(let name):
+            Image(systemName: name)
+        case .custom(let name, let fallback):
+            NSImage(symbolName: name, bundle: .main, variableValue: 0) != nil
+                ? Image(name, bundle: .main) : Image(systemName: fallback)
         }
     }
 }
