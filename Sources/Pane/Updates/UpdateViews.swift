@@ -2,30 +2,15 @@ import AppKit
 import SwiftUI
 import os
 
-/// Pane's icon on the update surfaces: the bundled app icon once one is chosen, and until then
-/// the board's placeholder tile (a dashed outline on paper).
+/// Pane's icon on the update surfaces: the app's own icon, read from the bundle, so there is
+/// no second copy of the artwork.
 struct PaneIcon: View {
     let size: CGFloat
 
-    private static let bundled: NSImage? = Bundle.main.url(forResource: "AppIcon", withExtension: "icns")
-        .flatMap { NSImage(contentsOf: $0) }
-
     var body: some View {
-        if let icon = Self.bundled {
-            Image(nsImage: icon).resizable().interpolation(.high)
-                .frame(width: size, height: size)
-                .accessibilityHidden(true)
-        } else {
-            let shape = RoundedRectangle(cornerRadius: size * Kit.Icon.tileRadiusRatio, style: .continuous)
-            shape.fill(Kit.Colour.infoFill)
-                .overlay {
-                    shape.strokeBorder(
-                        Kit.Colour.secondaryText,
-                        style: StrokeStyle(lineWidth: Kit.Icon.placeholderLine, dash: Kit.Icon.placeholderDash))
-                }
-                .frame(width: size, height: size)
-                .accessibilityHidden(true)
-        }
+        Image(nsImage: NSApp.applicationIconImage).resizable().interpolation(.high)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
 

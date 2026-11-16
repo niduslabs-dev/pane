@@ -86,8 +86,8 @@ env -u CC -u CXX -u CPPFLAGS -u LDFLAGS -u LIBRARY_PATH xcrun actool Resources/A
     --output-partial-info-plist "$(dirname "$APP")/assets-partial.plist" >/dev/null
 cp scripts/emulator-takeover.sh "$APP/Contents/Resources/emulator-takeover.sh"
 
-# The app icon, once one is chosen: generated in the Nidus Labs assets repo and committed
-# here as Resources/AppIcon.icns. Until then Pane has the generic icon.
+# The app icon: generated in the Nidus Labs assets repo and committed here as
+# Resources/AppIcon.icns (scripts/sync-icon.sh refreshes it; never edit it by hand).
 ICON_KEYS=
 if [ -f Resources/AppIcon.icns ]; then
     cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"

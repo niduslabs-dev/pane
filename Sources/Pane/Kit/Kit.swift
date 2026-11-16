@@ -87,11 +87,6 @@ enum Kit {
         static let licenceSize: CGFloat = 48
         static let licenceCornerRadius: CGFloat = 12
         static let glyph: CGFloat = 30
-        /// An app icon tile's corner radius, as a share of its size (guide 1.4).
-        static let tileRadiusRatio: CGFloat = 0.26
-        /// The dashed outline of the placeholder tile Pane shows until its icon is chosen.
-        static let placeholderLine: CGFloat = 1
-        static let placeholderDash: [CGFloat] = [3, 2]
         static let placeholderGlyphScale: CGFloat = 0.9
         static let placeholderFillOpacity: Double = 0.5
         static let licenceGlyph: CGFloat = 26
