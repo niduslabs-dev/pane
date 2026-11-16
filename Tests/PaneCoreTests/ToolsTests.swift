@@ -256,6 +256,44 @@ private func fixtureDump() throws -> String {
         #expect(grid.pixel(at: CGPoint(x: 300, y: 200), viewSize: view) == (2, 1))
     }
 
+    /// A device whose columns alternate black and white, one pixel each: a window at half size
+    /// shows grey everywhere, the full-resolution frame gives the device's own pixel.
+    @Test func aFullResolutionFrameGivesTheDevicePixelUnderThePoint() {
+        let device = PixelSize(width: 8, height: 4)
+        var full: [UInt8] = []
+        for _ in 0..<device.height {
+            for column in 0..<device.width {
+                let value: UInt8 = column % 2 == 0 ? 0 : 255
+                full += [value, value, value, 255]
+            }
+        }
+        let shownSize = PixelSize(width: 4, height: 2)
+        let shown = [UInt8](repeating: 128, count: shownSize.width * shownSize.height * 4)
+        let fullGrid = PixelGrid(size: device, pixels: Data(full))!
+        let shownGrid = PixelGrid(size: shownSize, pixels: Data(shown))!
+        // Each device pixel is drawn 2 pt wide.
+        let view = CGSize(width: 16, height: 8)
+        #expect(shownGrid.colour(at: CGPoint(x: 1, y: 1), viewSize: view).hex == "#808080")
+        #expect(fullGrid.colour(at: CGPoint(x: 1, y: 1), viewSize: view).hex == "#000000")
+        #expect(fullGrid.colour(at: CGPoint(x: 2, y: 1), viewSize: view).hex == "#FFFFFF")
+        #expect(fullGrid.colour(at: CGPoint(x: 3.9, y: 7.9), viewSize: view).hex == "#FFFFFF")
+        #expect(fullGrid.colour(at: CGPoint(x: 15.9, y: 0), viewSize: view).hex == "#FFFFFF")
+        // The far edge and anything past it clamp to the last pixel.
+        #expect(fullGrid.colour(at: CGPoint(x: 16, y: 8), viewSize: view).hex == "#FFFFFF")
+        #expect(fullGrid.colour(at: CGPoint(x: -4, y: -4), viewSize: view).hex == "#000000")
+    }
+
+    /// A Pixel 8 at Fit Screen: 1080 × 2400 drawn 368.5 × 819 pt.
+    @Test func mapsAWindowPointToTheFullFramesPixel() {
+        let grid = PixelGrid(
+            size: PixelSize(width: 1080, height: 2400), pixels: Data(count: 1080 * 2400 * 4))!
+        let view = CGSize(width: 368.55, height: 819)
+        #expect(grid.pixel(at: CGPoint(x: 184.275, y: 409.5), viewSize: view) == (540, 1200))
+        #expect(grid.pixel(at: CGPoint(x: 368.5, y: 818.9), viewSize: view) == (1079, 2399))
+        #expect(grid.pixel(at: CGPoint(x: 0.3, y: 0.3), viewSize: view) == (0, 0))
+        #expect(grid.pixel(at: CGPoint(x: 0.4, y: 0.4), viewSize: view) == (1, 1))
+    }
+
     @Test func loupeNeighbourhoodRepeatsEdgePixels() {
         let around = grid().neighbourhood(x: 0, y: 0, radius: 1)
         #expect(around.count == 3)

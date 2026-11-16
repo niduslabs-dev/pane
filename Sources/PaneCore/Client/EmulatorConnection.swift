@@ -146,6 +146,16 @@ public final class EmulatorConnection: Sendable {
         return try await controller.getScreenshot(format, options: callOptions).image
     }
 
+    /// The screen as it is now at the device's full resolution, in the same layout as the
+    /// stream's frames (RGBA, upright for the current orientation). Nil while the display is off.
+    /// Pick Colour reads this on a click, so the colour is the device's own pixel even when
+    /// the window shows a scaled-down frame.
+    public func screenshotFrame() async throws -> ScreenFrame? {
+        var format = Android_Emulation_Control_ImageFormat()
+        format.format = .rgba8888
+        return Self.frame(from: try await controller.getScreenshot(format, options: callOptions))
+    }
+
     /// Sets the device's clipboard text. The text is never logged.
     public func setClipboard(_ text: String) async throws {
         var data = Android_Emulation_Control_ClipData()
@@ -238,6 +248,9 @@ public final class EmulatorConnection: Sendable {
                         }
                     }
                     continuation.finish()
+                } catch is CancellationError {
+                    // A restart at a new size or a disconnect: not a failure, so not logged as one.
+                    continuation.finish(throwing: CancellationError())
                 } catch {
                     Self.log.error("Screen stream ended: \(String(describing: error), privacy: .public)")
                     continuation.finish(throwing: error)

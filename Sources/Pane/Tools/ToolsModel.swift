@@ -96,6 +96,7 @@ final class ToolsModel {
     @ObservationIgnored private var readTask: Task<Void, Never>?
     @ObservationIgnored private var settleTask: Task<Void, Never>?
     @ObservationIgnored private var copiedTask: Task<Void, Never>?
+    @ObservationIgnored private var pickTask: Task<Void, Never>?
     @ObservationIgnored private var firstChange: ContinuousClock.Instant?
     @ObservationIgnored private var lastChange: ContinuousClock.Instant?
     @ObservationIgnored private let log = Logger(subsystem: "dev.niduslabs.pane", category: "tools")
@@ -174,6 +175,7 @@ final class ToolsModel {
         readTask?.cancel()
         settleTask?.cancel()
         copiedTask?.cancel()
+        pickTask?.cancel()
         readTask = nil
         settleTask = nil
         readAgain = false
@@ -245,7 +247,7 @@ final class ToolsModel {
             hoverPoint = point
             updateColour()
             // Option-click copies the colour as rgb().
-            copyColour(asRGB: modifiers.contains(.option))
+            pickColour(at: point, asRGB: modifiers.contains(.option))
         default:
             break
         }
@@ -381,6 +383,31 @@ final class ToolsModel {
         if next != colour { colour = next }
         let around = grid.neighbourhood(x: pixel.x, y: pixel.y, radius: Theme.Tools.loupeRadius)
         if around != loupe { loupe = around }
+    }
+
+    /// A click: reads the device's own pixel from a full-resolution screenshot and copies it.
+    /// The loupe follows the frame on screen, which is scaled down in a small window, so its
+    /// colours can be blends. When the screenshot can't be had (or the device has turned since)
+    /// the colour on screen is copied instead.
+    private func pickColour(at point: CGPoint, asRGB: Bool) {
+        guard let host, let connection = host.connection, let viewSize = scale?.viewSize else {
+            copyColour(asRGB: asRGB)
+            return
+        }
+        let quadrants = host.quadrants
+        pickTask?.cancel()
+        pickTask = Task { [weak self] in
+            let frame = try? await connection.screenshotFrame()
+            guard let self, !Task.isCancelled, self.active == .pickColour else { return }
+            if let frame, frame.rotationQuadrants == quadrants,
+                let grid = PixelGrid(size: frame.size, pixels: frame.pixels)
+            {
+                self.colour = grid.colour(at: point, viewSize: viewSize)
+            } else {
+                self.log.info("No full-size screenshot; copying the colour on screen")
+            }
+            self.copyColour(asRGB: asRGB)
+        }
     }
 
     /// Puts the colour on the Mac's clipboard (its hex, or rgb()) and says so for a moment.

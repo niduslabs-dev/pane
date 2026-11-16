@@ -65,6 +65,14 @@ public struct PixelGrid: Sendable {
         return (min(max(x, 0), size.width - 1), min(max(y, 0), size.height - 1))
     }
 
+    /// The colour under a point on the drawn screen (`viewSize` points, y down). The point is
+    /// mapped to this image's own pixels, so a full-resolution image gives the device's pixel
+    /// wherever a scaled-down one would give a blend of several.
+    public func colour(at point: CGPoint, viewSize: CGSize) -> PickedColour {
+        let pixel = pixel(at: point, viewSize: viewSize)
+        return colour(x: pixel.x, y: pixel.y)
+    }
+
     /// The square of pixels around one, row by row, for the loupe: `2 × radius + 1` a side,
     /// with the centre pixel in the middle. Past the image's edge the edge pixel repeats.
     public func neighbourhood(x: Int, y: Int, radius: Int) -> [[PickedColour]] {
