@@ -82,7 +82,8 @@ struct ToolLine: View {
 
 /// Inspect layout: the view under the pointer outlined with its size in a chip. A click pins
 /// it: amber dashed guides show the distance to its parent's edges, and a card lists its type,
-/// frame, pixel size and id.
+/// frame, pixel size and id. The card and the distance chips are placed so none covers
+/// another, the outline or the size chip (`LabelPlacement`).
 struct InspectOverlay: View {
     let tools: ToolsModel
 
@@ -90,26 +91,95 @@ struct InspectOverlay: View {
         GeometryReader { proxy in
             if let view = tools.pinned ?? tools.hovered, let scale = tools.scale {
                 let rect = scale.view(view.node.frame)
-                let isPinned = tools.pinned != nil
-                let chipX = chipLeading(for: rect, in: proxy.size)
-                let chipY = chipTop(for: rect)
+                let sizeText = sizeText(view.node.frame.size)
+                let sizeChip = CGRect(
+                    origin: CGPoint(x: chipLeading(for: rect, in: proxy.size), y: chipTop(for: rect)),
+                    size: ToolChipMetrics.size(of: sizeText))
+                let pinned = tools.pinned.map {
+                    layout(pinned: $0, rect: rect, sizeChip: sizeChip, scale: scale, in: proxy.size)
+                }
                 ZStack(alignment: .topLeading) {
-                    if isPinned {
-                        ParentGuides(view: view, scale: scale, density: tools.density)
+                    if let pinned {
+                        ForEach(pinned.guides.indices, id: \.self) { index in
+                            let guide = pinned.guides[index]
+                            ToolLine(from: guide.from, to: guide.to, colour: Theme.Palette.toolGuide, dashed: true)
+                        }
                     }
                     outline(rect)
-                    ToolChip(text: sizeText(view.node.frame.size))
-                        .alignmentGuide(.leading) { _ in -chipX }
-                        .alignmentGuide(.top) { _ in -chipY }
-                    if isPinned {
+                    ToolChip(text: sizeText)
+                        .alignmentGuide(.leading) { _ in -sizeChip.minX }
+                        .alignmentGuide(.top) { _ in -sizeChip.minY }
+                    if let pinned {
+                        ForEach(pinned.guides.indices, id: \.self) { index in
+                            let guide = pinned.guides[index]
+                            ToolChip(text: guide.text).position(x: guide.chip.midX, y: guide.chip.midY)
+                        }
                         InspectCard(node: view.node, density: tools.density)
-                            .frame(width: min(Theme.Tools.cardWidth, proxy.size.width - 2 * Theme.Tools.cardMargin))
-                            .position(cardCentre(for: rect, rows: InspectCard.rowCount(for: view.node), in: proxy.size))
+                            .frame(width: pinned.card.width)
+                            .position(x: pinned.card.midX, y: pinned.card.midY)
                     }
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             }
         }
+    }
+
+    private struct Guide {
+        let from: CGPoint
+        let to: CGPoint
+        let text: String
+        let chip: CGRect
+    }
+
+    private struct PinnedLayout {
+        let guides: [Guide]
+        let card: CGRect
+    }
+
+    /// The card first (under the outline, else above it, else at the screen's bottom or top),
+    /// then each distance chip beside its guide, all clear of each other.
+    private func layout(
+        pinned view: InspectedView, rect: CGRect, sizeChip: CGRect, scale: ScreenScale, in size: CGSize
+    ) -> PinnedLayout {
+        let margin = Theme.Tools.cardMargin
+        var placement = LabelPlacement(
+            bounds: CGRect(origin: .zero, size: size).insetBy(dx: margin, dy: margin), spacing: Theme.Tools.chipGap,
+            avoiding: [rect.insetBy(dx: -Theme.Tools.haloWidth, dy: -Theme.Tools.haloWidth), sizeChip])
+        let rows = CGFloat(InspectCard.rowCount(for: view.node))
+        let cardSize = CGSize(
+            width: min(Theme.Tools.cardWidth, size.width - 2 * margin),
+            height: rows * Theme.Tools.cardLineHeight + (rows - 1) * Theme.Tools.cardRowGap
+                + 2 * Theme.Tools.cardPaddingV)
+        let below = rect.maxY + Theme.Tools.cardGap + cardSize.height / 2
+        let above = min(rect.minY, sizeChip.minY) - Theme.Tools.cardGap - cardSize.height / 2
+        let card = placement.place(
+            size: cardSize,
+            candidates: [
+                CGPoint(x: rect.midX, y: below), CGPoint(x: rect.midX, y: above),
+                CGPoint(x: size.width / 2, y: size.height - margin - cardSize.height / 2),
+                CGPoint(x: size.width / 2, y: margin + cardSize.height / 2),
+            ])
+        let frame = view.node.frame
+        let parent = view.parentFrame ?? CGRect(origin: .zero, size: scale.pixelSize)
+        let inside = EdgeDistances(frame: frame, parent: parent)
+        let outer = scale.view(parent)
+        // A side the view touches gets no guide.
+        let sides: [(CGFloat, CGPoint, CGPoint)] = [
+            (inside.left, CGPoint(x: outer.minX, y: rect.midY), CGPoint(x: rect.minX, y: rect.midY)),
+            (inside.right, CGPoint(x: rect.maxX, y: rect.midY), CGPoint(x: outer.maxX, y: rect.midY)),
+            (inside.top, CGPoint(x: rect.midX, y: outer.minY), CGPoint(x: rect.midX, y: rect.minY)),
+            (inside.bottom, CGPoint(x: rect.midX, y: rect.maxY), CGPoint(x: rect.midX, y: outer.maxY)),
+        ]
+        let guides = sides.filter { $0.0 > 0 }.map { length, from, to in
+            let text = tools.density.map { "\($0.wholeDp(length))" } ?? "\(Int(length.rounded())) px"
+            let chipSize = ToolChipMetrics.size(of: text)
+            let chip = placement.place(
+                size: chipSize,
+                candidates: LabelPlacement.guideCandidates(from: from, to: to, chip: chipSize, gap: Theme.Tools.chipGap)
+            )
+            return Guide(from: from, to: to, text: text, chip: chip)
+        }
+        return PinnedLayout(guides: guides, card: card)
     }
 
     private func sizeText(_ size: CGSize) -> String {
@@ -144,73 +214,14 @@ struct InspectOverlay: View {
     private func chipLeading(for rect: CGRect, in size: CGSize) -> CGFloat {
         min(max(rect.minX, 0), max(0, size.width - Theme.Tools.cardWidth / 2))
     }
-
-    /// Centred under the outline, or above it when the view is low on the screen.
-    private func cardCentre(for rect: CGRect, rows: Int, in size: CGSize) -> CGPoint {
-        let height =
-            CGFloat(rows) * Theme.Tools.cardLineHeight + CGFloat(rows - 1) * Theme.Tools.cardRowGap
-            + 2 * Theme.Tools.cardPaddingV
-        let half = min(Theme.Tools.cardWidth, size.width - 2 * Theme.Tools.cardMargin) / 2
-        let x = min(max(rect.midX, half + Theme.Tools.cardMargin), size.width - half - Theme.Tools.cardMargin)
-        let below = rect.maxY + Theme.Tools.cardGap + height / 2
-        let chipRoom = Theme.Tools.chipHeight + Theme.Tools.chipGap
-        let above = rect.minY - chipRoom - Theme.Tools.cardGap - height / 2
-        let y =
-            below + height / 2 + Theme.Tools.cardMargin <= size.height
-            ? below : max(above, height / 2 + Theme.Tools.cardMargin)
-        return CGPoint(x: x, y: y)
-    }
 }
 
-/// Amber dashed guides from a pinned view to its parent's edges, each with its length in dp.
-/// A side the view touches gets none.
-private struct ParentGuides: View {
-    let view: InspectedView
-    let scale: ScreenScale
-    let density: DensityScale?
-
-    var body: some View {
-        let frame = view.node.frame
-        let parent = view.parentFrame ?? CGRect(origin: .zero, size: scale.pixelSize)
-        let inside = EdgeDistances(frame: frame, parent: parent)
-        let rect = scale.view(frame)
-        let outer = scale.view(parent)
-        ZStack(alignment: .topLeading) {
-            if inside.left > 0 {
-                guide(
-                    from: CGPoint(x: outer.minX, y: rect.midY), to: CGPoint(x: rect.minX, y: rect.midY),
-                    length: inside.left, horizontal: true)
-            }
-            if inside.right > 0 {
-                guide(
-                    from: CGPoint(x: rect.maxX, y: rect.midY), to: CGPoint(x: outer.maxX, y: rect.midY),
-                    length: inside.right, horizontal: true)
-            }
-            if inside.top > 0 {
-                guide(
-                    from: CGPoint(x: rect.midX, y: outer.minY), to: CGPoint(x: rect.midX, y: rect.minY),
-                    length: inside.top, horizontal: false)
-            }
-            if inside.bottom > 0 {
-                guide(
-                    from: CGPoint(x: rect.midX, y: rect.maxY), to: CGPoint(x: rect.midX, y: outer.maxY),
-                    length: inside.bottom, horizontal: false)
-            }
-        }
-    }
-
-    /// The line and its chip: under a level guide, beside an upright one.
-    private func guide(from: CGPoint, to: CGPoint, length: CGFloat, horizontal: Bool) -> some View {
-        let middle = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
-        let offset = Theme.Tools.chipHeight / 2 + Theme.Tools.chipGap
-        let text = density.map { "\($0.wholeDp(length))" } ?? "\(Int(length.rounded())) px"
-        return ZStack {
-            ToolLine(from: from, to: to, colour: Theme.Palette.toolGuide, dashed: true)
-            ToolChip(text: text)
-                .position(
-                    x: middle.x + (horizontal ? 0 : offset + Theme.Tools.chipHeight / 2),
-                    y: middle.y + (horizontal ? offset : 0))
-        }
+/// A chip's size for its text, for placing it before it is drawn.
+enum ToolChipMetrics {
+    @MainActor
+    static func size(of text: String) -> CGSize {
+        let width = (text as NSString).size(withAttributes: [.font: Theme.Tools.chipFont]).width
+        return CGSize(width: ceil(width) + 2 * Theme.Tools.chipPaddingH, height: Theme.Tools.chipHeight)
     }
 }
 
@@ -238,11 +249,13 @@ struct InspectCard: View {
         .padding(.vertical, Theme.Tools.cardPaddingV)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: Theme.Tools.cardRadius, style: .continuous)
-                .fill(Color(nsColor: Theme.Palette.toolChip))
-                .shadow(
-                    color: .black.opacity(Theme.Tools.cardShadowOpacity), radius: Theme.Tools.cardShadowRadius,
-                    y: Theme.Tools.cardShadowY)
+            MenuSurface(
+                shape: RoundedRectangle(cornerRadius: Theme.Tools.cardRadius, style: .continuous),
+                fill: Theme.Palette.toolChip, solidFill: Theme.Palette.toolChipSolid, blursInLight: true
+            )
+            .shadow(
+                color: .black.opacity(Theme.Tools.cardShadowOpacity), radius: Theme.Tools.cardShadowRadius,
+                y: Theme.Tools.cardShadowY)
         )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Tools.cardRadius, style: .continuous)
@@ -470,7 +483,9 @@ struct ToolModePill: View {
                     color: .black.opacity(Theme.ModePill.shadowOpacity), radius: Theme.ModePill.shadowRadius,
                     y: Theme.ModePill.shadowY)
         )
-        .overlay(Capsule().strokeBorder(Color(nsColor: Theme.Palette.hairline), lineWidth: Theme.ModePill.hairline))
+        .overlay(
+            Hairline(shape: Capsule(), width: Theme.ModePill.hairline, colour: Color(nsColor: Theme.Palette.hairline))
+        )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(tool.title)
     }

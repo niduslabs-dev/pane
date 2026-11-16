@@ -73,7 +73,7 @@ struct SwitcherButton: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plainRow)
         .accessibilityLabel("\(model.title), switch emulator")
         .accessibilityHint("Shows the emulators.")
     }

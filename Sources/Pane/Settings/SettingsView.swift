@@ -19,7 +19,7 @@ struct SettingsView: View {
     @Environment(\.titleBarHeight) private var titleBarHeight
     @Environment(\.settingsSizing) private var sizing
     @Environment(\.settingsScrollTarget) private var scrollTarget
-    @State private var showsTakeoverInfo = false
+    @Environment(\.settingsInfo) private var info
     @State private var scrollPosition = ScrollPosition(edge: .top)
 
     /// The scroll view fills the window below the title bar, and the window controller sizes
@@ -30,6 +30,18 @@ struct SettingsView: View {
         ScrollView {
             page.onGeometryChange(for: CGFloat.self, of: { $0.size.height }) {
                 sizing?.contentHeightChanged(titleBarHeight + $0)
+            }
+            .overlayPreferenceValue(InfoAnchorKey.self) { anchor in
+                if let anchor, let info, info.isShown {
+                    GeometryReader { proxy in
+                        // A click anywhere else closes it and is swallowed, as with a popover.
+                        Color.clear.contentShape(Rectangle()).onTapGesture { info.isShown = false }
+                        TakeoverInfoPopover()
+                            .offset(
+                                x: proxy[anchor].minX + Theme.InfoPopover.leading,
+                                y: proxy[anchor].maxY + Theme.InfoPopover.gap)
+                    }
+                }
             }
         }
         .scrollPosition($scrollPosition)
@@ -66,7 +78,7 @@ struct SettingsView: View {
                 .padding(.bottom, Kit.Settings.titleToGroups)
             VStack(alignment: .leading, spacing: Kit.Settings.groupSpacing) {
                 if updates.isReady { UpdateBanner(model: updates) }
-                group("Emulators") {
+                group("Emulators", anchorsInfo: true) {
                     takeoverRow
                     SwitchRow(title: "Start emulators without sound", isOn: $settings.startsWithoutSound)
                 }
@@ -82,6 +94,7 @@ struct SettingsView: View {
                                 chooseFolder()
                             }
                         }
+                        .accessibilityIdentifier("settings-save-to")
                     }
                     SwitchRow(
                         title: "Include device frame", caption: "Adds Pane's frame to screenshots.",
@@ -114,22 +127,13 @@ struct SettingsView: View {
                 HStack(spacing: Kit.Row.titleInfoGap) {
                     Text("Show all emulators in Pane").font(Kit.Font.body)
                     Button {
-                        showsTakeoverInfo.toggle()
+                        info?.isShown.toggle()
                     } label: {
                         Image(systemName: "info.circle").font(Kit.Font.chevron)
                             .foregroundStyle(Kit.Colour.secondaryText)
                     }
                     .buttonStyle(.nidusPlain)
                     .accessibilityLabel("More info")
-                    .popover(isPresented: $showsTakeoverInfo, arrowEdge: .bottom) {
-                        Text(
-                            "Pane adds a small launcher to your shell setup, so an emulator started anywhere opens in Pane without its own window. It applies to new terminal windows. Turning this off removes it."
-                        )
-                        .font(Kit.Font.small)
-                        .frame(width: Kit.Settings.infoWidth, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(Kit.Space.l)
-                    }
                 }
                 StatusSwap(key: takeover.caption) {
                     Text(takeover.caption).font(Kit.Font.caption)
@@ -145,6 +149,7 @@ struct SettingsView: View {
                 .fixedSize()
                 .disabled(takeover.state == .changing)
                 .accessibilityLabel("Show all emulators in Pane")
+                .accessibilityIdentifier("settings-takeover-switch")
                 .accessibilityHint(takeover.caption)
         }
         .padding(.horizontal, Kit.Row.horizontalPadding)
@@ -152,13 +157,60 @@ struct SettingsView: View {
     }
 
     /// A group label (11 medium, inset 4) 6 above its card.
-    private func group<Content: View>(_ label: String, @ViewBuilder rows: () -> Content) -> some View {
+    /// `anchorsInfo`: the ⓘ popover opens under this group's card.
+    private func group<Content: View>(_ label: String, anchorsInfo: Bool = false, @ViewBuilder rows: () -> Content)
+        -> some View
+    {
         VStack(alignment: .leading, spacing: Kit.Settings.labelToCard) {
             Text(label).font(Kit.Font.groupLabel).foregroundStyle(Kit.Colour.secondaryText)
                 .padding(.leading, Kit.Settings.labelInset)
                 .accessibilityAddTraits(.isHeader)
             RowCard(content: rows)
+                .anchorPreference(key: InfoAnchorKey.self, value: .bounds) { anchorsInfo ? $0 : nil }
         }
+    }
+}
+
+/// The Emulators card's bounds, where the ⓘ popover hangs from.
+private struct InfoAnchorKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
+/// Whether Show all emulators in Pane's ⓘ popover is open. The window owns it, so Esc closes
+/// the popover before the window.
+@MainActor
+@Observable
+final class SettingsInfo {
+    var isShown = false
+}
+
+/// The ⓘ popover (board 14): 280 wide, 12 pt text, `surfaceMenu` with a hairline and a
+/// shadow, 6 pt under the card so the row's own caption stays readable.
+private struct TakeoverInfoPopover: View {
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.InfoPopover.radius, style: .continuous)
+        Text(
+            "Pane adds a small launcher to your shell setup, so an emulator started anywhere opens in Pane without its own window. It applies to new terminal windows. Turning this off removes it."
+        )
+        .font(Kit.Font.small)
+        .lineSpacing(Theme.InfoPopover.lineSpacing)
+        .foregroundStyle(Kit.Colour.bodyText)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, Theme.InfoPopover.paddingH)
+        .padding(.vertical, Theme.InfoPopover.paddingV)
+        .frame(width: Theme.InfoPopover.width, alignment: .leading)
+        .background(
+            MenuSurface(shape: shape)
+                .shadow(
+                    color: .black.opacity(Theme.Menu.shadowOpacity), radius: Theme.Menu.shadowRadius,
+                    y: Theme.Menu.shadowY)
+        )
+        .overlay(Hairline(shape: shape))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isStaticText)
     }
 }
 
@@ -191,6 +243,7 @@ private struct VersionRow: View {
             Spacer(minLength: 0)
             Button("Check for Updates") { updates.perform(.check) }.buttonStyle(.nidusSmall)
                 .disabled(!updates.canCheck)
+                .accessibilityIdentifier("settings-check-updates")
         }
         .padding(.horizontal, Kit.Row.horizontalPadding)
         .padding(.vertical, Kit.Row.verticalPadding)
@@ -239,6 +292,8 @@ extension EnvironmentValues {
     @Entry var settingsSizing: SettingsSizing?
     /// Where the page scrolls to when it opens.
     @Entry var settingsScrollTarget = SettingsScrollTarget.top
+    /// The ⓘ popover's open state.
+    @Entry var settingsInfo: SettingsInfo?
 }
 
 enum SettingsScrollTarget: Equatable {
@@ -258,9 +313,17 @@ final class SettingsSizing {
     init(contentHeightChanged: @escaping (CGFloat) -> Void) { self.contentHeightChanged = contentHeightChanged }
 }
 
-/// The Settings window: closable only, and Esc closes it.
+/// The Settings window: closable only. Esc closes the ⓘ popover if it is open, else the window.
 final class SettingsWindow: NSWindow {
-    override func cancelOperation(_ sender: Any?) { performClose(sender) }
+    var info: SettingsInfo?
+
+    override func cancelOperation(_ sender: Any?) {
+        if let info, info.isShown {
+            info.isShown = false
+        } else {
+            performClose(sender)
+        }
+    }
 }
 
 /// Owns the Settings window. It is as tall as the page, up to `Kit.Settings.maxHeight`, past
@@ -276,6 +339,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let settings: PaneSettings
     private let takeover: TakeoverSwitch
     private let updates: UpdateModel
+    private let info = SettingsInfo()
     /// The content height last reported (title bar and page), 0 until the page has laid out.
     private var contentHeight: CGFloat = 0
     /// Set by `show()` until the window has its size: it's centred and brought forward then.
@@ -301,7 +365,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             }
             .environment(\.titleBarHeight, titleBarHeight)
             .environment(\.settingsSizing, sizing)
-            .environment(\.settingsScrollTarget, target))
+            .environment(\.settingsScrollTarget, target)
+            .environment(\.settingsInfo, info)
+            .displayOptions())
         presentPending = true
         hosting?.layoutSubtreeIfNeeded()
         // A reopen with the page unchanged reports no new height: use the last one.
@@ -309,7 +375,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     /// A result nobody is looking at any more ("Up to date", a failed check) is cleared.
-    func windowWillClose(_ notification: Notification) { updates.perform(.dismiss) }
+    func windowWillClose(_ notification: Notification) {
+        updates.perform(.dismiss)
+        info.isShown = false
+    }
 
     private func makeWindow() -> NSWindow {
         let window = SettingsWindow(
@@ -326,6 +395,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.isRestorable = false
         window.setFrameAutosaveName("")
         window.delegate = self
+        window.info = info
         DisplayOptions.applyDebugContrast(to: window)
         let hosting = NSHostingView(rootView: AnyView(EmptyView()))
         hosting.sizingOptions = []

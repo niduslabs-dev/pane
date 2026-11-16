@@ -53,7 +53,7 @@ enum Theme {
         /// Start on the screen is a little wider than a standard capsule, as on the board.
         static let startPadding: CGFloat = 20
         static let standardPadding: CGFloat = 16
-        static let disabledOpacity: CGFloat = 0.45
+        static let disabledOpacity = Opacity.disabled
     }
 
     /// The `blurSwap` status line (design guide 2).
@@ -116,7 +116,7 @@ enum Theme {
         static let circleSize: CGFloat = 36
         static let iconSize: CGFloat = 15
         static let hairline: CGFloat = 0.5
-        static let disabledOpacity: CGFloat = 0.45
+        static let disabledOpacity = Opacity.disabled
         /// Hover and press shades over a button (design guide Controls: +4%, +8%).
         static let hoverOpacity: Double = 0.06
         static let pressedOpacity: Double = 0.12
@@ -211,17 +211,19 @@ enum Theme {
         /// Window background, title bar included (`titleBarMatchesContent`). Dark mode draws it
         /// as ink glass (`Glass`) unless transparency is reduced or contrast increased.
         static let surface = dynamic(light: 0xF4F4F6, dark: 0x1C1B22)
-        static let text = dynamic(light: 0x17161C, dark: 0xF4F4F6)
+        /// `textPrimary` and `textSecondary`, with the token's Increase Contrast values.
+        static let text = dynamic(light: 0x17161C, dark: 0xF4F4F6, contrastLight: 0x000000, contrastDark: 0xFFFFFF)
         static let textSecondary = dynamic(
-            light: 0x64636C, dark: 0xB9B8C2, contrastLight: 0x45444C, contrastDark: 0xDCDBE3)
+            light: 0x64636C, dark: 0xB9B8C2, contrastLight: 0x3E3D45, contrastDark: 0xDCDBE3)
         /// The error card (`surfaceCard`): paper recessed in light, ink raised in dark.
         static let card = dynamic(light: 0xECECEF, dark: 0x24232B)
+        /// `hairline`: `controlBoundary` under Increase Contrast.
         static let hairline = dynamic(
-            light: 0x17161C, lightAlpha: 0.12, dark: 0xF4F4F6, darkAlpha: 0.14, contrastLight: 0x17161C,
-            contrastLightAlpha: 0.45, contrastDark: 0xF4F4F6, contrastDarkAlpha: 0.5)
+            light: 0x17161C, lightAlpha: 0.12, dark: 0xF4F4F6, darkAlpha: 0.14, contrastLight: 0x5E5D66,
+            contrastLightAlpha: 1, contrastDark: 0xA09FA8, contrastDarkAlpha: 1)
         /// `actionPrimary`: moss with white text, darker under Increase Contrast.
         static let actionPrimary = dynamic(
-            light: 0x4F7A4A, dark: 0x4F7A4A, contrastLight: 0x3A5C36, contrastDark: 0x3A5C36)
+            light: 0x4F7A4A, dark: 0x4F7A4A, contrastLight: 0x3B5D38, contrastDark: 0x4F7A4A)
         static let actionPrimaryPressed = dynamic(light: 0x466E41, dark: 0x5A8A54)
         static let onAction = NSColor(hex: 0xFFFFFF)
         /// Text on the always-dark off screen.
@@ -266,21 +268,51 @@ enum Theme {
             contrastDark: UInt32? = nil, contrastDarkAlpha: CGFloat? = nil
         ) -> NSColor {
             NSColor(name: nil) { appearance in
-                let match = appearance.bestMatch(from: [
-                    .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
-                ])
-                switch match {
-                case .accessibilityHighContrastDarkAqua:
+                switch ColourLook(appearance) {
+                case .darkContrast:
                     return NSColor(hex: contrastDark ?? dark, alpha: contrastDarkAlpha ?? darkAlpha)
-                case .accessibilityHighContrastAqua:
+                case .lightContrast:
                     return NSColor(hex: contrastLight ?? light, alpha: contrastLightAlpha ?? lightAlpha)
-                case .darkAqua:
+                case .dark:
                     return NSColor(hex: dark, alpha: darkAlpha)
-                default:
+                case .light:
                     return NSColor(hex: light, alpha: lightAlpha)
                 }
             }
         }
+    }
+}
+
+/// Which of its four values a dynamic colour draws with. Increase Contrast counts when the
+/// appearance asks for it, and also whenever the system setting (or, in a debug build,
+/// `-PaneIncreaseContrast YES`) is on: SwiftUI resolves `Color(nsColor:)` with a plain light or
+/// dark appearance even when its environment's contrast is increased (measured in Settings).
+enum ColourLook {
+    case light, dark, lightContrast, darkContrast
+
+    nonisolated init(_ appearance: NSAppearance) {
+        let match = appearance.bestMatch(from: [
+            .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
+        ])
+        let isDark = match == .darkAqua || match == .accessibilityHighContrastDarkAqua
+        let increased =
+            match == .accessibilityHighContrastAqua || match == .accessibilityHighContrastDarkAqua
+            || Self.increaseContrastIsOn
+        switch (isDark, increased) {
+        case (true, true): self = .darkContrast
+        case (true, false): self = .dark
+        case (false, true): self = .lightContrast
+        case (false, false): self = .light
+        }
+    }
+
+    nonisolated static var increaseContrastIsOn: Bool {
+        if NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast { return true }
+        #if DEBUG
+            return UserDefaults.standard.bool(forKey: "PaneIncreaseContrast")
+        #else
+            return false
+        #endif
     }
 }
 
@@ -349,7 +381,7 @@ extension Theme {
         static let fieldLabelGap: CGFloat = 6
         static let fieldBorder: CGFloat = 1
         static let fieldHalo: CGFloat = 3
-        static let busyOpacity: CGFloat = 0.45
+        static let busyOpacity = Opacity.disabled
         static let recentLabelInset = Space.xxs
         static let cardInset = Space.xxs
         static let cardRadius: CGFloat = 14
@@ -361,6 +393,32 @@ extension Theme {
         static let problemGap = Space.s
         /// Two fields side by side (latitude and longitude).
         static let fieldPairGap = Space.m
+    }
+
+    /// Settings' ⓘ popover (board 14).
+    enum InfoPopover {
+        static let width: CGFloat = 280
+        static let paddingH: CGFloat = 14
+        static let paddingV = Space.m
+        static let radius: CGFloat = 10
+        /// Under the card it explains, and in from the card's left edge.
+        static let gap = Kit.Space.xs
+        static let leading: CGFloat = 150
+        /// 12 pt text at the board's 1.45 line height.
+        static let lineSpacing: CGFloat = 5.4
+    }
+
+    /// The app icon in the update surfaces.
+    enum AppIcon {
+        /// macOS's icon grid puts the tile at 824 of the file's 1024 points; drawing the file
+        /// this much larger makes the tile fill the slot the board gives it.
+        static let tileScale: CGFloat = 1024 / 824
+    }
+
+    /// `opacity.disabled`: a control that can't be used now stays in place at this opacity,
+    /// applied once (`PlainRowButtonStyle`).
+    enum Opacity {
+        static let disabled: CGFloat = 0.45
     }
 
     /// Pane's own menu panel (boards 7 and 13, kit board 16): More, the emulator switcher and
@@ -393,7 +451,6 @@ extension Theme {
         static let shadowOpacity: Double = 0.22
         static let shadowRadius: CGFloat = 14
         static let shadowY: CGFloat = 10
-        static let disabledOpacity: CGFloat = 0.45
         /// More's menu opens this far under the title row's button, right edges this far in.
         static let moreTop: CGFloat = 48
         static let moreTrailing = Space.s
@@ -447,6 +504,8 @@ extension Theme {
         static let guideDash: [CGFloat] = [4, 3]
         /// Chips: a size on an outline, a distance on a guide, a length on a line, a hex.
         static let chipHeight: CGFloat = 20
+        /// Chip text: 11 medium with fixed-width digits, so a changing number doesn't jitter.
+        @MainActor static let chipFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         static let chipPaddingH: CGFloat = 7
         static let chipRadius: CGFloat = 6
         static let chipGap: CGFloat = 6
@@ -504,13 +563,15 @@ extension Theme.Typeface {
     static let sheetTitle = Font.system(size: 15, weight: .semibold)
     static let sheetBody = Font.system(size: 13)
     static let sheetLabel = Font.system(size: 11, weight: .medium)
-    static let toolChip = Font.system(size: 11, weight: .medium).monospacedDigit()
+    @MainActor static let toolChip = Font(Theme.Tools.chipFont)
     static let toolCard = Font.system(size: 11).monospacedDigit()
     static let modePill = Font.system(size: 12, weight: .medium)
     static let modePillButton = Font.system(size: 12)
     static let menuShortcut = Font.system(size: 12)
     static let menuHeader = Font.system(size: 11, weight: .medium)
     static let sheetRecent = Font.system(size: 12)
+    /// A recent link on Open link (board 8): links are code, so the mono face.
+    static let sheetRecentLink = Font.system(size: 12, design: .monospaced)
     static let sheetSecondary = Font.system(size: 13, weight: .medium)
     static let notice = Font.system(size: 12, weight: .medium)
 }
@@ -528,14 +589,26 @@ extension Theme.Palette {
     /// `tool.chip`: chips, the details card and the loupe's outer ring. Ink with paper text in
     /// both modes, because they sit on the device, not on Pane.
     static let toolChip = NSColor(hex: 0x17161C, alpha: 0.92)
+    /// `tool.chip` where no blur is drawn under the inspect card.
+    static let toolChipSolid = NSColor(hex: 0x17161C)
     static let toolChipText = NSColor(hex: 0xF4F4F6)
     static let toolChipSecondary = NSColor(hex: 0xB9B8C2)
     static let toolChipRing = NSColor(hex: 0xF4F4F6, alpha: 0.30)
-    /// Menu panels: white in light, raised ink in dark.
-    static let menuPanel = dynamic(light: 0xFFFFFF, dark: 0x24232B, darkAlpha: 0.96)
-    static let menuPanelHairline = dynamic(light: 0x17161C, lightAlpha: 0.12, dark: 0xF4F4F6, darkAlpha: 0.12)
-    /// The row under the pointer or the keys: moss 10% in light, light moss 16% in dark.
-    static let menuHighlight = dynamic(light: 0x4F7A4A, lightAlpha: 0.10, dark: 0x8DBB82, darkAlpha: 0.16)
+    /// Menu panels (`surfaceMenu`): white in light, raised ink in dark over a blur, solid under
+    /// Increase Contrast.
+    static let menuPanel = dynamic(
+        light: 0xFFFFFF, dark: 0x24232B, darkAlpha: 0.96, contrastDark: 0x24232B, contrastDarkAlpha: 1)
+    /// `surfaceMenu` where no blur is drawn (Reduce Transparency, Increase Contrast).
+    static let menuPanelSolid = dynamic(light: 0xFFFFFF, dark: 0x24232B)
+    /// `hairline`, and `controlBoundary` under Increase Contrast.
+    static let menuPanelHairline = dynamic(
+        light: 0x17161C, lightAlpha: 0.12, dark: 0xF4F4F6, darkAlpha: 0.12, contrastLight: 0x5E5D66,
+        contrastLightAlpha: 1, contrastDark: 0xA09FA8, contrastDarkAlpha: 1)
+    /// The row under the pointer or the keys (`highlight`): moss 10% in light, light moss 16%
+    /// in dark, doubled under Increase Contrast.
+    static let menuHighlight = dynamic(
+        light: 0x4F7A4A, lightAlpha: 0.10, dark: 0x8DBB82, darkAlpha: 0.16, contrastLightAlpha: 0.2,
+        contrastDarkAlpha: 0.3)
     /// A menu's tick: the link moss of each mode.
     static let menuCheck = dynamic(light: 0x466E41, dark: 0x8DBB82)
     /// The mode pill: `surfaceRaised` with its Done button on paper or raised ink.

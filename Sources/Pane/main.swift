@@ -16,7 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var started = false
     /// Settings' "Show all emulators in Pane": runs the bundled takeover script.
     private lazy var takeover = TakeoverSwitch(
-        isInstalled: { EmulatorTakeover.isInstalled() },
+        isInstalled: {
+            #if DEBUG
+                if TakeoverCheck.isActive { return TakeoverCheck.installed }
+            #endif
+            return EmulatorTakeover.isInstalled()
+        },
         run: { action in
             #if DEBUG
                 // `-PaneTakeoverCheck changing|failed|ok` stands in for the script, so a check can
@@ -24,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if let check = UserDefaults.standard.string(forKey: "PaneTakeoverCheck") {
                     if check == "changing" { try await Task.sleep(for: Theme.Timing.takeoverCheckHold) }
                     if check == "failed" { throw CocoaError(.fileWriteUnknown) }
+                    TakeoverCheck.installed = action == .install
                     return
                 }
             #endif
@@ -183,7 +189,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// `check-open-link?text=…` (the sheet, prefilled), `check-location?lat=…&lon=…` (the
         /// sheet, prefilled), `check-gif?file=…`, `check-switcher` (opens the title's menu),
         /// `check-settings`, `check-update?state=…`, `check-drop-error` and `check-drop-details`
-        /// (a failed drop and its Details), `check-restart` (Restart Emulator), `check-save-folder?path=…` (Save to, as the folder picker would
+        /// (a failed drop and its Details), `check-restart` and `check-shutdown` (their sheets),
+        /// `check-export-gif?file=…` (the Export GIF sheet for that recording), `check-more` (More's
+        /// menu), `check-save-folder?path=…` (Save to, as the folder picker would
         /// set it) and `check-select?label=…` (opens a select's menu).
         private func handleCheckURL(_ url: URL) -> Bool {
             guard let controller = activeController else { return false }
@@ -207,6 +215,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     detail: value("detail") ?? "INSTALL_PARSE_FAILED_NOT_APK")
             case "check-drop-details": model.showTransferDetail()
             case "check-restart": controller.restart()
+            case "check-shutdown": controller.shutDown()
+            case "check-export-gif":
+                if let file = files.first { model.settings.lastRecording = file }
+                controller.chooseRecordingToExport()
+            case "check-more": controller.toggleMoreMenu()
             case "check-update": showUpdateCheck(value("state") ?? "")
             case "check-save-folder": if let path = value("path") { settingsWindow.checkChooseFolder(path) }
             case "check-select":
@@ -561,3 +574,13 @@ final class TitlebarToolbar: NSObject, NSToolbarDelegate {
         return event.locationInWindow.x > window.frame.width - Theme.Window.titleRowTrailingPadding
     }
 }
+
+#if DEBUG
+    /// The stand-in's shell setup under `-PaneTakeoverCheck`: off at launch (or on with
+    /// `-PaneTakeoverInstalled YES`), so a check turns the switch on as the board draws it, and
+    /// the real setup is never read or changed.
+    enum TakeoverCheck {
+        static var isActive: Bool { UserDefaults.standard.string(forKey: "PaneTakeoverCheck") != nil }
+        nonisolated(unsafe) static var installed = UserDefaults.standard.bool(forKey: "PaneTakeoverInstalled")
+    }
+#endif

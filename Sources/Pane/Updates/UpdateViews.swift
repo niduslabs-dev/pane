@@ -8,8 +8,11 @@ struct PaneIcon: View {
     let size: CGFloat
 
     var body: some View {
+        // The icon file follows macOS's grid: its tile is 824 of 1024 points, with room for the
+        // shadow around it. The boards draw the tile at the full size, so scale it up to fill.
         Image(nsImage: NSApp.applicationIconImage).resizable().interpolation(.high)
             .frame(width: size, height: size)
+            .scaleEffect(Theme.AppIcon.tileScale)
             .accessibilityHidden(true)
     }
 }
@@ -150,7 +153,7 @@ struct UpdateBanner: View {
         .padding(.horizontal, Kit.Row.horizontalPadding)
         .padding(.vertical, Kit.Row.verticalPadding)
         .background(Kit.Colour.accent.opacity(Kit.Update.bannerFillOpacity), in: shape)
-        .overlay { shape.strokeBorder(Kit.Colour.hairline, lineWidth: Kit.Radius.cardHairline) }
+        .overlay { Hairline(shape: shape) }
         .accessibilityElement(children: .contain)
     }
 }
@@ -209,7 +212,8 @@ final class UpdatePopupController: UpdateSurface {
         let root = AnyView(
             UpdatePopupView(model: model)
                 .fixedSize()
-                .onGeometryChange(for: CGSize.self, of: { $0.size }) { [weak self] size in self?.resize(to: size) })
+                .onGeometryChange(for: CGSize.self, of: { $0.size }) { [weak self] size in self?.resize(to: size) }
+                .displayOptions())
         if let hosting {
             hosting.rootView = root
         } else {

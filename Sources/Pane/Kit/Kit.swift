@@ -29,6 +29,8 @@ enum Kit {
         static let card: CGFloat = 14
         /// The thin hairline every card and sheet list carries, with no shadow.
         static let cardHairline: CGFloat = 0.5
+        /// Every hairline under Increase Contrast (`border.hairlineIncreasedContrast`).
+        static let hairlineIncreasedContrast: CGFloat = 1
     }
 
     /// The panel card (boards 1-3, Update, Warning, Fallback, Password, Licence).
@@ -404,13 +406,11 @@ extension NSColor {
     ) -> NSColor {
         NSColor(name: nil) { appearance in
             let hex: UInt32
-            switch appearance.bestMatch(from: [
-                .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
-            ]) {
-            case .darkAqua: hex = dark
-            case .accessibilityHighContrastAqua: hex = contrast ?? light
-            case .accessibilityHighContrastDarkAqua: hex = darkContrast ?? dark
-            default: hex = light
+            switch ColourLook(appearance) {
+            case .dark: hex = dark
+            case .lightContrast: hex = contrast ?? light
+            case .darkContrast: hex = darkContrast ?? dark
+            case .light: hex = light
             }
             return NSColor(hex: hex, alpha: alpha)
         }
@@ -419,13 +419,11 @@ extension NSColor {
     /// One colour per appearance, for the translucent tokens.
     static func nidus(light: NSColor, dark: NSColor, contrast: NSColor, darkContrast: NSColor) -> NSColor {
         NSColor(name: nil) { appearance in
-            switch appearance.bestMatch(from: [
-                .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
-            ]) {
-            case .darkAqua: dark
-            case .accessibilityHighContrastAqua: contrast
-            case .accessibilityHighContrastDarkAqua: darkContrast
-            default: light
+            switch ColourLook(appearance) {
+            case .dark: dark
+            case .lightContrast: contrast
+            case .darkContrast: darkContrast
+            case .light: light
             }
         }
     }

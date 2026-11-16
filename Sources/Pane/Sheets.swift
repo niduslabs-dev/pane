@@ -76,6 +76,7 @@ struct SheetField: View {
     var problem: String?
     var onSubmit: () -> Void = {}
     @FocusState private var isFocused: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Theme.Sheet.fieldRadius, style: .continuous)
@@ -100,7 +101,8 @@ struct SheetField: View {
                 .overlay(
                     shape.strokeBorder(
                         Color(nsColor: ring ?? Theme.Palette.hairline),
-                        lineWidth: ring == nil ? Theme.Sheet.hairline : Theme.Sheet.fieldBorder)
+                        lineWidth: ring == nil
+                            ? Kit.hairlineWidth(Theme.Sheet.hairline, contrast: contrast) : Theme.Sheet.fieldBorder)
                 )
                 .background(
                     shape.inset(by: -Theme.Sheet.fieldHalo)
@@ -165,8 +167,9 @@ struct OpenLinkSheet: View {
                             .fill(Color(nsColor: Theme.Palette.sheetCard))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Sheet.cardRadius, style: .continuous)
-                            .strokeBorder(Color(nsColor: Theme.Palette.hairline), lineWidth: Theme.Sheet.hairline)
+                        Hairline(
+                            shape: RoundedRectangle(cornerRadius: Theme.Sheet.cardRadius, style: .continuous),
+                            width: Theme.Sheet.hairline, colour: Color(nsColor: Theme.Palette.hairline))
                     )
                     .padding(.top, Theme.Sheet.fieldLabelGap)
                     .disabled(isOpening)
@@ -202,7 +205,7 @@ private struct RecentLinkRow: View {
     var body: some View {
         Button(action: action) {
             Text(link)
-                .font(Theme.Typeface.sheetRecent)
+                .font(Theme.Typeface.sheetRecentLink)
                 .foregroundStyle(Color(nsColor: Theme.Palette.text))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -215,67 +218,57 @@ private struct RecentLinkRow: View {
                 )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plainRow)
         .onHover { hovered = $0 }
         .accessibilityLabel(link)
         .accessibilityHint("Opens this link.")
     }
 }
 
-/// Location ▸ Custom…: latitude and longitude in degrees.
+/// Location ▸ Custom… (board 7, "Set location"): latitude and longitude in degrees. Set
+/// Location stays disabled in place until both are valid numbers in range.
 struct LocationSheet: View {
     let model: PaneModel
     let close: () -> Void
     @State var latitude: String
     @State var longitude: String
-    @State private var problem: String?
     @FocusState private var latitudeFocused: Bool
 
     var body: some View {
         SheetScaffold(
-            title: "Custom location", description: "Moves the device's GPS. Remembered for this emulator.",
-            primaryTitle: "Set Location", primaryDisabled: latitude.isEmpty || longitude.isEmpty, onCancel: close,
-            onPrimary: set
+            title: "Set location", description: "The device reports this place until you choose Default.",
+            primaryTitle: "Set Location", primaryDisabled: location == nil, onCancel: close, onPrimary: set
         ) {
-            VStack(alignment: .leading, spacing: Theme.Sheet.fieldLabelGap) {
-                HStack(alignment: .top, spacing: Theme.Sheet.fieldPairGap) {
-                    SheetField(label: "Latitude", placeholder: "12.9716", text: $latitude, onSubmit: set)
-                        .focused($latitudeFocused)
-                    SheetField(label: "Longitude", placeholder: "77.5946", text: $longitude, onSubmit: set)
-                }
-                if let problem {
-                    Text(problem)
-                        .font(Theme.Typeface.sheetRecent)
-                        .foregroundStyle(Color(nsColor: Theme.Palette.problemText))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("sheet.problem")
-                }
+            HStack(alignment: .top, spacing: Theme.Sheet.fieldPairGap) {
+                SheetField(label: "Latitude", placeholder: "12.9716", text: $latitude, onSubmit: set)
+                    .focused($latitudeFocused)
+                SheetField(label: "Longitude", placeholder: "77.5946", text: $longitude, onSubmit: set)
             }
         }
         .onAppear { latitudeFocused = true }
-        .onChange(of: latitude) { problem = nil }
-        .onChange(of: longitude) { problem = nil }
     }
 
+    private var location: DeviceLocation? { DeviceLocation(latitudeText: latitude, longitudeText: longitude) }
+
     private func set() {
-        guard let location = DeviceLocation(latitudeText: latitude, longitudeText: longitude) else {
-            problem = "Latitude is −90 to 90. Longitude is −180 to 180."
-            return
-        }
+        guard let location else { return }
         model.setCustomLocation(location)
         close()
     }
 }
 
-/// A confirmation (design guide, Sheet / Confirmation; `confirmDestructive`): content-sized,
-/// Cancel and one moss action that says what happens. Esc and Return both cancel; the action
-/// takes a click, or Space once Tab has reached it.
-struct ConfirmSheet: View {
+/// A confirmation (design guide, Sheet / Confirmation): content-sized, Cancel and one moss
+/// action that says what happens. Esc always cancels. For a destructive action
+/// (`confirmDestructive`) Return cancels too, and the action takes a click, or Space once Tab
+/// has reached it; otherwise Return runs the action. `content` is the Sheet's optional body.
+struct ConfirmSheet<Content: View>: View {
     let title: String
     let detail: String
     let action: String
+    var isDestructive = true
     let onCancel: () -> Void
     let onConfirm: () -> Void
+    @ViewBuilder var content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -288,13 +281,23 @@ struct ConfirmSheet: View {
                 .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, Theme.Sheet.descriptionGap)
+            content
+                .padding(.top, Theme.Sheet.bodyGap)
             HStack(spacing: Theme.Sheet.buttonGap) {
                 Spacer(minLength: 0)
-                Button("Cancel", action: onCancel)
-                    .buttonStyle(.nidusSecondary)
-                    .keyboardShortcut(.defaultAction)
-                Button(action, action: onConfirm)
-                    .buttonStyle(.nidusPrimary)
+                if isDestructive {
+                    Button("Cancel", action: onCancel)
+                        .buttonStyle(.nidusSecondary)
+                        .keyboardShortcut(.defaultAction)
+                    Button(action, action: onConfirm)
+                        .buttonStyle(.nidusPrimary)
+                } else {
+                    Button("Cancel", action: onCancel)
+                        .buttonStyle(.nidusSecondary)
+                    Button(action, action: onConfirm)
+                        .buttonStyle(.nidusPrimary)
+                        .keyboardShortcut(.defaultAction)
+                }
             }
             .padding(.top, Theme.Sheet.footerGap)
         }
@@ -302,6 +305,62 @@ struct ConfirmSheet: View {
         .frame(width: Theme.Sheet.width, alignment: .leading)
         .background(Color(nsColor: Theme.Palette.sheetSurface))
         .onExitCommand(perform: onCancel)
+    }
+}
+
+extension ConfirmSheet where Content == EmptyView {
+    init(
+        title: String, detail: String, action: String, isDestructive: Bool = true, onCancel: @escaping () -> Void,
+        onConfirm: @escaping () -> Void
+    ) {
+        self.init(
+            title: title, detail: detail, action: action, isDestructive: isDestructive, onCancel: onCancel,
+            onConfirm: onConfirm, content: { EmptyView() })
+    }
+}
+
+/// Export Recording as GIF… when there is a last recording: a confirmation whose body is one
+/// row naming the recording, with Choose Another… to pick any movie instead. Export is the
+/// primary and Return runs it; Esc cancels.
+struct ExportGIFSheet: View {
+    let recording: URL
+    let close: () -> Void
+    let export: () -> Void
+    let chooseAnother: () -> Void
+
+    var body: some View {
+        ConfirmSheet(
+            title: "Export recording as GIF", detail: "The GIF is saved next to the recording.",
+            action: "Export", isDestructive: false, onCancel: close,
+            onConfirm: confirm, content: { row })
+    }
+
+    private func confirm() {
+        close()
+        export()
+    }
+
+    private var row: some View {
+        Group {
+            let shape = RoundedRectangle(cornerRadius: Theme.Sheet.cardRadius, style: .continuous)
+            HStack(spacing: Theme.Sheet.buttonGap) {
+                Text(recording.lastPathComponent)
+                    .font(Theme.Typeface.sheetBody)
+                    .foregroundStyle(Color(nsColor: Theme.Palette.text))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Choose Another\u{2026}") {
+                    close()
+                    chooseAnother()
+                }
+                .buttonStyle(.nidusSmall)
+            }
+            .padding(.horizontal, Theme.Sheet.rowPaddingH)
+            .padding(.vertical, Theme.Sheet.rowPaddingV)
+            .background(shape.fill(Color(nsColor: Theme.Palette.sheetCard)))
+            .overlay(Hairline(shape: shape, colour: Color(nsColor: Theme.Palette.hairline)))
+        }
     }
 }
 
@@ -322,7 +381,7 @@ enum SheetPresenter {
             guard let window, let sheet, sheet.sheetParent != nil else { return }
             window.endSheet(sheet)
         }
-        let hosting = NSHostingController(rootView: content(close))
+        let hosting = NSHostingController(rootView: content(close).displayOptions())
         hosting.sizingOptions = [.preferredContentSize]
         sheet.contentViewController = hosting
         sheet.setContentSize(hosting.view.fittingSize)

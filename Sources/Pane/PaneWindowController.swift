@@ -116,7 +116,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         case .showEmulatorsInFinder: NSWorkspace.shared.open(PaneModel.avdHome)
         case .chooseAVD(let name):
             if let avd = model.avds.first(where: { $0.name == name }) { model.choose(avd) }
-        case .settings: NSApp.sendAction(DeviceMenu.settingsAction, to: nil, from: self)
+        case .settings: NSApp.sendAction(DeviceMenu.settingsAction, to: NSApp.delegate, from: self)
         }
     }
 
@@ -142,24 +142,16 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     }
 
     /// Export Recording as GIF: offers the last recording, or any movie.
-    private func chooseRecordingToExport() {
+    func chooseRecordingToExport() {
         guard window.attachedSheet == nil else { return }
         guard let last = model.settings.lastRecording else {
             chooseMovie()
             return
         }
-        let alert = NSAlert()
-        alert.messageText = "Export the last recording as a GIF?"
-        alert.informativeText = "\(last.lastPathComponent)\nThe GIF is saved next to it."
-        alert.addButton(withTitle: "Export")
-        alert.addButton(withTitle: "Choose Another…")
-        alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: window) { [weak self] response in
-            switch response {
-            case .alertFirstButtonReturn: self?.model.exportGIF(from: last)
-            case .alertSecondButtonReturn: self?.chooseMovie()
-            default: break
-            }
+        openSheet = SheetPresenter.present(on: window) { [weak self] close in
+            ExportGIFSheet(
+                recording: last, close: close, export: { self?.model.exportGIF(from: last) },
+                chooseAnother: { self?.chooseMovie() })
         }
     }
 

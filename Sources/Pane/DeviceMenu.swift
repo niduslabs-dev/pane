@@ -107,10 +107,9 @@ enum DeviceMenu {
         return menu
     }
 
-    /// Settings is another object's (`showSettings:` on the responder chain); until something
-    /// answers it, the row stays dimmed in place.
+    /// Settings is the app delegate's (`showSettings:`), sent to it directly, so the row works
+    /// in every state, with or without an emulator (board 7).
     static let settingsAction = Selector(("showSettings:"))
-    static var settingsAvailable: Bool { NSApp.target(forAction: settingsAction) != nil }
 
     /// More's panel (board 7): quick actions only, in sentence case, with the menu bar's
     /// shortcuts. Device actions stay in place at 45% with no emulator; Settings still works.
@@ -151,7 +150,7 @@ enum DeviceMenu {
             .divider("d3"),
             action("restart", "Restart emulator", .restart, enabled: model.emulator != nil),
             action("shutdown", "Shut down emulator", .shutDown, enabled: model.emulator != nil),
-            action("settings", "Settings…", .settings, shortcut: "⌘,", enabled: settingsAvailable),
+            action("settings", "Settings…", .settings, shortcut: "⌘,", enabled: true),
         ]
     }
 
@@ -222,7 +221,7 @@ enum DeviceMenu {
         case .showHere, .openInNewWindow, .showEmulatorsInFinder, .chooseAVD:
             return true
         case .settings:
-            return DeviceMenu.settingsAvailable
+            return true
         }
     }
 }

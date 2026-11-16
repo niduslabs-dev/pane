@@ -273,7 +273,7 @@ struct NidusSelect<Value: Hashable>: View {
             shape.fill(Kit.Colour.paper)
                 .overlay { shape.fill(Color.black.opacity(isHovered ? Kit.Button.hoverShade : 0)) }
         }
-        .overlay { shape.strokeBorder(Kit.Colour.hairline, lineWidth: Kit.Button.hairline) }
+        .overlay { Hairline(shape: shape, width: Kit.Button.hairline) }
         .overlay {
             shape.inset(by: -Kit.Select.openRing / 2)
                 .stroke(Kit.Colour.focusRing.opacity(openRingOpacity), lineWidth: Kit.Select.openRing)
@@ -774,8 +774,9 @@ private struct SelectMenuContent: View {
         .fixedSize()
         .background(SelectMenuSurface())
         .clipShape(shape)
-        .overlay { shape.strokeBorder(Kit.Colour.hairline, lineWidth: Kit.Select.menuHairline) }
+        .overlay { Hairline(shape: shape, width: Kit.Select.menuHairline) }
         .accessibilityHidden(true)
+        .displayOptions()
     }
 }
 

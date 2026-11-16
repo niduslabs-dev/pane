@@ -43,12 +43,52 @@ enum DisplayOptions {
             named: isDark ? .accessibilityHighContrastDarkAqua : .accessibilityHighContrastAqua)
     }
 
-    private static func debugFlag(_ key: String) -> Bool {
+    fileprivate static func debugFlag(_ key: String) -> Bool {
         #if DEBUG
             UserDefaults.standard.bool(forKey: key)
         #else
             false
         #endif
+    }
+}
+
+extension View {
+    /// Goes on every hosting root. In a debug build `-PaneIncreaseContrast YES` and
+    /// `-PaneReduceTransparency YES` reach SwiftUI's environment the way the system settings
+    /// do, so colours resolve to their Increase Contrast values, hairlines thicken and glass
+    /// turns solid. Setting only the window's appearance doesn't: SwiftUI resolves colours from
+    /// its own environment. Release builds leave the environment to the system.
+    func displayOptions() -> some View {
+        #if DEBUG
+            transformEnvironment(\._colorSchemeContrast) { contrast in
+                if DisplayOptions.debugFlag("PaneIncreaseContrast") { contrast = .increased }
+            }
+            .transformEnvironment(\._accessibilityReduceTransparency) { reduce in
+                if DisplayOptions.debugFlag("PaneReduceTransparency") { reduce = true }
+            }
+        #else
+            self
+        #endif
+    }
+}
+
+/// A hairline edge (`border.hairline`): `width` normally, 1 pt under Increase Contrast, where
+/// `Kit.Colour.hairline` also turns to the control boundary colour.
+struct Hairline<S: InsettableShape>: View {
+    let shape: S
+    var width = Kit.Radius.cardHairline
+    var colour = Kit.Colour.hairline
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        shape.strokeBorder(colour, lineWidth: Kit.hairlineWidth(width, contrast: contrast))
+    }
+}
+
+extension Kit {
+    /// A hairline's width: thicker under Increase Contrast, never thinner.
+    static func hairlineWidth(_ width: CGFloat, contrast: ColorSchemeContrast) -> CGFloat {
+        contrast == .increased ? max(width, Radius.hairlineIncreasedContrast) : width
     }
 }
 
@@ -66,7 +106,7 @@ struct PanelCard<Content: View>: View {
             .padding(Kit.panelInset)
             .frame(width: Kit.Panel.width, alignment: .leading)
             .background { SurfaceBackground(kind: .popup).clipShape(shape) }
-            .overlay { shape.strokeBorder(Kit.Colour.hairline) }
+            .overlay { Hairline(shape: shape) }
     }
 }
 
@@ -141,7 +181,7 @@ struct InfoCard<Content: View>: View {
             .padding(.horizontal, scale.horizontalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(kind.fill, in: shape)
-            .overlay { shape.strokeBorder(Kit.Colour.hairline, lineWidth: Kit.Radius.cardHairline) }
+            .overlay { Hairline(shape: shape) }
     }
 }
 
@@ -149,6 +189,7 @@ struct InfoCard<Content: View>: View {
 /// window's options and every Settings group.
 struct RowCard<Content: View>: View {
     @ViewBuilder var content: Content
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Kit.Radius.card, style: .continuous)
@@ -156,7 +197,8 @@ struct RowCard<Content: View>: View {
             Group(subviews: content) { rows in
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     if index > 0 {
-                        Rectangle().fill(Kit.Colour.hairline).frame(height: Kit.Radius.cardHairline)
+                        Rectangle().fill(Kit.Colour.hairline)
+                            .frame(height: Kit.hairlineWidth(Kit.Radius.cardHairline, contrast: contrast))
                             .padding(.horizontal, Kit.Row.dividerInset)
                     }
                     row
@@ -165,7 +207,7 @@ struct RowCard<Content: View>: View {
         }
         .frame(maxWidth: .infinity)
         .background(Kit.Colour.infoFill, in: shape)
-        .overlay { shape.strokeBorder(Kit.Colour.hairline, lineWidth: Kit.Radius.cardHairline) }
+        .overlay { Hairline(shape: shape) }
     }
 }
 

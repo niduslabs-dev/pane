@@ -50,6 +50,7 @@ struct NoEmulatorScreen: View {
             Button("Start") { model.startSelectedEmulator() }
                 .buttonStyle(CapsuleButtonStyle(horizontalPadding: Theme.Capsule.startPadding))
                 .disabled(model.selectedAVD == nil)
+                .accessibilityIdentifier("screen-start")
                 .padding(.top, Theme.Screen.actionGap)
             if let problem = model.startProblem {
                 Text(problem)
@@ -65,8 +66,9 @@ struct NoEmulatorScreen: View {
                         .font(Theme.Typeface.link)
                         .foregroundStyle(Color(nsColor: Theme.Palette.screenLink))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plainRow)
                 .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("screen-choose-emulator")
                 .background(
                     GeometryReader { proxy in
                         Color.clear
@@ -127,13 +129,15 @@ struct ProgressScreen: View {
 struct DropOverlay: View {
     let model: PaneModel
     let cornerRadius: CGFloat
+    /// Over the live screen the scrim dims the device; anywhere else it is the screen itself.
+    let isOverLiveScreen: Bool
 
     var body: some View {
         let hover = model.dropHover
         let status = model.transferStatus
         ZStack {
             if hover != nil || status != nil {
-                Color(nsColor: Theme.Palette.screenEmpty).opacity(Theme.Drop.scrimOpacity)
+                Color(nsColor: Theme.Palette.screenEmpty).opacity(isOverLiveScreen ? Theme.Drop.scrimOpacity : 1)
                 if let hover {
                     Text(hover)
                         .font(Theme.Typeface.screenTitle)
@@ -162,7 +166,7 @@ struct DropOverlay: View {
                                     .transition(.opacity)
                             } else {
                                 Button("Details") { model.showTransferDetail() }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.plainRow)
                                     .font(Theme.Typeface.link)
                                     .foregroundStyle(Color(nsColor: Theme.Palette.screenLink))
                                     .accessibilityHint("Shows the reason adb gave.")
@@ -299,6 +303,21 @@ struct ScreenSecondaryCapsuleStyle: ButtonStyle {
             .overlay(Capsule().fill(Color.white.opacity(configuration.isPressed ? Theme.Toolbar.pressedOpacity : 0)))
             .contentShape(Capsule())
     }
+}
+
+/// A borderless button for menu rows, links and list rows that dims exactly once when
+/// disabled: to `opacity.disabled`, in place. SwiftUI's `.plain` style dims a disabled label on
+/// its own, so a row that set the opacity too showed at about 0.22.
+struct PlainRowButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(isEnabled ? 1 : Theme.Opacity.disabled)
+    }
+}
+
+extension ButtonStyle where Self == PlainRowButtonStyle {
+    static var plainRow: PlainRowButtonStyle { PlainRowButtonStyle() }
 }
 
 /// The primary capsule (`actionPrimary`): moss, white semibold text, darker while pressed,

@@ -272,6 +272,44 @@ struct PaneMenuLayer: View {
 /// A menu panel as on the kit board: a raised surface with a hairline, rows 32 pt tall (44 with
 /// a second line), the moss highlight under the pointer or the keys, ticks, shortcuts, tags
 /// and submenu chevrons.
+/// `surfaceMenu` under a menu or the inspect card. These sit inside Pane's window, over the
+/// device, so dark's 96% ink sits on a within-window blur (`.hudWindow`): the device's own text
+/// never shows through sharp. Solid under Reduce Transparency or Increase Contrast. Light is
+/// solid white already.
+struct MenuSurface<S: Shape>: View {
+    let shape: S
+    var fill = Theme.Palette.menuPanel
+    var solidFill = Theme.Palette.menuPanelSolid
+    /// The inspect card is ink in both modes, so it blurs in light too.
+    var blursInLight = false
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        let blurs = (colorScheme == .dark || blursInLight) && !reduceTransparency && contrast != .increased
+        ZStack {
+            if blurs { WithinWindowBlur() }
+            shape.fill(Color(nsColor: blurs ? fill : solidFill))
+        }
+        .compositingGroup()
+        .clipShape(shape)
+    }
+}
+
+/// Blurs what is under it in the same window (the device's frames) with the menu material.
+private struct WithinWindowBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .withinWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
 struct PaneMenuPanel: View {
     let label: String
     let items: [PaneMenuItem]
@@ -279,8 +317,10 @@ struct PaneMenuPanel: View {
     let openRow: Int?
     let hover: (Int?) -> Void
     let click: (Int) -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
+        let hairline = Kit.hairlineWidth(Theme.Menu.hairline, contrast: contrast)
         VStack(alignment: .leading, spacing: Theme.Menu.rowSpacing) {
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 switch item.kind {
@@ -295,7 +335,7 @@ struct PaneMenuPanel: View {
                 case .divider:
                     Rectangle()
                         .fill(Color(nsColor: Theme.Palette.menuPanelHairline))
-                        .frame(height: Theme.Menu.dividerHeight)
+                        .frame(height: Kit.hairlineWidth(Theme.Menu.dividerHeight, contrast: contrast))
                         .padding(.horizontal, Theme.Menu.rowPaddingH)
                         .padding(.vertical, Theme.Menu.dividerMarginV)
                         .accessibilityHidden(true)
@@ -308,15 +348,14 @@ struct PaneMenuPanel: View {
         }
         .padding(Theme.Menu.inset)
         .background(
-            RoundedRectangle(cornerRadius: Theme.Menu.radius, style: .continuous)
-                .fill(Color(nsColor: Theme.Palette.menuPanel))
+            MenuSurface(shape: RoundedRectangle(cornerRadius: Theme.Menu.radius, style: .continuous))
                 .shadow(
                     color: .black.opacity(Theme.Menu.shadowOpacity), radius: Theme.Menu.shadowRadius,
                     y: Theme.Menu.shadowY)
         )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Menu.radius, style: .continuous)
-                .strokeBorder(Color(nsColor: Theme.Palette.menuPanelHairline), lineWidth: Theme.Menu.hairline)
+                .strokeBorder(Color(nsColor: Theme.Palette.menuPanelHairline), lineWidth: hairline)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(label) menu")
@@ -328,6 +367,7 @@ private struct PaneMenuRow: View {
     let isHighlighted: Bool
     let hover: (Bool) -> Void
     let click: () -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         Button(action: click) {
@@ -360,7 +400,8 @@ private struct PaneMenuRow: View {
                         .padding(.vertical, Theme.Menu.tagPaddingV)
                         .overlay(
                             Capsule().strokeBorder(
-                                Color(nsColor: Theme.Palette.menuPanelHairline), lineWidth: Theme.Menu.hairline))
+                                Color(nsColor: Theme.Palette.menuPanelHairline),
+                                lineWidth: Kit.hairlineWidth(Theme.Menu.hairline, contrast: contrast)))
                 }
                 if let shortcut = item.shortcut {
                     Text(shortcut)
@@ -382,9 +423,8 @@ private struct PaneMenuRow: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plainRow)
         .disabled(!item.isEnabled)
-        .opacity(item.isEnabled ? 1 : Theme.Menu.disabledOpacity)
         .onHover(perform: hover)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)

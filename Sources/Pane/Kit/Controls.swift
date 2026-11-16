@@ -204,7 +204,7 @@ private struct NidusButtonBody: View {
                 .padding(.horizontal, horizontalPadding)
                 .frame(minWidth: heroWidth, minHeight: height)
                 .background(paper)
-                .overlay { shape.strokeBorder(Kit.Colour.hairline, lineWidth: Kit.Button.hairline) }
+                .overlay { Hairline(shape: shape, width: Kit.Button.hairline) }
         case .link(let colour):
             label
                 .font(font ?? Kit.Font.link)
