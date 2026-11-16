@@ -83,7 +83,7 @@ final class PaneWindow: NSWindow {
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
 
-        let hosting = NSHostingView(rootView: PaneContentView(model: model))
+        let hosting = FirstClickHostingView(rootView: PaneContentView(model: model))
         hosting.safeAreaRegions = []
         // The model sizes the window (`setContentSizeKeepingTop`); SwiftUI must not pin it.
         hosting.sizingOptions = []
@@ -111,3 +111,9 @@ let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate
 app.setActivationPolicy(.regular)
 app.run()
+
+/// Lets the title row's tools and the screen's buttons act on the first click into an inactive
+/// window, as the iOS Simulator's toolbar does, instead of that click only focusing the window.
+final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}

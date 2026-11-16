@@ -127,6 +127,24 @@ public final class EmulatorConnection: Sendable {
         return (status.version, status.booted)
     }
 
+    /// Turns the device to `quadrants` quarter turns counter-clockwise from portrait, the way
+    /// Android Studio's rotate buttons do: by setting the physical model's rotation about z.
+    public func rotate(toQuadrants quadrants: Int) async throws {
+        var value = Android_Emulation_Control_PhysicalModelValue()
+        value.target = .rotation
+        var parameters = Android_Emulation_Control_ParameterValue()
+        parameters.data = [0, 0, Self.zRotationDegrees(quadrants: quadrants)]
+        value.value = parameters
+        _ = try await controller.setPhysicalModel(value, options: callOptions)
+    }
+
+    /// The z angle for an orientation, in the proto's −180…180 range: 0, 90, 180, −90.
+    public static func zRotationDegrees(quadrants: Int) -> Float {
+        let degreesPerQuadrant: Float = 90
+        let turns = ((quadrants % 4) + 4) % 4
+        return turns == 3 ? -degreesPerQuadrant : Float(turns) * degreesPerQuadrant
+    }
+
     /// Streams RGBA frames at `size` (both sides always set; the emulator keeps the aspect and
     /// never exceeds the device). The emulator sends a frame only when the screen changes.
     /// Cancelling the iteration ends the RPC.

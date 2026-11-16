@@ -296,6 +296,39 @@ final class PaneModel {
         return StreamRequest(size: size, quadrants: quadrants)
     }
 
+    // MARK: Rotation
+
+    /// Turns the device a quarter counter-clockwise (Android Studio's "Rotate left"). The
+    /// layout follows when the first frame in the new orientation arrives.
+    func rotate() {
+        guard let connection, status == .live else { return }
+        let target = (quadrants + 1) % 4
+        releaseAll()
+        Task { [weak self] in
+            do {
+                try await connection.rotate(toQuadrants: target)
+            } catch {
+                self?.log.error("Rotate failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// A frame arrived in another orientation than the stream was asked for: turn the layout
+    /// (keeping the screen's size, within the display) and ask for frames in the new shape.
+    private func orientationChanged(to newQuadrants: Int, on connection: EmulatorConnection) {
+        guard newQuadrants != quadrants else { return }
+        log.info("Orientation \(self.quadrants) -> \(newQuadrants)")
+        releaseAll()
+        quadrants = newQuadrants
+        if let available = screenView.window?.screen?.visibleFrame.size {
+            screenHeight = min(screenHeight, screenHeight(fitting: available, available: available))
+        }
+        relayout(resizeWindow: true)
+        restartFramesTask?.cancel()
+        framesTask?.cancel()
+        startFrames(on: connection)
+    }
+
     // MARK: Connection
 
     private func connect(to emulator: RunningEmulator) {
@@ -398,6 +431,12 @@ final class PaneModel {
                     let image = FrameImage.make(frame)
                     await MainActor.run {
                         guard let self, self.connection === connection else { return }
+                        // Frames in an orientation the stream wasn't asked for are dropped, and
+                        // the stream restarts in the new one (as Android Studio does).
+                        if frame.rotationQuadrants != self.streamRequest?.quadrants {
+                            self.orientationChanged(to: frame.rotationQuadrants, on: connection)
+                            return
+                        }
                         screenView.show(image)
                         self.hasFrame = true
                         self.updateLiveStatus()

@@ -206,3 +206,9 @@ import Testing
         #expect(FrameButton.volumeDown.keyName == "AudioVolumeDown")
     }
 }
+
+@Suite struct RotationTests {
+    @Test func zAnglesStayInTheProtoRange() {
+        #expect([0, 1, 2, 3, 4, -1].map(EmulatorConnection.zRotationDegrees(quadrants:)) == [0, 90, 180, -90, 0, -90])
+    }
+}

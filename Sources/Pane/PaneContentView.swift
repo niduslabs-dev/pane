@@ -51,7 +51,7 @@ struct TitleRow: View {
             .frame(maxWidth: .infinity)
             HStack(spacing: Theme.Window.toolSpacing) {
                 // Inert in the spike: rotate, screenshot and the More menu come with v1.
-                ToolButton(symbol: "arrow.trianglehead.2.clockwise.rotate.90", label: "Rotate")
+                ToolButton(symbol: "arrow.trianglehead.2.clockwise.rotate.90", label: "Rotate") { model.rotate() }
                     .disabled(!toolsEnabled)
                 ToolButton(symbol: "camera", label: "Save screenshot")
                     .disabled(!toolsEnabled)
@@ -67,11 +67,11 @@ struct TitleRow: View {
 struct ToolButton: View {
     let symbol: String
     let label: String
+    var action: () -> Void = {}
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        Button {
-        } label: {
+        Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: Theme.Window.toolIconSize))
                 .foregroundStyle(Color(nsColor: Theme.Palette.icon))
