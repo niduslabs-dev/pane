@@ -50,14 +50,16 @@ public struct FrameSpec: Sendable, Equatable {
     /// How far the hit area reaches past each end of the button (split evenly between neighbours).
     public var buttonHitOutset: CGFloat
     public var titleRowHeight: CGFloat
-    /// The inset around the frame on the left, right and bottom; the title row is above.
+    /// The inset around the frame on the left and right; the title row is above.
     public var contentInset: CGFloat
+    /// The band below the frame (the toolbar's).
+    public var bottomInset: CGFloat
 
     public init(
         screenHeight: CGFloat, referenceScreenHeight: CGFloat, bezel: CGFloat, bodyRadius: CGFloat,
         screenRadius: CGFloat, punchHoleDiameter: CGFloat, punchHoleTop: CGFloat, buttons: [FrameButtonSpec],
         buttonDepth: CGFloat, buttonHitDepth: CGFloat, buttonHitOutset: CGFloat, titleRowHeight: CGFloat,
-        contentInset: CGFloat
+        contentInset: CGFloat, bottomInset: CGFloat
     ) {
         self.screenHeight = screenHeight
         self.referenceScreenHeight = referenceScreenHeight
@@ -72,6 +74,7 @@ public struct FrameSpec: Sendable, Equatable {
         self.buttonHitOutset = buttonHitOutset
         self.titleRowHeight = titleRowHeight
         self.contentInset = contentInset
+        self.bottomInset = bottomInset
     }
 }
 
@@ -218,12 +221,13 @@ public struct DeviceFrameLayout: Sendable, Equatable {
             bodySize = CGSize(width: bodySize.height, height: bodySize.width)
         }
 
-        // Margins: the inset on three sides, the title row on top, plus the buttons' depth on
+        // Margins: the inset on the sides, the title row on top, the toolbar's band below, plus
+        // the buttons' depth on
         // their side (both sides horizontally, so the body stays centred).
         let edge = portraitButtons.first?.edge ?? .right
         let horizontal = spec.contentInset + (edge == .left || edge == .right ? spec.buttonDepth : 0)
         let top = spec.titleRowHeight + (edge == .top ? spec.buttonDepth : 0)
-        let bottom = spec.contentInset + (edge == .bottom ? spec.buttonDepth : 0)
+        let bottom = spec.bottomInset + (edge == .bottom ? spec.buttonDepth : 0)
         let origin = CGPoint(x: horizontal, y: top)
         let move = { (rect: CGRect) in rect.offsetBy(dx: origin.x, dy: origin.y) }
 

@@ -1,87 +1,35 @@
 import PaneCore
 import SwiftUI
 
-/// The whole window content: the title row over the drawn device, laid out from the model's
-/// `DeviceFrameLayout` so the window is exactly the board's shape for any screen size.
+/// The whole window content: the title bar, the drawn device and the toolbar under it, laid out
+/// from the model's `DeviceFrameLayout` so the window is exactly the board's shape for any size.
+/// The chrome (`TitleBar`, `DeviceToolbar`) lives in `Chrome.swift` and only reads the model.
 struct PaneContentView: View {
     let model: PaneModel
 
     var body: some View {
         let layout = model.layout
         ZStack(alignment: .topLeading) {
-            TitleRow(model: model)
+            TitleBar(model: model)
                 .frame(width: layout.windowContentSize.width, height: Theme.Window.titleRowHeight)
             if model.status == .failed {
                 ErrorCard(model: model)
                     .frame(
                         width: layout.windowContentSize.width - 2 * Theme.Window.contentInset,
                         height: layout.windowContentSize.height - Theme.Window.titleRowHeight
-                            - Theme.Window.contentInset
+                            - Theme.Toolbar.bandHeight
                     )
                     .offset(x: Theme.Window.contentInset, y: Theme.Window.titleRowHeight)
             } else {
                 DeviceFrameView(model: model, layout: layout)
             }
+            DeviceToolbar(model: model)
+                .frame(width: layout.windowContentSize.width, height: Theme.Toolbar.bandHeight)
+                .offset(y: layout.windowContentSize.height - Theme.Toolbar.bandHeight)
         }
         .frame(
             width: layout.windowContentSize.width, height: layout.windowContentSize.height, alignment: .topLeading
         )
-    }
-}
-
-/// Traffic lights (the system's), the device name and model centred, then the tools.
-struct TitleRow: View {
-    let model: PaneModel
-
-    var body: some View {
-        let toolsEnabled = model.status == .live
-        HStack(spacing: Theme.Window.titleRowGap) {
-            Color.clear.frame(width: Theme.Window.trafficLightsWidth)
-            VStack(spacing: Theme.Window.titleLineSpacing) {
-                Text(model.title)
-                    .font(Theme.Typeface.windowTitle)
-                    .foregroundStyle(Color(nsColor: Theme.Palette.text))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(model.meta)
-                    .font(Theme.Typeface.meta)
-                    .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            HStack(spacing: Theme.Window.toolSpacing) {
-                // Inert in the spike: rotate, screenshot and the More menu come with v1.
-                ToolButton(symbol: "arrow.trianglehead.2.clockwise.rotate.90", label: "Rotate") { model.rotate() }
-                    .disabled(!toolsEnabled)
-                ToolButton(symbol: "camera", label: "Save screenshot") { model.saveScreenshot() }
-                    .disabled(!toolsEnabled)
-                ToolButton(symbol: "ellipsis", label: "More")
-            }
-            .frame(width: Theme.Window.toolsWidth, alignment: .trailing)
-        }
-        .padding(.leading, Theme.Window.titleRowLeadingPadding)
-        .padding(.trailing, Theme.Window.titleRowTrailingPadding)
-    }
-}
-
-struct ToolButton: View {
-    let symbol: String
-    let label: String
-    var action: () -> Void = {}
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: Theme.Window.toolIconSize))
-                .foregroundStyle(Color(nsColor: Theme.Palette.icon))
-                .frame(width: Theme.Window.toolButtonSize, height: Theme.Window.toolButtonSize)
-                .contentShape(RoundedRectangle(cornerRadius: Theme.Window.toolButtonRadius))
-        }
-        .buttonStyle(.plain)
-        .opacity(isEnabled ? 1 : Theme.Window.disabledToolOpacity)
-        .help(label)
-        .accessibilityLabel(label)
     }
 }
 

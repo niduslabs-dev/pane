@@ -82,7 +82,8 @@ import Testing
             FrameButtonSpec(button: .volumeUp, top: 232, length: 46),
             FrameButtonSpec(button: .volumeDown, top: 278, length: 46),
         ],
-        buttonDepth: 3, buttonHitDepth: 14, buttonHitOutset: 4, titleRowHeight: 52, contentInset: 24)
+        buttonDepth: 3, buttonHitDepth: 14, buttonHitOutset: 4, titleRowHeight: 52, contentInset: 24,
+        bottomInset: 24)
 
     private static let pixel8 = PixelSize(width: 1080, height: 2400)
 

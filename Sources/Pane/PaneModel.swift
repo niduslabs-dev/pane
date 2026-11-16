@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import PaneCore
+import Synchronization
 import os
 
 /// The window's state: which emulator is shown, the connection to it, the emulator Pane started
@@ -32,6 +33,10 @@ final class PaneModel {
     private(set) var quadrants = 0
     /// The screen's long side in points; the window's size follows from it.
     private(set) var screenHeight = Theme.Frame.screenHeight
+    /// Where the title starts: just past the system's traffic lights, measured by the window.
+    var titleLeadingInset = Theme.Window.fallbackTitleLeading
+    /// When the running recording started, or nil when not recording.
+    private(set) var recordingStartedAt: Date?
     /// The AVDs on disk, for Start and "Choose another emulator".
     private(set) var avds: [AvdInfo] = []
     /// Why the last Start didn't work, shown under the Start button.
@@ -68,6 +73,8 @@ final class PaneModel {
     /// What the running screen stream was asked for, so a resize only restarts it on change.
     @ObservationIgnored private var streamRequest: StreamRequest?
     @ObservationIgnored private var restartFramesTask: Task<Void, Never>?
+    /// The recording the frame loop feeds, readable off the main actor.
+    @ObservationIgnored nonisolated let recorderSlot = RecorderSlot()
     @ObservationIgnored private let log = Logger(subsystem: "dev.niduslabs.pane", category: "model")
 
     private static let selectedAVDKey = "selectedAVD"
@@ -309,6 +316,59 @@ final class PaneModel {
         return StreamRequest(size: size, quadrants: quadrants)
     }
 
+    // MARK: Home
+
+    /// Android's Home key (`GoHome`, as Android Studio sends it), pressed and released.
+    func pressHome() {
+        guard let connection, status == .live else { return }
+        connection.send(.key(name: Self.homeKeyName, isDown: true))
+        connection.send(.key(name: Self.homeKeyName, isDown: false))
+    }
+
+    private static let homeKeyName = "GoHome"
+
+    // MARK: Recording
+
+    func toggleRecording() {
+        if recordingStartedAt != nil {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+
+    /// Records the frames already arriving into a movie on the Desktop.
+    private func startRecording() {
+        guard status == .live, let size = streamRequest?.size else { return }
+        let url = CaptureFileName.unusedURL(
+            in: Self.captureFolder, prefix: "Pane Recording", date: Date(), fileExtension: "mov")
+        do {
+            recorderSlot.current = try FrameRecorder(url: url, size: size)
+            recordingStartedAt = Date()
+            log.info("Recording to \(url.lastPathComponent, privacy: .public)")
+        } catch {
+            log.error("Recording failed to start: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+        }
+    }
+
+    /// Ends the recording, if any, and returns once the movie is written.
+    @discardableResult
+    func stopRecording() -> Task<Void, Never>? {
+        guard let recorder = recorderSlot.current else { return nil }
+        recorderSlot.current = nil
+        recordingStartedAt = nil
+        let log = log
+        return Task {
+            do {
+                try await recorder.finish()
+                log.info("Saved recording \(recorder.url.lastPathComponent, privacy: .public)")
+            } catch {
+                log.error("Recording not saved: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     // MARK: Screenshot
 
     /// Saves a full-size PNG of the screen to the Desktop, named as macOS names its own.
@@ -341,11 +401,12 @@ final class PaneModel {
 
     // MARK: Rotation
 
-    /// Turns the device a quarter counter-clockwise (Android Studio's "Rotate left"). The
+    /// Turns the device a quarter clockwise, matching the toolbar's `rotate.right` icon. The
     /// layout follows when the first frame in the new orientation arrives.
     func rotate() {
         guard let connection, status == .live else { return }
-        let target = (quadrants + 1) % 4
+        let quarterTurnsInACircle = 4
+        let target = (quadrants + quarterTurnsInACircle - 1) % quarterTurnsInACircle
         releaseAll()
         Task { [weak self] in
             do {
@@ -500,6 +561,9 @@ final class PaneModel {
                         )
                     }
                     let image = FrameImage.make(frame)
+                    if let recorder = self?.recorderSlot.current, let image {
+                        await recorder.append(image, timestampMicroseconds: frame.timestampMicroseconds)
+                    }
                     await MainActor.run {
                         guard let self, self.connection === connection else { return }
                         // Frames in an orientation the stream wasn't asked for are dropped, and
@@ -524,6 +588,7 @@ final class PaneModel {
 
     private func disconnect() {
         releaseAll()
+        stopRecording()
         framesTask?.cancel()
         connectionTask?.cancel()
         bootTask?.cancel()
@@ -655,5 +720,15 @@ final class PaneModel {
         for name in heldKeys { connection?.send(.key(name: name, isDown: false)) }
         heldKeys.removeAll()
         for button in heldButtons { setButton(button, isDown: false) }
+    }
+}
+
+/// The running recording, shared between the main actor (start and stop) and the frame loop.
+final class RecorderSlot: Sendable {
+    private let lock = Mutex<FrameRecorder?>(nil)
+
+    var current: FrameRecorder? {
+        get { lock.withLock { $0 } }
+        set { lock.withLock { $0 = newValue } }
     }
 }

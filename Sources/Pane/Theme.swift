@@ -9,6 +9,7 @@ enum Theme {
     /// The studio spacing scale (design guide 1.1); only the steps Pane uses.
     enum Space {
         static let xxs: CGFloat = 4
+        static let s: CGFloat = 8
         static let m: CGFloat = 12
         static let xl: CGFloat = 24
         static let xxl: CGFloat = 32
@@ -59,32 +60,50 @@ enum Theme {
         static let fadeDuration: Double = 0.2
     }
 
-    /// The window around the device: a title row, then the frame with insets on three sides.
+    /// The window around the device (Layout 2): a title row, the frame with side insets, then
+    /// the toolbar's band.
     enum Window {
-        /// The title row: traffic lights, centred device name and meta, then the tools.
+        /// The title row: traffic lights, the device name and meta left-aligned, then More.
         static let titleRowHeight: CGFloat = 52
-        /// Left, right and bottom inset around the frame (design token `space.xl`).
+        /// Left and right inset around the frame (design token `space.xl`).
         static let contentInset = Space.xl
-        static let titleRowLeadingPadding: CGFloat = 20
-        /// Room the system's traffic lights take after the leading padding.
-        static let trafficLightsWidth: CGFloat = 52
-        /// Between the traffic lights, the title and the tools.
-        static let titleRowGap: CGFloat = 12
+        /// Between the traffic lights and the title (the system's buttons are measured).
+        static let titleGap: CGFloat = 16
+        /// Used until the window reports where its traffic lights end.
+        static let fallbackTitleLeading: CGFloat = 88
         static let titleRowTrailingPadding: CGFloat = 12
         static let titleLineSpacing: CGFloat = 1
-        static let toolButtonSize: CGFloat = 28
-        static let toolButtonRadius: CGFloat = 8
-        static let toolIconSize: CGFloat = 16
-        static let toolSpacing: CGFloat = 2
-        /// Width of the tools group, so the centred title stays centred on the window.
-        static let toolsWidth: CGFloat = 92
-        static let disabledToolOpacity: CGFloat = 0.45
+        static let moreButtonSize: CGFloat = 30
+        static let moreIconSize: CGFloat = 15
     }
 
-    /// Ink glass (design guide `inkGlass`): behind-window blur under an ink tint, dark mode only.
+    /// The floating toolbar under the device: two glass capsules, centred in their band.
+    enum Toolbar {
+        static let bandHeight: CGFloat = 88
+        static let capsuleHeight: CGFloat = 44
+        static let capsulePadding: CGFloat = 6
+        static let capsuleGap = Space.s
+        static let buttonWidth: CGFloat = 40
+        static let buttonHeight: CGFloat = 32
+        static let buttonSpacing: CGFloat = 2
+        static let iconSize: CGFloat = 17
+        static let hairline: CGFloat = 0.5
+        static let disabledOpacity: CGFloat = 0.45
+        /// Hover and press shades over a button (design guide Controls: +4%, +8%).
+        static let hoverOpacity: Double = 0.06
+        static let pressedOpacity: Double = 0.12
+        static let hoverDuration: Double = 0.12
+    }
+
+    /// The window's glass: behind-window blur under an ink tint in dark (`inkGlass`) and a
+    /// paper tint in light (Pane only; the guide's light mode is solid paper).
     enum Glass {
-        static let material = NSVisualEffectView.Material.hudWindow
-        static let tintOpacity: CGFloat = 0.86
+        static let darkMaterial = NSVisualEffectView.Material.hudWindow
+        static let lightMaterial = NSVisualEffectView.Material.underWindowBackground
+        // Secondary text keeps 5.6:1 with pure white behind (#3C3B41).
+        static let darkTintOpacity: CGFloat = 0.86
+        // Secondary text (#64636C) keeps 4.5:1 even with pure black behind the glass (#E0E0E2).
+        static let lightTintOpacity: CGFloat = 0.92
     }
 
     /// The device frame we draw: body, bezel, screen corners, punch hole and side buttons.
@@ -125,7 +144,7 @@ enum Theme {
             bodyRadius: bodyRadius, screenRadius: screenRadius, punchHoleDiameter: punchHoleDiameter,
             punchHoleTop: punchHoleTop, buttons: buttons, buttonDepth: buttonDepth, buttonHitDepth: buttonHitDepth,
             buttonHitOutset: buttonHitOutset, titleRowHeight: Window.titleRowHeight,
-            contentInset: Window.contentInset)
+            contentInset: Window.contentInset, bottomInset: Toolbar.bandHeight)
     }
 
     /// Type styles (design guide 1.2).
@@ -166,7 +185,15 @@ enum Theme {
         /// `link` on the dark screen: moss for dark surfaces.
         static let screenLink = dynamic(
             light: 0x8DBB82, dark: 0x8DBB82, contrastLight: 0xB2D8A8, contrastDark: 0xB2D8A8)
-        static let icon = dynamic(light: 0x3E3D45, dark: 0xD6D5DD)
+        static let icon = dynamic(
+            light: 0x3E3D45, dark: 0xD6D5DD, contrastLight: 0x17161C, contrastDark: 0xF4F4F6)
+        /// The toolbar capsules and More button when transparency is reduced (`surfaceRaised`).
+        static let pill = dynamic(light: 0xFFFFFF, dark: 0x2C2B33)
+        /// Hover and press shades on toolbar buttons: ink in light, paper in dark.
+        static let shade = dynamic(light: 0x17161C, dark: 0xF4F4F6)
+        /// Record while recording.
+        static let recording = dynamic(
+            light: 0xD93A2B, dark: 0xFF5A4B, contrastLight: 0xB0281B, contrastDark: 0xFF7A6E)
         static let frameBody = dynamic(light: 0x1F1E25, dark: 0x0E0E12)
         static let frameEdge = dynamic(light: 0x17161C, lightAlpha: 0.55, dark: 0xF4F4F6, darkAlpha: 0.22)
         static let frameInnerEdge = dynamic(light: 0xFFFFFF, lightAlpha: 0.08, dark: 0xFFFFFF, darkAlpha: 0.06)

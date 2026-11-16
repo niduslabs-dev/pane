@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.center()
         window.makeKeyAndOrderFront(nil)
         self.window = window
+        if let trailing = window.trafficLightsTrailingEdge {
+            model.titleLeadingInset = trailing + Theme.Window.titleGap
+        }
         NSApp.activate()
         model.start()
         #if DEBUG
@@ -61,6 +64,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowDidChangeBackingProperties(_ notification: Notification) { model.backingScaleChanged() }
     func applicationWillTerminate(_ notification: Notification) { model.releaseAll() }
+
+    /// Waits for a running recording to be written before quitting.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let finishing = model.stopRecording() else { return .terminateNow }
+        Task {
+            await finishing.value
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    func windowWillClose(_ notification: Notification) { model.stopRecording() }
+
+    /// The green button zooms to the largest frame that fits the screen (no full screen).
+    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
+        let available = window.screen?.visibleFrame ?? newFrame
+        let height = model.screenHeight(fitting: available.size, available: available.size)
+        let content = model.windowContentSize(screenHeight: height)
+        let size = window.frameRect(forContentRect: NSRect(origin: .zero, size: content)).size
+        return NSRect(
+            x: min(max(window.frame.midX - size.width / 2, available.minX), available.maxX - size.width),
+            y: max(window.frame.maxY - size.height, available.minY), width: size.width, height: size.height)
+    }
 }
 
 /// A titled window whose title bar is the content (`titleBarMatchesContent`): full-size content
@@ -88,6 +114,8 @@ final class PaneWindow: NSWindow {
         isOpaque = false
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
+        // No full screen: the green button zooms to the largest frame that fits instead.
+        collectionBehavior.insert(.fullScreenNone)
 
         let hosting = FirstClickHostingView(rootView: PaneContentView(model: model))
         hosting.safeAreaRegions = []
@@ -106,6 +134,13 @@ final class PaneWindow: NSWindow {
             origin.y = min(max(origin.y, visible.minY), visible.maxY - newFrame.height)
         }
         setFrame(NSRect(origin: origin, size: newFrame.size), display: true, animate: false)
+    }
+
+    /// Where the system's traffic lights end, in content coordinates, so the title can sit
+    /// after them without assuming their size.
+    var trafficLightsTrailingEdge: CGFloat? {
+        guard let zoom = standardWindowButton(.zoomButton), let container = zoom.superview else { return nil }
+        return container.convert(zoom.frame, to: nil).maxX
     }
 
     /// The title bar's real height, for checking it against the title row.

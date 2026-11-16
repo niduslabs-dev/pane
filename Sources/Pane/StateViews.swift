@@ -80,7 +80,7 @@ final class MenuAnchor {
     weak var view: NSView?
 }
 
-private struct MenuAnchorView: NSViewRepresentable {
+struct MenuAnchorView: NSViewRepresentable {
     let anchor: MenuAnchor
 
     func makeNSView(context: Context) -> NSView {

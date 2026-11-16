@@ -2,8 +2,10 @@ import AppKit
 
 /// The window's background, title bar included (`titleBarMatchesContent`).
 ///
-/// Dark mode is ink glass (`inkGlass`): a behind-window blur with an ink tint over it. Light mode
-/// is solid paper. Reduce Transparency and Increase Contrast make dark mode solid ink.
+/// Glass in both modes (Jatin's call for Pane, against the guide's solid paper in light): a
+/// behind-window blur with an ink tint in dark (`inkGlass`) and a paper tint in light, strong
+/// enough that text keeps 4.5:1 over a busy desktop. Reduce Transparency and Increase Contrast
+/// make it solid ink or paper.
 @MainActor
 final class GlassBackgroundView: NSView {
     private let blur = NSVisualEffectView()
@@ -11,10 +13,8 @@ final class GlassBackgroundView: NSView {
 
     init(content: NSView) {
         super.init(frame: .zero)
-        blur.material = Theme.Glass.material
         blur.blendingMode = .behindWindow
         blur.state = .active
-        blur.appearance = NSAppearance(named: .darkAqua)
         tint.wantsLayer = true
         for view in [blur, tint, content] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -42,9 +42,9 @@ final class GlassBackgroundView: NSView {
 
     @objc private func displayOptionsChanged() { update() }
 
-    /// Whether the glass shows: dark mode, with neither Reduce Transparency nor Increase Contrast.
-    nonisolated static func showsGlass(isDark: Bool, reduceTransparency: Bool, increaseContrast: Bool) -> Bool {
-        isDark && !reduceTransparency && !increaseContrast
+    /// Whether the glass shows: unless Reduce Transparency or Increase Contrast is on.
+    nonisolated static func showsGlass(reduceTransparency: Bool, increaseContrast: Bool) -> Bool {
+        !reduceTransparency && !increaseContrast
     }
 
     private func update() {
@@ -57,11 +57,12 @@ final class GlassBackgroundView: NSView {
             reduceTransparency = reduceTransparency || UserDefaults.standard.bool(forKey: "PaneReduceTransparency")
             increaseContrast = increaseContrast || UserDefaults.standard.bool(forKey: "PaneIncreaseContrast")
         #endif
-        let glass = Self.showsGlass(
-            isDark: isDark, reduceTransparency: reduceTransparency, increaseContrast: increaseContrast)
+        let glass = Self.showsGlass(reduceTransparency: reduceTransparency, increaseContrast: increaseContrast)
         blur.isHidden = !glass
+        blur.material = isDark ? Theme.Glass.darkMaterial : Theme.Glass.lightMaterial
         let color = Theme.Palette.surface.resolved(for: effectiveAppearance)
-        tint.layer?.backgroundColor = (glass ? color.withAlphaComponent(Theme.Glass.tintOpacity) : color).cgColor
+        let opacity = isDark ? Theme.Glass.darkTintOpacity : Theme.Glass.lightTintOpacity
+        tint.layer?.backgroundColor = (glass ? color.withAlphaComponent(opacity) : color).cgColor
     }
 }
 

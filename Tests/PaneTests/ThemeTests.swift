@@ -10,7 +10,8 @@ import Testing
         let layout = DeviceFrameLayout(spec: Theme.Frame.spec, deviceSize: Theme.Frame.fallbackDeviceSize)
         #expect(layout.bodyRect.size == CGSize(width: 335, height: 720))
         #expect(layout.screenRect.size == CGSize(width: 315, height: 700))
-        #expect(layout.windowContentSize.height == 796)
+        // Title row 52, frame 720, toolbar band 88 (Layout 2).
+        #expect(layout.windowContentSize.height == 860)
         // The board's window is 388 wide with the frame centred; Pane derives it from the
         // inset plus the buttons' depth on both sides, a point wider.
         #expect(layout.windowContentSize.width == 389)
@@ -18,10 +19,9 @@ import Testing
 }
 
 @Suite struct GlassTests {
-    @Test func glassOnlyInDarkModeWithFullTransparency() {
-        #expect(GlassBackgroundView.showsGlass(isDark: true, reduceTransparency: false, increaseContrast: false))
-        #expect(!GlassBackgroundView.showsGlass(isDark: false, reduceTransparency: false, increaseContrast: false))
-        #expect(!GlassBackgroundView.showsGlass(isDark: true, reduceTransparency: true, increaseContrast: false))
-        #expect(!GlassBackgroundView.showsGlass(isDark: true, reduceTransparency: false, increaseContrast: true))
+    @Test func glassInBothModesUnlessReducedOrHighContrast() {
+        #expect(GlassBackgroundView.showsGlass(reduceTransparency: false, increaseContrast: false))
+        #expect(!GlassBackgroundView.showsGlass(reduceTransparency: true, increaseContrast: false))
+        #expect(!GlassBackgroundView.showsGlass(reduceTransparency: false, increaseContrast: true))
     }
 }
