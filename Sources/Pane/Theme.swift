@@ -242,6 +242,10 @@ extension Theme {
         /// While live, `getStatus` this often, so a stopped or wedged emulator is noticed (the
         /// screen stream alone just goes quiet).
         static let heartbeat: Duration = .seconds(5)
+        /// How far one mouse-wheel line moves the scrolling finger, in screen points.
+        static let wheelLinePoints: CGFloat = 24
+        /// Lift the wheel's finger once the wheel has been still this long.
+        static let wheelRelease: Duration = .milliseconds(150)
         /// Wait this long after the last resize before asking for frames at the new size.
         static let frameRestartDebounce: Duration = .milliseconds(200)
     }

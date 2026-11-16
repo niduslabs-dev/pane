@@ -19,6 +19,12 @@ final class ScreenView: NSView {
     }
 
     var onPointer: ((PointerPhase, CGPoint) -> Void)?
+    /// A scroll at a point: deltas in points, and the trackpad phase (nil for a mouse wheel,
+    /// whose deltas are lines). Momentum events are dropped: Android flings by itself.
+    var onScroll: ((CGPoint, CGFloat, CGFloat, ScrollGesture.Phase?) -> Void)?
+    /// A key down or up while the window is key. Returns false to let AppKit handle it
+    /// (menu shortcuts).
+    var onKey: ((NSEvent, Bool) -> Bool)?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -55,6 +61,33 @@ final class ScreenView: NSView {
     override func mouseDragged(with event: NSEvent) { report(.dragged, event) }
     override func mouseUp(with event: NSEvent) { report(.up, event) }
     override func mouseExited(with event: NSEvent) { report(.exited, event) }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard event.momentumPhase.isEmpty else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let phase: ScrollGesture.Phase?
+        if event.phase.contains(.began) {
+            phase = .began
+        } else if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            phase = .ended
+        } else if event.phase.contains(.changed) {
+            phase = .changed
+        } else if event.hasPreciseScrollingDeltas {
+            // A precise device without phases (some mice): treat it like a wheel, in points.
+            phase = .wheel
+        } else {
+            phase = nil
+        }
+        onScroll?(point, event.scrollingDeltaX, event.scrollingDeltaY, phase)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if onKey?(event, true) != true { super.keyDown(with: event) }
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if onKey?(event, false) != true { super.keyUp(with: event) }
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

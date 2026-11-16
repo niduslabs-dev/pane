@@ -53,7 +53,7 @@ struct TitleRow: View {
                 // Inert in the spike: rotate, screenshot and the More menu come with v1.
                 ToolButton(symbol: "arrow.trianglehead.2.clockwise.rotate.90", label: "Rotate") { model.rotate() }
                     .disabled(!toolsEnabled)
-                ToolButton(symbol: "camera", label: "Save screenshot")
+                ToolButton(symbol: "camera", label: "Save screenshot") { model.saveScreenshot() }
                     .disabled(!toolsEnabled)
                 ToolButton(symbol: "ellipsis", label: "More")
             }

@@ -50,6 +50,10 @@ final class PaneModel {
     @ObservationIgnored private var startTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: RegistrationWatcher?
     @ObservationIgnored private var pressedAt: DevicePoint?
+    @ObservationIgnored private var scroll = ScrollGesture()
+    @ObservationIgnored private var wheelReleaseTask: Task<Void, Never>?
+    /// Named keys held down right now (arrows, Backspace), so focus loss can release them.
+    @ObservationIgnored private var heldKeys: Set<String> = []
     /// The emulator process Pane launched, and the PID of the emulator it became once it
     /// registered. Pane only ever stops these without asking.
     @ObservationIgnored private var launchedProcess: Process?
@@ -99,6 +103,10 @@ final class PaneModel {
     init() {
         selectedAVDName = UserDefaults.standard.string(forKey: Self.selectedAVDKey)
         screenView.onPointer = { [weak self] phase, point in self?.handlePointer(phase, at: point) }
+        screenView.onScroll = { [weak self] point, dx, dy, phase in
+            self?.handleScroll(at: point, deltaX: dx, deltaY: dy, phase: phase)
+        }
+        screenView.onKey = { [weak self] event, isDown in self?.handleKey(event, isDown: isDown) ?? false }
     }
 
     /// Starts watching for emulators and attaches to the first one running.
@@ -301,6 +309,36 @@ final class PaneModel {
         return StreamRequest(size: size, quadrants: quadrants)
     }
 
+    // MARK: Screenshot
+
+    /// Saves a full-size PNG of the screen to the Desktop, named as macOS names its own.
+    func saveScreenshot() {
+        guard let connection, status == .live else { return }
+        let folder = Self.captureFolder
+        Task { [weak self] in
+            do {
+                let png = try await connection.screenshotPNG()
+                let url = CaptureFileName.unusedURL(in: folder, prefix: "Pane", date: Date(), fileExtension: "png")
+                try png.write(to: url, options: .withoutOverwriting)
+                self?.log.info("Saved screenshot \(url.lastPathComponent, privacy: .public)")
+            } catch {
+                self?.log.error("Screenshot failed: \(String(describing: error), privacy: .public)")
+                NSSound.beep()
+            }
+        }
+    }
+
+    /// The Desktop. Debug builds take `-PaneCaptureFolder <path>`, so checks never write there.
+    static var captureFolder: URL {
+        #if DEBUG
+            if let path = UserDefaults.standard.string(forKey: "PaneCaptureFolder") {
+                return URL(filePath: path, directoryHint: .isDirectory)
+            }
+        #endif
+        return FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Desktop")
+    }
+
     // MARK: Rotation
 
     /// Turns the device a quarter counter-clockwise (Android Studio's "Rotate left"). The
@@ -499,6 +537,7 @@ final class PaneModel {
         emulator = nil
         hasFrame = false
         isBooted = false
+        scroll = ScrollGesture()
         screenView.show(nil)
     }
 
@@ -537,6 +576,58 @@ final class PaneModel {
         }
     }
 
+    /// Scrolls by dragging a finger on the device's screen (see `ScrollGesture`).
+    private func handleScroll(at point: CGPoint, deltaX: CGFloat, deltaY: CGFloat, phase: ScrollGesture.Phase?) {
+        guard let connection, status == .live, pressedAt == nil else { return }
+        let gesturePhase: ScrollGesture.Phase
+        var delta = CGVector(dx: deltaX, dy: deltaY)
+        if let phase {
+            gesturePhase = phase
+        } else {
+            gesturePhase = .wheel
+            delta = CGVector(dx: deltaX * Theme.Timing.wheelLinePoints, dy: deltaY * Theme.Timing.wheelLinePoints)
+        }
+        let bounds = CGRect(origin: .zero, size: layout.screenRect.size)
+        for action in scroll.handle(phase: gesturePhase, pointer: point, delta: delta, bounds: bounds) {
+            send(action, on: connection)
+        }
+        guard gesturePhase == .wheel else { return }
+        wheelReleaseTask?.cancel()
+        wheelReleaseTask = Task { [weak self] in
+            try? await Task.sleep(for: Theme.Timing.wheelRelease)
+            guard let self, !Task.isCancelled, let action = self.scroll.endWheel(), let connection = self.connection
+            else { return }
+            self.send(action, on: connection)
+        }
+    }
+
+    private func send(_ action: ScrollGesture.Action, on connection: EmulatorConnection) {
+        switch action {
+        case .down(let point), .move(let point): connection.send(.press(mapping.clampedDevicePoint(for: point)))
+        case .up(let point): connection.send(.release(mapping.clampedDevicePoint(for: point)))
+        }
+    }
+
+    /// Sends a key while the window is key. Command shortcuts stay with the Mac's menus.
+    func handleKey(_ event: NSEvent, isDown: Bool) -> Bool {
+        guard let connection, status == .live else { return false }
+        if event.modifierFlags.contains(.command) { return false }
+        if let name = KeyMapping.keyName(macKeyCode: event.keyCode) {
+            if isDown {
+                heldKeys.insert(name)
+            } else {
+                guard heldKeys.remove(name) != nil else { return true }
+            }
+            connection.send(.key(name: name, isDown: isDown))
+            return true
+        }
+        guard isDown else { return true }
+        if event.modifierFlags.contains(.control) { return false }
+        guard let text = event.characters.flatMap(KeyMapping.typedText) else { return false }
+        connection.send(.text(text))
+        return true
+    }
+
     private func releasePointer() {
         guard let point = pressedAt else { return }
         connection?.send(.release(point))
@@ -559,6 +650,10 @@ final class PaneModel {
     /// Lifts any held touch and key. Called on focus loss and app deactivation.
     func releaseAll() {
         releasePointer()
+        wheelReleaseTask?.cancel()
+        if let action = scroll.endWheel(), let connection { send(action, on: connection) }
+        for name in heldKeys { connection?.send(.key(name: name, isDown: false)) }
+        heldKeys.removeAll()
         for button in heldButtons { setButton(button, isDown: false) }
     }
 }

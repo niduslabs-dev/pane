@@ -29,6 +29,8 @@ public enum InputCommand: Sendable, Equatable {
     case release(DevicePoint)
     /// A hardware key down or up, by its W3C key name (`Power`, `AudioVolumeUp`).
     case key(name: String, isDown: Bool)
+    /// Typed text, delivered as key presses by the emulator.
+    case text(String)
 }
 
 /// A plaintext HTTP/2 gRPC connection to one emulator on loopback, authenticated with its
@@ -105,13 +107,23 @@ public final class EmulatorConnection: Sendable {
             mouse.y = Int32(point.y)
             mouse.buttons = command == .press(point) ? Self.primaryButton : 0
             event.mouseEvent = mouse
+        case .text(let text):
+            var key = Android_Emulation_Control_KeyboardEvent()
+            key.text = text
+            key.eventType = .keypress
+            event.keyEvent = key
         case .key(let name, let isDown):
             var key = Android_Emulation_Control_KeyboardEvent()
             key.key = name
             key.eventType = isDown ? .keydown : .keyup
             event.keyEvent = key
         }
-        Self.log.debug("Input \(String(describing: command), privacy: .public)")
+        // Typed text is the user's; log only that some was sent.
+        if case .text = command {
+            Self.log.debug("Input text")
+        } else {
+            Self.log.debug("Input \(String(describing: command), privacy: .public)")
+        }
         inputContinuation.yield(event)
     }
 
@@ -125,6 +137,13 @@ public final class EmulatorConnection: Sendable {
         options.timeout = timeout
         let status = try await controller.getStatus(Google_Protobuf_Empty(), options: options)
         return (status.version, status.booted)
+    }
+
+    /// A full-size PNG of the screen as it is now, upright for the current orientation.
+    public func screenshotPNG() async throws -> Data {
+        var format = Android_Emulation_Control_ImageFormat()
+        format.format = .png
+        return try await controller.getScreenshot(format, options: callOptions).image
     }
 
     /// Turns the device to `quadrants` quarter turns counter-clockwise from portrait, the way

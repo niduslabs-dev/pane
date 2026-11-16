@@ -19,7 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.start()
         #if DEBUG
             // Shows whether mouse events reach the app at all, for scripted background checks.
-            NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { event in
+            NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .scrollWheel, .keyDown]) {
+                event in
                 Logger(subsystem: "dev.niduslabs.pane", category: "events").debug(
                     "AppKit \(String(describing: event.type), privacy: .public) window \(event.windowNumber) at \(event.locationInWindow.x), \(event.locationInWindow.y)"
                 )
@@ -32,6 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillResignActive(_ notification: Notification) { model.releaseAll() }
     func windowDidResignKey(_ notification: Notification) { model.releaseAll() }
+
+    /// Keys go to the emulator's screen whenever the window is key.
+    func windowDidBecomeKey(_ notification: Notification) {
+        (notification.object as? NSWindow)?.makeFirstResponder(model.screenView)
+    }
 
     /// Snaps every resize to the device's shape: the largest frame that fits the proposed size.
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
