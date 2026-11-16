@@ -1,6 +1,6 @@
 # Pane
 
-A Mac app that mirrors an Android emulator in a clean window, inside a device frame we draw, and forwards clicks, scrolls, keys and frame-button presses to it over the emulator's own gRPC interface (`EmulatorController`). It also starts emulators headless. Android emulator only. Status: v1 built (2026-11-17), waiting for Jatin to try it.
+A Mac app that mirrors an Android emulator in a clean window, inside a device frame we draw, and forwards clicks, scrolls, keys and frame-button presses to it over the emulator's own gRPC interface (`EmulatorController`). It also starts emulators headless. Android emulator only. Status: v1 and the tools (More menu, Open link, Inspect layout, Measure, Pick colour, emulator switcher, one window per emulator) built 2026-11-17, waiting for Jatin to try them.
 
 - Plan and decisions: `../plans/pane.md` (Nidus Labs workspace). Research with sources: `~/Work/personal/.claude/research/emulator-mirror-grpc.md`.
 - Design canvas: [Pane design](https://claude.ai/artifact/SSy48PyDrNEapFzTWwoybJ). Studio design rules: `../docs/mac-app-design.md`.
@@ -15,19 +15,31 @@ A Swift package, no Xcode project. Swift 6, strict concurrency, macOS 15+.
   - `Client/`: `EmulatorConnection` (plaintext HTTP/2 gRPC with the bearer token: `streamScreenshot` in RGBA with both sides set, one long-lived `streamInputEvent`, status, rotate, PNG screenshot) and the reconnect backoff.
   - `Geometry/`: the frame layout for any size and the four orientations, window points to device pixels, the Window menu sizes.
   - `Input/`: key mapping (W3C names, typed text) and scrolling as a touch drag (phone AVDs have no wheel device, so `WheelEvent`s are dropped).
-  - `Capture/`: file names like macOS's own, the save folder (`CaptureLocation`: macOS's screenshot `location`, else the Desktop), and `FrameRecorder` (H.264 `.mov` from the frames, variable frame rate).
-  - `Transfer/`: `DropPlan` (dropped files: `.apk` installs, the rest copy to `/sdcard/Download`, media is scanned) and `Adb` (the real SDK's adb through `Process`, serial `emulator-<console port>`, errors cut to one line).
+  - `Capture/`: file names like macOS's own, the save folder (`CaptureLocation`: macOS's screenshot `location`, else the Desktop), `FrameRecorder` (H.264 `.mov` from the frames, variable frame rate), `GifExporter` (a recording as a GIF, ImageIO) and `FramedScreenshot` (Pane's frame drawn around a screenshot on a clear background).
+  - `Transfer/`: `DropPlan` (dropped files: `.apk` installs, the rest copy to `/sdcard/Download`, media is scanned) and `Adb` (the real SDK's adb through `Process`, serial `emulator-<console port>`, errors cut to one line). `Adb.run(_:timeout:)` runs any argument array and returns the output; `adb shell` joins its arguments for the device's shell, so quote typed text with `deviceShellQuoted`.
+  - `Tools/`: `DeviceLink` (Open link: validation, the `am start` arguments, adb's failure in one line) and `RecentLinks`; `DeviceAppearance`, `DeviceTextSize`, `DeviceLocation`; `LayoutTree` (the `uiautomator dump` parser, hit-testing, parent frames), `DensityScale` (px × 160 / density), `EdgeDistances`, `ScreenScale`; `MeasuredLine` and `SnapEdges`; `PickedColour` and `PixelGrid`.
+  - `Windows/`: `WindowRoster` (one window per emulator, where an attach request goes) and `SwitcherEntry` (the switcher's rows).
   - `Clipboard/`: `ClipboardSync`, the rules for text moving between the Mac's clipboard and the device's (gRPC `setClipboard`, `getClipboard`, `streamClipboard`).
   - `Takeover/`: "Show All Emulators in Pane" state and runner, and `AttachRequest` (`pane://attach?avd=` and `--attach <avd>`).
   - `Generated/`: protoc output, committed.
-- `Pane`: the app. `Theme.swift` holds every size and colour; `PaneModel` owns the connection, the emulator Pane started, sizes, recording and the input rules; `Chrome.swift` is the title bar and the toolbar under the device (kept apart so the chrome can change alone); `StateViews.swift` holds the no-emulator, progress and can't-connect screens and the emulators menu; `PaneContentView` lays out the frame; `MainMenu` is the menu bar; `main.swift` holds the window, its toolbar item (More) and resizing.
+- `Pane`: the app.
+  - `Theme.swift` holds every size and colour (menus in `Theme.Menu`, the tool pill in `Theme.ModePill`, tool drawing in `Theme.Tools`, tool colours `Palette.tool…`).
+  - `main.swift`: `AppDelegate` (the windows, one `PaneWindowController` each, the roster, attach requests, the `pane://check-…` URLs), `PaneWindow` and the More toolbar item.
+  - `PaneWindowController`: one window and its `PaneModel`; the window delegate; runs `DeviceCommand`s; opens the menu panels and sheets; remembers each emulator's window position.
+  - `PaneModel` owns the connection, the emulator Pane started, sizes, recording and the input rules; `PaneModel+Device.swift` has screenshots, GIF export, Open link and the device's appearance, text size and location.
+  - `PaneSettings`: everything remembered between launches, in one observable type (the Settings window binds to it).
+  - `MenuPanel.swift`: Pane's own menus (`PaneMenu` holds the rows and the keys, `PaneMenuPanel` draws them). More, the emulator switcher and the emulators menu use it; never `NSMenu`, which also can't be shown or captured while Pane is in the background. `DeviceMenu.swift` builds their rows and the menu bar's native items from the same `DeviceCommand`s.
+  - `Tools/`: `ToolsModel` (Inspect layout, Measure, Pick colour: one at a time, the screen's pointer is theirs while one is on) and `ToolOverlays.swift` (what they draw, the mode pill, the notice line).
+  - `Sheets.swift`: the sheet scaffold, Open link and Custom location.
+  - `Chrome.swift` is the title bar (the device name is the switcher's button) and the toolbar under the device; `StateViews.swift` holds the no-emulator, progress and can't-connect screens; `PaneContentView` lays out the frame; `MainMenu` is the menu bar.
 - `Protos/`: the vendored proto and the emulator version it came from.
 - `Resources/Assets.xcassets`: Pane's custom symbols (`pane.home`, `pane.rotate.left`), generated by `scripts/make-symbols.py` from measurements of Device Hub's toolbar (never Apple's artwork) and compiled by `build-app.sh` with `actool`. Edit the script, not the SVGs.
 - `scripts/emulator-takeover.sh install|uninstall|status`: the shadow SDK at `~/Library/Android/pane-sdk` (no spaces: the NDK breaks on them) whose `emulator` is a wrapper (adds `-no-window` to AVD launches and opens Pane on that AVD), plus a marked block in `~/.config/fish/config.fish`, `~/.zprofile` and `~/.zshrc` (backed up first). Bundled into the app for the menu item; env overrides (`PANE_REAL_SDK`, `PANE_SHADOW_SDK`, `PANE_FISH_CONFIG`, `PANE_ZSH_CONFIGS`) let checks run it on scratch copies. Pane itself always launches from the real SDK.
 
 ## Design
 
-- Chrome measured from Apple's Device Hub with the Accessibility API (title 28 pt past the traffic lights, 36 pt glass capsule and circle under the device). Boards: the [Pane design](https://claude.ai/artifact/SSy48PyDrNEapFzTWwoybJ) canvas (live, empty option A, error, EmptyMenu, layout 2).
+- Chrome measured from Apple's Device Hub with the Accessibility API (title 28 pt past the traffic lights, 36 pt glass capsule and circle under the device). Boards: the [Pane design](https://claude.ai/artifact/SSy48PyDrNEapFzTWwoybJ) canvas (window boards 1 to 6, tools 7 to 13, kit 16).
+- **Tools are built to boards 7 to 11 and 13.** Tool colours are fixed in both modes because they draw on the device: moss `#4F7A4A` for outlines and lines, amber `#B25E00` (always dashed) for distances and snap guides, a paper halo around both, ink chips. Deviations from the boards: the inspect card also shows a Label row when the view has text; Pick colour reads the frame Pane is showing, which is scaled down when the window is smaller than the device (exact at Pixel Accurate).
 - **Deviation from the studio guide:** the window background is glass in light mode too, not solid paper (Jatin, 2026-11-17). Paper tint 92% and ink tint 86% keep secondary text at 4.5:1 over pure black or white; Reduce Transparency and Increase Contrast make it solid.
 - `scripts/build-app.sh` stamps the real SDK version into the binary with `vtool`. SwiftPM records the deployment target there, which makes AppKit draw the pre-macOS 26 look (12 pt traffic lights, no glass toolbar items).
 
@@ -51,6 +63,8 @@ scripts/generate-protos.sh          # regenerate Sources/PaneCore/Generated (pin
 - `movinfo.swift` checks a recording; `pixels.swift` and `contrast.py` sample colours.
 - Debug-build flags: `-PaneCaptureFolder <dir>` (screenshots and recordings never go to the Desktop in checks), `-PaneReduceTransparency YES`, `-PaneIncreaseContrast YES`, `-PaneAVDHome <dir>` (fixture AVDs in `.claude/checks/fixture-avd`), `-PaneNoAutoAttach YES` (keeps the no-emulator screen up), `-PaneScreenCaptureLocation <value>` (stands in for macOS's screenshot setting; never change the real one), `-PaneRegistrationFolder <dir>` (fake emulators: `.claude/checks/fake-sdk` registers on a dead port, run with `open --env ANDROID_HOME=…`).
 - Drops and paste can't be posted to a background window, so the debug build takes `pane://check-hover?file=…`, `check-hover-end`, `check-drop?file=…` and `check-paste` (same handlers), plus `-PaneTreatAsKey YES` and `-PanePasteboard <name>` (a private pasteboard; `pb.swift <name> [text]` reads or writes it), so checks never touch the real clipboard. `uidump.py` prints the device's text nodes.
+- `build-debug.sh` builds the debug copy straight into `.claude/checks/debug` (`PANE_APP=<path> scripts/build-app.sh`), so the copy running from `build/` is never replaced under Jatin. `v2.sh` wraps the debug copy's steps (`drun`, `dquit`, `dshot`, `dmenu`, `dpress`, `dclick`, `dmove`, `dkey`, `durl`, `dlog`); `axmenus.swift` prints the menu bar with shortcuts and ticks, `axclose.swift` closes a window, `pbtypes.swift` shows what is on the private pasteboard.
+- More debug URLs: `check-open-link?text=…` and `check-location?lat=…&lon=…` (the sheets, prefilled; press their buttons through Accessibility), `check-gif?file=…`, `check-switcher`. Menu panels take posted keys (`key.swift --code 125` is Down, 124 Right, 36 Return, 53 Esc) and a posted click on the title opens the switcher.
 - `debug-run.sh` / `debug-quit.sh` run a separate debug copy (`.claude/checks/debug/`) by PID, leaving Jatin's release copy alone; `windows-of.swift <pid>` lists a process's windows (a headless emulator has none).
 - The debug build logs at debug level under subsystem `dev.niduslabs.pane`; `log show` skips debug lines, so use `log stream --level debug`.
 
@@ -65,4 +79,8 @@ scripts/generate-protos.sh          # regenerate Sources/PaneCore/Generated (pin
 - **Generated code is committed and never edited.** To update: copy the new proto into `Protos/`, note its emulator version there, run `scripts/generate-protos.sh`.
 - **Theme constants only;** views hold no raw numbers. Format and lint with Apple's `swift format` (`.swift-format`, lint `--strict` clean); generated code is excluded.
 - **Unsandboxed:** the App Sandbox blocks the registration folder.
+- **While a tool is on, nothing reaches the device:** clicks, scrolls, keys and frame buttons are the tool's. Esc or Done ends it.
+- **One window per emulator.** Asking for an emulator a window already shows brings that window forward. Closing the last window quits Pane and leaves emulators running.
+- **The title bar takes clicks before SwiftUI content under it,** so `PaneWindow.sendEvent` hands a click on the device name to the switcher, and the model tracks the pointer over it for the hover shade.
+- **Menu bar shortcuts** (the panels show the same): Open Link ⌘L, Save Screenshot ⌘S, Copy Screenshot ⇧⌘C, Inspect Layout ⌥⌘I, Measure ⌥⌘M, Pick Colour ⌥⌘P, New Window ⌘N.
 - **One agent drives the emulator at a time** (shared device, see the workspace guide).
