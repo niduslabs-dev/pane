@@ -333,7 +333,8 @@ final class PaneModel {
         setProfile(profile)
         let process: Process
         do {
-            process = try EmulatorLauncher.launch(executable: executable, avdName: avdName)
+            process = try EmulatorLauncher.launch(
+                executable: executable, avdName: avdName, withoutSound: settings.startsWithoutSound)
         } catch {
             log.error("Launch failed: \(String(describing: error), privacy: .public)")
             startProblem = "The emulator didn't start."
@@ -725,8 +726,8 @@ final class PaneModel {
 
     // MARK: Screenshot
 
-    /// Where macOS saves screenshots (`CaptureLocation`), read at each capture so a change in
-    /// the Screenshot app applies at once. Debug builds take `-PaneCaptureFolder <path>` (checks
+    /// Settings' Save to: by default where macOS saves screenshots (`CaptureLocation`), read at
+    /// each capture so a change in the Screenshot app applies at once. Debug builds take `-PaneCaptureFolder <path>` (checks
     /// never write to the real folder) and `-PaneScreenCaptureLocation <value>`, which stands in
     /// for the system setting so checks never change it.
     static var captureFolder: URL {
@@ -740,7 +741,7 @@ final class PaneModel {
         #else
             let configured = CaptureLocation.configuredLocation()
         #endif
-        return CaptureLocation.folder(configured: configured)
+        return CaptureLocation.folder(for: PaneSettings.shared.captureDestination, configured: configured)
     }
 
     // MARK: Rotation

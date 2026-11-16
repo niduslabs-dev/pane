@@ -14,8 +14,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// An attach request (`pane://attach?avd=`) that arrived before the first window opened.
     private var pendingAttach: String?
     private var started = false
-    /// True while the takeover script runs, so the menu item can't start a second run.
-    private var takeoverRunning = false
+    /// Settings' "Show all emulators in Pane": runs the bundled takeover script.
+    private lazy var takeover = TakeoverSwitch(
+        isInstalled: { EmulatorTakeover.isInstalled() },
+        run: { action in
+            #if DEBUG
+                // `-PaneTakeoverCheck changing|failed|ok` stands in for the script, so a check can
+                // flip the switch without touching the real shell setup.
+                if let check = UserDefaults.standard.string(forKey: "PaneTakeoverCheck") {
+                    if check == "changing" { try await Task.sleep(for: Theme.Timing.takeoverCheckHold) }
+                    if check == "failed" { throw CocoaError(.fileWriteUnknown) }
+                    return
+                }
+            #endif
+            guard let script = Bundle.main.url(forResource: "emulator-takeover", withExtension: "sh") else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+            let output = try await EmulatorTakeover.run(action, script: script, app: Bundle.main.bundleURL)
+            Logger(subsystem: "dev.niduslabs.pane", category: "takeover").info(
+                "Takeover output: \(output, privacy: .public)")
+        })
+    private lazy var settingsWindow = SettingsWindowController(
+        settings: .shared, takeover: takeover, updates: updates)
     /// The state every update surface and Check for Updates… read; fed by `updateDriver`
     /// when Sparkle runs.
     let updates = UpdateModel(
@@ -25,10 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make(target: self)
+        FocusVisibility.shared.start()
         let launchAttach = AttachRequest.avdName(fromArguments: CommandLine.arguments)
         // Opened by the emulator wrapper: stay in the background, as `open -g` asked.
-        let first = openWindow(showing: nil, activate: launchAttach == nil)
-        if launchAttach == nil { NSApp.activate() }
+        let activates = launchAttach == nil && !WindowPresence.isBackgroundCheck
+        let first = openWindow(showing: nil, activate: activates)
+        if activates { NSApp.activate() }
         started = true
         if let name = pendingAttach ?? launchAttach {
             pendingAttach = nil
@@ -157,7 +179,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// front, so the debug build takes `pane://check-…` URLs that call the same handlers:
         /// `check-hover?file=…`, `check-hover-end`, `check-drop?file=…`, `check-paste`,
         /// `check-open-link?text=…` (the sheet, prefilled), `check-location?lat=…&lon=…` (the
-        /// sheet, prefilled), `check-gif?file=…` and `check-switcher` (opens the title's menu).
+        /// sheet, prefilled), `check-gif?file=…`, `check-switcher` (opens the title's menu),
+        /// `check-settings`, `check-save-folder?path=…` (Save to, as the folder picker would
+        /// set it) and `check-select?label=…` (opens a select's menu).
         private func handleCheckURL(_ url: URL) -> Bool {
             guard let controller = activeController else { return false }
             let model = controller.model
@@ -173,6 +197,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case "check-location": controller.showCustomLocation(latitude: value("lat"), longitude: value("lon"))
             case "check-gif": if let file = files.first { model.exportGIF(from: file) }
             case "check-switcher": controller.showSwitcher()
+            case "check-settings": showSettings(nil)
+            case "check-save-folder": if let path = value("path") { settingsWindow.checkChooseFolder(path) }
+            case "check-select":
+                _ = SelectDemo.openers[value("label") ?? ""]?(value("keyboard") == "1")
             default: return false
             }
             return true
@@ -202,38 +230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func checkForUpdates(_ sender: Any?) { updates.perform(.check) }
 
-    // MARK: Show All Emulators in Pane
+    // MARK: Settings
 
-    /// Turns the emulator takeover on or off by running the bundled script.
-    @objc func toggleTakeover(_ sender: NSMenuItem) {
-        guard !takeoverRunning else { return }
-        guard let script = Bundle.main.url(forResource: "emulator-takeover", withExtension: "sh") else {
-            log.error("emulator-takeover.sh is missing from the app")
-            NSSound.beep()
-            return
-        }
-        let action: EmulatorTakeover.Action = EmulatorTakeover.isInstalled() ? .uninstall : .install
-        let app = Bundle.main.bundleURL
-        takeoverRunning = true
-        log.info("Takeover \(action.rawValue, privacy: .public)")
-        Task {
-            defer { takeoverRunning = false }
-            do {
-                let output = try await EmulatorTakeover.run(action, script: script, app: app)
-                log.info("Takeover output: \(output, privacy: .public)")
-            } catch {
-                log.error("Takeover failed: \(String(describing: error), privacy: .public)")
-                let alert = NSAlert()
-                alert.messageText = "Couldn't change where emulators open."
-                alert.informativeText = (error as? EmulatorTakeover.Failure)?.output ?? error.localizedDescription
-                if let window = activeController?.window {
-                    alert.beginSheetModal(for: window, completionHandler: nil)
-                } else {
-                    alert.runModal()
-                }
-            }
-        }
-    }
+    /// Settings… in the app menu (Command-comma) and in More.
+    @objc func showSettings(_ sender: Any?) { settingsWindow.show() }
 
     func applicationWillResignActive(_ notification: Notification) {
         for controller in controllers { controller.model.releaseAll() }
@@ -269,9 +269,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(zoomIn(_:)): return model?.canZoom(in: true) ?? false
         case #selector(zoomOut(_:)): return model?.canZoom(in: false) ?? false
         case #selector(checkForUpdates(_:)): return updates.canCheck
-        case #selector(toggleTakeover(_:)):
-            item.state = EmulatorTakeover.isInstalled() ? .on : .off
-            return !takeoverRunning
         default: return true
         }
     }

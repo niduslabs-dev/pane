@@ -82,6 +82,13 @@ import Testing
             ])
     }
 
+    @Test func soundCanBeLeftOn() {
+        #expect(
+            EmulatorLauncher.arguments(avdName: "dev_android36", withoutSound: false) == [
+                "-avd", "dev_android36", "-no-window", "-no-boot-anim", "-no-snapshot-save",
+            ])
+    }
+
     @Test func readsOurOwnParent() {
         #expect(EmulatorLauncher.parentPID(of: getpid()) == getppid())
     }

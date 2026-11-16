@@ -34,9 +34,50 @@ public enum CaptureLocation {
         return isWritableFolder(url) ? url : desktop
     }
 
+    /// The folder for the Save to setting. A chosen folder that is missing or not writable
+    /// falls back to the Desktop, as macOS's own setting does.
+    public static func folder(
+        for destination: CaptureDestination, configured: String?,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        isWritableFolder: (URL) -> Bool = CaptureLocation.isWritableFolder
+    ) -> URL {
+        switch destination {
+        case .system: folder(configured: configured, home: home, isWritableFolder: isWritableFolder)
+        case .desktop: folder(configured: nil, home: home, isWritableFolder: isWritableFolder)
+        case .folder(let path): folder(configured: path, home: home, isWritableFolder: isWritableFolder)
+        }
+    }
+
     public static func isWritableFolder(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
             && FileManager.default.isWritableFile(atPath: url.path)
+    }
+}
+
+/// Settings' Save to: where screenshots and recordings go.
+public enum CaptureDestination: Equatable, Hashable, Sendable {
+    /// Wherever macOS saves its own screenshots.
+    case system
+    case desktop
+    /// A folder the user chose, as an absolute path.
+    case folder(String)
+
+    /// The two stored values: which kind, and the chosen folder's path. The path is kept when
+    /// another kind is chosen, so the last folder can be offered again.
+    public init(kind: String?, path: String?) {
+        switch kind {
+        case "desktop": self = .desktop
+        case "folder": self = path.map(CaptureDestination.folder) ?? .system
+        default: self = .system
+        }
+    }
+
+    public var kind: String {
+        switch self {
+        case .system: "system"
+        case .desktop: "desktop"
+        case .folder: "folder"
+        }
     }
 }

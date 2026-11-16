@@ -9,7 +9,8 @@
 # Usage: scripts/build-app.sh            release build
 #        scripts/build-app.sh --debug    debug build
 # PANE_APP=<path> builds the app somewhere else, so a check's debug copy never replaces the
-# copy that is running from build/.
+# copy that is running from build/. PANE_BUNDLE_ID=<id> gives that copy its own preferences, so
+# a check that flips settings never changes another copy's.
 #
 # Environment (all optional):
 #   VERSION             CFBundleShortVersionString (default 0.1.0)
@@ -29,6 +30,7 @@ CONFIG=release
 BUNDLE_ID=dev.niduslabs.pane
 DISPLAY_NAME=Pane
 if [ "$CONFIG" = debug ]; then BUNDLE_ID=dev.niduslabs.pane.debug; DISPLAY_NAME="Pane (Debug)"; fi
+BUNDLE_ID=${PANE_BUNDLE_ID:-$BUNDLE_ID}
 
 VERSION=${VERSION:-0.1.0}
 BUILD_NUMBER=${BUILD:-$VERSION}

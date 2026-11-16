@@ -3,20 +3,20 @@ import Foundation
 
 /// Starts an AVD headless and stops emulators by PID.
 ///
-/// Pane is how a headless emulator is seen, so it runs with no window, audio or boot
-/// animation, and never saves a snapshot on exit (a cold boot each time, as Jatin runs it).
+/// Pane is how a headless emulator is seen, so it runs with no window or boot animation,
+/// without sound unless Settings says otherwise, and never saves a snapshot on exit (a cold boot each time, as Jatin runs it).
 /// The binary runs through `Process`, never a shell.
 public enum EmulatorLauncher {
-    public static func arguments(avdName: String) -> [String] {
-        ["-avd", avdName, "-no-window", "-no-audio", "-no-boot-anim", "-no-snapshot-save"]
+    public static func arguments(avdName: String, withoutSound: Bool = true) -> [String] {
+        ["-avd", avdName, "-no-window"] + (withoutSound ? ["-no-audio"] : []) + ["-no-boot-anim", "-no-snapshot-save"]
     }
 
     /// Launches the emulator and returns its process. Output is discarded; the emulator writes
     /// its registration file once its gRPC endpoint is up.
-    public static func launch(executable: URL, avdName: String) throws -> Process {
+    public static func launch(executable: URL, avdName: String, withoutSound: Bool = true) throws -> Process {
         let process = Process()
         process.executableURL = executable
-        process.arguments = arguments(avdName: avdName)
+        process.arguments = arguments(avdName: avdName, withoutSound: withoutSound)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

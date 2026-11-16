@@ -557,6 +557,8 @@ extension Theme {
     /// Timings for starting, watching and stopping emulators. Not drawn, but named here so the
     /// model holds no raw numbers.
     enum Timing {
+        /// How long `-PaneTakeoverCheck changing` holds the switch in its changing state.
+        static let takeoverCheckHold: Duration = .seconds(120)
         /// How often to check a booting emulator's `getStatus`.
         static let bootPoll: Duration = .seconds(1)
         /// A `getStatus` that takes longer than this counts as a failure.

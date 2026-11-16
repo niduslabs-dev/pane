@@ -17,6 +17,10 @@ final class PaneSettings {
         sharesClipboard = defaults.object(forKey: Key.shareClipboard) as? Bool ?? true
         includesDeviceFrame = defaults.bool(forKey: Key.includeDeviceFrame)
         selectedAVDName = defaults.string(forKey: Key.selectedAVD)
+        startsWithoutSound = defaults.object(forKey: Key.startWithoutSound) as? Bool ?? true
+        captureFolderPath = defaults.string(forKey: Key.captureFolderPath)
+        captureDestination = CaptureDestination(
+            kind: defaults.string(forKey: Key.captureDestination), path: defaults.string(forKey: Key.captureFolderPath))
     }
 
     /// Share Clipboard: text moves both ways while the window is key. On unless turned off.
@@ -28,6 +32,26 @@ final class PaneSettings {
     /// transparent background.
     var includesDeviceFrame: Bool {
         didSet { defaults.set(includesDeviceFrame, forKey: Key.includeDeviceFrame) }
+    }
+
+    /// Start emulators without sound: applies the next time Pane starts one. On unless turned
+    /// off, as Pane has always started them.
+    var startsWithoutSound: Bool {
+        didSet { defaults.set(startsWithoutSound, forKey: Key.startWithoutSound) }
+    }
+
+    /// Save to: macOS's screenshot folder, the Desktop, or a chosen folder.
+    var captureDestination: CaptureDestination {
+        didSet {
+            defaults.set(captureDestination.kind, forKey: Key.captureDestination)
+            if case .folder(let path) = captureDestination { captureFolderPath = path }
+        }
+    }
+
+    /// The folder last chosen for Save to, kept while another choice is active so the menu
+    /// can offer it again.
+    private(set) var captureFolderPath: String? {
+        didSet { defaults.set(captureFolderPath, forKey: Key.captureFolderPath) }
     }
 
     /// The AVD the first window shows and Start launches.
@@ -97,6 +121,9 @@ final class PaneSettings {
         static let shareClipboard = "shareClipboard"
         static let includeDeviceFrame = "includeDeviceFrame"
         static let selectedAVD = "selectedAVD"
+        static let startWithoutSound = "startWithoutSound"
+        static let captureDestination = "captureDestination"
+        static let captureFolderPath = "captureFolderPath"
         static let sizeMode = "sizeMode."
         static let windowTopLeft = "windowTopLeft."
         static let recentLinks = "recentLinks."

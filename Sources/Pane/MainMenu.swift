@@ -28,12 +28,10 @@ enum MainMenu {
         checkForUpdates.target = target
         appMenu.addItem(checkForUpdates)
         appMenu.addItem(.separator())
-        let takeover = NSMenuItem(
-            title: "Show All Emulators in Pane", action: #selector(AppDelegate.toggleTakeover(_:)), keyEquivalent: "")
-        takeover.target = target
-        takeover.toolTip =
-            "Emulators started anywhere, like Expo or a terminal, open here without a window. Applies to new terminals."
-        appMenu.addItem(takeover)
+        let settings = NSMenuItem(
+            title: "Settings\u{2026}", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
+        settings.target = target
+        appMenu.addItem(settings)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Pane", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(

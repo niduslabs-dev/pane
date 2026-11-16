@@ -25,6 +25,29 @@ import Testing
         #expect(folder("relative/path", writable: ["relative/path"]) == "/Users/someone/Desktop/")
     }
 
+    @Test func saveToChoosesBetweenMacOSTheDesktopAndAFolder() {
+        func folder(_ destination: CaptureDestination, writable: Set<String>) -> String {
+            CaptureLocation.folder(
+                for: destination, configured: "~/Pictures/Shots", home: home,
+                isWritableFolder: { writable.contains($0.path) }
+            ).path(percentEncoded: false)
+        }
+        let all: Set<String> = ["/Users/someone/Pictures/Shots", "/Users/someone/Pane"]
+        #expect(folder(.system, writable: all) == "/Users/someone/Pictures/Shots/")
+        #expect(folder(.desktop, writable: all) == "/Users/someone/Desktop/")
+        #expect(folder(.folder("/Users/someone/Pane"), writable: all) == "/Users/someone/Pane/")
+        // A chosen folder that has gone falls back to the Desktop.
+        #expect(folder(.folder("/Users/someone/Pane"), writable: []) == "/Users/someone/Desktop/")
+    }
+
+    @Test func saveToIsStoredAsAKindAndAPath() {
+        #expect(CaptureDestination(kind: nil, path: nil) == .system)
+        #expect(CaptureDestination(kind: "desktop", path: "/a") == .desktop)
+        #expect(CaptureDestination(kind: "folder", path: "/a") == .folder("/a"))
+        #expect(CaptureDestination(kind: "folder", path: nil) == .system)
+        #expect(CaptureDestination.folder("/a").kind == "folder")
+    }
+
     @Test func checksARealFolder() throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "pane-capture-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
