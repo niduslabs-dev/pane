@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let updates = UpdateModel(
         currentVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
     private var updateDriver: UpdateDriver?
+    /// The update popup, Pane's `UpdateSurface`.
+    private lazy var updatePopup = UpdatePopupController(model: updates)
     private let log = Logger(subsystem: "dev.niduslabs.pane", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -180,7 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// `check-hover?file=…`, `check-hover-end`, `check-drop?file=…`, `check-paste`,
         /// `check-open-link?text=…` (the sheet, prefilled), `check-location?lat=…&lon=…` (the
         /// sheet, prefilled), `check-gif?file=…`, `check-switcher` (opens the title's menu),
-        /// `check-settings`, `check-save-folder?path=…` (Save to, as the folder picker would
+        /// `check-settings`, `check-update?state=…`, `check-save-folder?path=…` (Save to, as the folder picker would
         /// set it) and `check-select?label=…` (opens a select's menu).
         private func handleCheckURL(_ url: URL) -> Bool {
             guard let controller = activeController else { return false }
@@ -198,6 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case "check-gif": if let file = files.first { model.exportGIF(from: file) }
             case "check-switcher": controller.showSwitcher()
             case "check-settings": showSettings(nil)
+            case "check-update": showUpdateCheck(value("state") ?? "")
             case "check-save-folder": if let path = value("path") { settingsWindow.checkChooseFolder(path) }
             case "check-select":
                 _ = SelectDemo.openers[value("label") ?? ""]?(value("keyboard") == "1")
@@ -213,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// except with `-PaneUpdateFeed <url>`, which runs it against a local test appcast.
     private func startUpdates() {
         updates.openURL = { NSWorkspace.shared.open($0) }
+        updates.surface = updatePopup
         var feed: URL?
         var isDebug = false
         #if DEBUG
@@ -228,7 +232,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         updateDriver = driver
     }
 
-    @objc func checkForUpdates(_ sender: Any?) { updates.perform(.check) }
+    /// Check for Updates… opens Settings at the Pane group and runs the same check as the
+    /// button there: the Version row's caption reports it.
+    @objc func checkForUpdates(_ sender: Any?) {
+        settingsWindow.show(scrollTo: .paneGroup)
+        updates.perform(.check)
+    }
+
+    #if DEBUG
+        /// `pane://check-update?state=…`: shows an update surface in a state, with the board's
+        /// example update, so every state can be captured without a feed.
+        private func showUpdateCheck(_ state: String) {
+            let update = AvailableUpdate(
+                version: "1.1", size: 6_000_000,
+                notes: [
+                    "Inspect layout, Measure and Pick colour", "Drop an app on the window to install it",
+                    "Fixes for clipboard sharing",
+                ], releaseNotesURL: URL(string: "https://github.com/niduslabs-dev/pane/releases"))
+            let checked = Date.now.addingTimeInterval(-Theme.Timing.updateCheckDemoAge)
+            switch state {
+            case "ready": updates.demo(.ready(update), surface: true, lastChecked: checked)
+            case "later": updates.demo(.ready(update), surface: false, lastChecked: checked)
+            case "available": updates.demo(.available(update), surface: true, lastChecked: checked)
+            case "downloading":
+                // From the popup's Download: the popup is up first, then follows the download.
+                updates.demo(.available(update), surface: true, lastChecked: checked)
+                updates.demo(
+                    .downloading(update, UpdateProgress(received: 2_100_000, expected: 6_000_000)), surface: true,
+                    lastChecked: checked)
+            case "downloading-quiet":
+                updates.demo(
+                    .downloading(update, UpdateProgress(received: 2_100_000, expected: 6_000_000)), surface: true,
+                    lastChecked: checked)
+            case "checking": updates.demo(.checking, surface: false, lastChecked: checked)
+            case "uptodate": updates.demo(.upToDate, surface: true, lastChecked: .now)
+            case "failed": updates.demo(.failed(message: "The feed is down."), surface: true, lastChecked: checked)
+            default: updates.demo(.idle, surface: false, lastChecked: checked)
+            }
+        }
+    #endif
 
     // MARK: Settings
 

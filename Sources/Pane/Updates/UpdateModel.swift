@@ -464,6 +464,16 @@ final class UpdateModel {
     }
 
     static let log = Logger(subsystem: "dev.niduslabs.pane", category: "updates")
+
+    #if DEBUG
+        /// Sets a state directly, for screenshots of the surfaces (`pane://check-update`).
+        func demo(_ phase: Phase, surface: Bool, lastChecked: Date?) {
+            isEnabled = true
+            self.lastChecked = lastChecked
+            self.phase = phase
+            wantsSurface = surface
+        }
+    #endif
 }
 
 /// Release-note lines for a surface from a feed item's description, which is HTML (a `<ul>`

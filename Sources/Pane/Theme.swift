@@ -559,6 +559,8 @@ extension Theme {
     enum Timing {
         /// How long `-PaneTakeoverCheck changing` holds the switch in its changing state.
         static let takeoverCheckHold: Duration = .seconds(120)
+        /// How long ago `pane://check-update` says the last check was.
+        static let updateCheckDemoAge: TimeInterval = 3 * 3600
         /// How often to check a booting emulator's `getStatus`.
         static let bootPoll: Duration = .seconds(1)
         /// A `getStatus` that takes longer than this counts as a failure.

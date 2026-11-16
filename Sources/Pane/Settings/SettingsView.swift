@@ -65,6 +65,7 @@ struct SettingsView: View {
                 .accessibilityAddTraits(.isHeader)
                 .padding(.bottom, Kit.Settings.titleToGroups)
             VStack(alignment: .leading, spacing: Kit.Settings.groupSpacing) {
+                if updates.isReady { UpdateBanner(model: updates) }
                 group("Emulators") {
                     takeoverRow
                     SwitchRow(title: "Start emulators without sound", isOn: $settings.startsWithoutSound)
