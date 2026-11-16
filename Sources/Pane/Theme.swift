@@ -237,6 +237,11 @@ extension Theme {
         static let stopGracePeriod: Duration = .seconds(10)
         static let stopKillWait: Duration = .seconds(5)
         static let stopPoll: Duration = .milliseconds(200)
+        /// Retries before the can't-connect card: 0.5, 1, 2, 4, 4 s apart.
+        static let reconnect = ReconnectPolicy(maxAttempts: 5, initialDelay: .milliseconds(500), maxDelay: .seconds(4))
+        /// While live, `getStatus` this often, so a stopped or wedged emulator is noticed (the
+        /// screen stream alone just goes quiet).
+        static let heartbeat: Duration = .seconds(5)
         /// Wait this long after the last resize before asking for frames at the new size.
         static let frameRestartDebounce: Duration = .milliseconds(200)
     }

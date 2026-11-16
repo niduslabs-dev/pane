@@ -54,6 +54,9 @@ final class PaneModel {
     /// registered. Pane only ever stops these without asking.
     @ObservationIgnored private var launchedProcess: Process?
     @ObservationIgnored private var ownedEmulatorPID: Int32?
+    /// Failed tries since the connection last worked; drives the backoff.
+    private(set) var reconnectAttempt = 0
+    @ObservationIgnored private var reconnectTask: Task<Void, Never>?
     @ObservationIgnored private var hasFrame = false
     @ObservationIgnored private var isBooted = false
     /// The window resizes itself to this when the layout changes for any reason but a drag.
@@ -205,6 +208,8 @@ final class PaneModel {
     /// Restarts the emulator on screen. Callers confirm first unless `ownsEmulator`.
     func restartEmulator() {
         guard let current = emulator else { return }
+        reconnectAttempt = 0
+        reconnectTask?.cancel()
         let avdName = current.avdName
         let profile = profile
         log.info("Restarting \(avdName, privacy: .public), PID \(current.pid)")
@@ -377,16 +382,19 @@ final class PaneModel {
                     if booted {
                         self.isBooted = true
                         self.updateLiveStatus()
-                        return
+                    } else if self.status == .connecting {
+                        self.status = .booting
                     }
-                    if self.status == .connecting { self.status = .booting }
                 } catch is CancellationError {
                     return
                 } catch {
+                    guard !Task.isCancelled else { return }
                     self?.connectionFailed(error, on: connection)
                     return
                 }
-                try? await Task.sleep(for: Theme.Timing.bootPoll)
+                // Once booted, the same call is the heartbeat.
+                let booted = self?.isBooted ?? false
+                try? await Task.sleep(for: booted ? Theme.Timing.heartbeat : Theme.Timing.bootPoll)
             }
         }
     }
@@ -394,6 +402,7 @@ final class PaneModel {
     private func updateLiveStatus() {
         guard isBooted, hasFrame, status == .connecting || status == .booting else { return }
         status = .live
+        reconnectAttempt = 0
     }
 
     private func connectionFailed(_ error: any Error, on failed: EmulatorConnection?) {
@@ -404,10 +413,34 @@ final class PaneModel {
             refresh()
             return
         }
-        let current = emulator
+        guard let current = emulator else { return }
         disconnect()
+        reconnectAttempt += 1
+        guard let delay = Theme.Timing.reconnect.delay(beforeAttempt: reconnectAttempt) else {
+            log.error("Giving up on \(current.avdName, privacy: .public) after \(self.reconnectAttempt - 1) retries")
+            emulator = current
+            status = .failed
+            return
+        }
+        log.info("Reconnecting, try \(self.reconnectAttempt), in \(delay, privacy: .public)")
         emulator = current
-        status = .failed
+        status = .connecting
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled, self.status == .connecting, self.connection == nil else { return }
+            // Re-read the registration: a restarted emulator has a new port and token.
+            let running = EmulatorDiscovery.runningEmulators()
+            guard let fresh = running.first(where: { $0.pid == current.pid }) else {
+                self.emulator = nil
+                self.status = .noEmulator
+                self.reconnectAttempt = 0
+                self.refresh()
+                return
+            }
+            self.emulator = nil
+            self.connect(to: fresh)
+        }
     }
 
     private func startFrames(on connection: EmulatorConnection) {

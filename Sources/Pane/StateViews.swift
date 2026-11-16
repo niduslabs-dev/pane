@@ -130,7 +130,7 @@ struct ProgressScreen: View {
         switch model.status {
         case .starting: "Starting \(model.title)…"
         case .booting: "Booting Android…"
-        default: "Connecting…"
+        default: model.reconnectAttempt > 0 ? "Reconnecting…" : "Connecting…"
         }
     }
 }
