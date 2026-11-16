@@ -60,33 +60,37 @@ enum Theme {
         static let fadeDuration: Double = 0.2
     }
 
-    /// The window around the device (Layout 2): a title row, the frame with side insets, then
-    /// the toolbar's band.
+    /// The window around the device, with the title row and toolbar measured from Apple's Device
+    /// Hub (AX bounds, Xcode 27): a 52 pt title row, the frame with side insets, then the
+    /// toolbar's band.
     enum Window {
         /// The title row: traffic lights, the device name and meta left-aligned, then More.
         static let titleRowHeight: CGFloat = 52
         /// Left and right inset around the frame (design token `space.xl`).
         static let contentInset = Space.xl
-        /// Between the traffic lights and the title (the system's buttons are measured).
-        static let titleGap: CGFloat = 16
+        /// From the end of the system's traffic lights to the title (Device Hub: 80 → 108).
+        static let titleGap: CGFloat = 28
         /// Used until the window reports where its traffic lights end.
-        static let fallbackTitleLeading: CGFloat = 88
-        static let titleRowTrailingPadding: CGFloat = 12
-        static let titleLineSpacing: CGFloat = 1
-        static let moreButtonSize: CGFloat = 30
-        static let moreIconSize: CGFloat = 15
+        static let fallbackTitleLeading: CGFloat = 108
+        /// Room kept clear of the title on the right; More is a real toolbar item over it.
+        static let titleRowTrailingPadding: CGFloat = 56
+        static let titleLineSpacing: CGFloat = 0
     }
 
-    /// The floating toolbar under the device: two glass capsules, centred in their band.
+    /// The floating toolbar under the device (Device Hub's): a glass capsule with Home,
+    /// Screenshot and Record, and a glass circle with Rotate, centred in their band.
     enum Toolbar {
-        static let bandHeight: CGFloat = 88
-        static let capsuleHeight: CGFloat = 44
-        static let capsulePadding: CGFloat = 6
+        /// From the frame's bottom to the window's bottom.
+        static let bandHeight: CGFloat = 54
+        static let capsuleHeight: CGFloat = 36
+        static let capsulePadding = Space.xxs
         static let capsuleGap = Space.s
-        static let buttonWidth: CGFloat = 40
-        static let buttonHeight: CGFloat = 32
+        static let buttonWidth: CGFloat = 32
+        static let buttonHeight: CGFloat = 28
         static let buttonSpacing: CGFloat = 2
-        static let iconSize: CGFloat = 17
+        /// The rotate circle's diameter.
+        static let circleSize: CGFloat = 36
+        static let iconSize: CGFloat = 15
         static let hairline: CGFloat = 0.5
         static let disabledOpacity: CGFloat = 0.45
         /// Hover and press shades over a button (design guide Controls: +4%, +8%).

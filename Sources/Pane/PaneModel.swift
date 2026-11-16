@@ -401,12 +401,12 @@ final class PaneModel {
 
     // MARK: Rotation
 
-    /// Turns the device a quarter clockwise, matching the toolbar's `rotate.right` icon. The
-    /// layout follows when the first frame in the new orientation arrives.
+    /// Turns the device a quarter counter-clockwise (Device Hub's "Rotate Left"). The layout
+    /// follows when the first frame in the new orientation arrives.
     func rotate() {
         guard let connection, status == .live else { return }
         let quarterTurnsInACircle = 4
-        let target = (quadrants + quarterTurnsInACircle - 1) % quarterTurnsInACircle
+        let target = (quadrants + 1) % quarterTurnsInACircle
         releaseAll()
         Task { [weak self] in
             do {

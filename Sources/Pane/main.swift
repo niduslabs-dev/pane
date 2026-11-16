@@ -97,7 +97,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 /// and should match `Theme.Window.titleRowHeight`; the device run checks this.
 @MainActor
 final class PaneWindow: NSWindow {
+    private let toolbarController: TitlebarToolbar
+
     init(model: PaneModel) {
+        toolbarController = TitlebarToolbar(model: model)
         let size = model.layout.windowContentSize
         super.init(
             contentRect: NSRect(origin: .zero, size: size),
@@ -107,7 +110,11 @@ final class PaneWindow: NSWindow {
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         titlebarSeparatorStyle = .none
-        toolbar = NSToolbar(identifier: "pane.titlebar")
+        let toolbar = NSToolbar(identifier: "pane.titlebar")
+        toolbar.delegate = toolbarController
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        self.toolbar = toolbar
         toolbarStyle = .unified
         // Clear so the ink glass shows; `GlassBackgroundView` paints paper or ink otherwise.
         backgroundColor = .clear
@@ -157,4 +164,70 @@ app.run()
 /// window, as the iOS Simulator's toolbar does, instead of that click only focusing the window.
 final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// The title bar's one toolbar item, More, as Device Hub has it: a real `NSToolbar` item, so the
+/// system draws its glass pill and sizes the traffic lights as in Device Hub.
+@MainActor
+final class TitlebarToolbar: NSObject, NSToolbarDelegate {
+    private static let more = NSToolbarItem.Identifier("pane.more")
+    private let model: PaneModel
+
+    init(model: PaneModel) {
+        self.model = model
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, Self.more]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, Self.more]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        guard itemIdentifier == Self.more else { return nil }
+        let item = NSMenuToolbarItem(itemIdentifier: itemIdentifier)
+        item.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More")
+        item.label = "More"
+        item.toolTip = "More"
+        item.showsIndicator = false
+        // Bordered gives the system's glass pill, as Device Hub's More has.
+        item.isBordered = true
+        item.menu = MoreMenu.make(model: model)
+        return item
+    }
+}
+
+/// The More menu. Rebuilt each time it opens, so its items follow the model.
+@MainActor
+final class MoreMenu: NSObject, NSMenuDelegate {
+    private let model: PaneModel
+
+    private init(model: PaneModel) {
+        self.model = model
+    }
+
+    static func make(model: PaneModel) -> NSMenu {
+        let menu = NSMenu(title: "More")
+        let delegate = MoreMenu(model: model)
+        menu.delegate = delegate
+        objc_setAssociatedObject(menu, &associationKey, delegate, .OBJC_ASSOCIATION_RETAIN)
+        delegate.menuNeedsUpdate(menu)
+        return menu
+    }
+
+    nonisolated(unsafe) private static var associationKey: UInt8 = 0
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let restart = NSMenuItem(title: "Restart Emulator", action: #selector(restart), keyEquivalent: "")
+        restart.target = self
+        menu.addItem(restart)
+    }
+
+    @objc private func restart() { model.restartEmulator() }
 }

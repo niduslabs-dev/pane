@@ -10,8 +10,8 @@ import Testing
         let layout = DeviceFrameLayout(spec: Theme.Frame.spec, deviceSize: Theme.Frame.fallbackDeviceSize)
         #expect(layout.bodyRect.size == CGSize(width: 335, height: 720))
         #expect(layout.screenRect.size == CGSize(width: 315, height: 700))
-        // Title row 52, frame 720, toolbar band 88 (Layout 2).
-        #expect(layout.windowContentSize.height == 860)
+        // Title row 52, frame 720, toolbar band 54 (Device Hub's).
+        #expect(layout.windowContentSize.height == 826)
         // The board's window is 388 wide with the frame centred; Pane derives it from the
         // inset plus the buttons' depth on both sides, a point wider.
         #expect(layout.windowContentSize.width == 389)

@@ -27,7 +27,11 @@ BIN_DIR=$(scripts/swift.sh build -c "$CONFIG" --show-bin-path)
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/Pane" "$APP/Contents/MacOS/Pane"
+# SwiftPM records the deployment target as the SDK version, so AppKit would draw Pane in its
+# pre-macOS 26 compatibility look (no Liquid Glass chrome, small traffic lights). Record the
+# SDK it was really built with, as Xcode does.
+SDK_VERSION=$(xcrun --sdk macosx --show-sdk-version)
+vtool -set-build-version macos "$MIN_MACOS" "$SDK_VERSION" -replace -output "$APP/Contents/MacOS/Pane" "$BIN_DIR/Pane"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
