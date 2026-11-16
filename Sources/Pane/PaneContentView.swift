@@ -180,7 +180,7 @@ struct DeviceFrameView: View {
 
     private func helpText(_ button: FrameButton) -> String {
         switch button {
-        case .power: "Power · hold for menu"
+        case .power: "Power. Hold for a long press."
         case .volumeUp: "Volume up"
         case .volumeDown: "Volume down"
         }
