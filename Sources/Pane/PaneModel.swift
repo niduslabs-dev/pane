@@ -359,6 +359,8 @@ final class PaneModel {
     }
 
     private func setSizeMode(_ mode: ScreenSizeMode?) {
+        log.info(
+            "Size \(mode?.rawValue ?? "manual", privacy: .public), long side \(self.screenHeight, privacy: .public)")
         sizeMode = mode
         guard let name = sizeAVDName else { return }
         UserDefaults.standard.set(mode?.rawValue, forKey: Self.sizeKeyPrefix + name)
@@ -506,9 +508,12 @@ final class PaneModel {
         Task { [weak self] in
             do {
                 try await connection.rotate(toQuadrants: target)
+                try? await Task.sleep(for: Theme.Timing.rotationSettle)
             } catch {
                 self?.log.error("Rotate failed: \(String(describing: error), privacy: .public)")
             }
+            // Never shown (or failed): stop waiting for it, so any orientation is followed again.
+            if let self, self.pendingQuadrants == target { self.pendingQuadrants = nil }
         }
     }
 
@@ -517,7 +522,9 @@ final class PaneModel {
     private func orientationChanged(to newQuadrants: Int, on connection: EmulatorConnection) {
         if newQuadrants == pendingQuadrants { pendingQuadrants = nil }
         guard newQuadrants != quadrants else { return }
-        log.info("Orientation \(self.quadrants) -> \(newQuadrants)")
+        log.info(
+            "Orientation \(self.quadrants) -> \(newQuadrants), size \(self.sizeMode?.rawValue ?? "manual", privacy: .public)"
+        )
         releaseAll()
         quadrants = newQuadrants
         if sizeMode == .fit, let side = longSide(for: .fit) {
@@ -667,6 +674,10 @@ final class PaneModel {
                         // Frames in an orientation the stream wasn't asked for are dropped, and
                         // the stream restarts in the new one (as Android Studio does).
                         if frame.rotationQuadrants != self.streamRequest?.quadrants {
+                            // While a turn is under way the emulator eases the angle and can
+                            // pass through another orientation (180 to -90 goes via 0); only
+                            // the one asked for counts.
+                            if let pending = self.pendingQuadrants, frame.rotationQuadrants != pending { return }
                             self.orientationChanged(to: frame.rotationQuadrants, on: connection)
                             return
                         }
