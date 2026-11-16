@@ -8,11 +8,16 @@ public struct DeviceProfile: Sendable, Equatable {
     public var androidVersion: String?
     /// The screen in device pixels (`hw.lcd.width` × `hw.lcd.height`), portrait.
     public var screenSize: PixelSize?
+    /// The screen's density in dpi (`hw.lcd.density`), for Point Accurate and Physical Size.
+    public var density: Int?
 
-    public init(modelName: String? = nil, androidVersion: String? = nil, screenSize: PixelSize? = nil) {
+    public init(
+        modelName: String? = nil, androidVersion: String? = nil, screenSize: PixelSize? = nil, density: Int? = nil
+    ) {
         self.modelName = modelName
         self.androidVersion = androidVersion
         self.screenSize = screenSize
+        self.density = density
     }
 
     /// The window's second title line: model and Android version, joined by a middle dot.
@@ -39,7 +44,8 @@ public struct DeviceProfile: Sendable, Equatable {
         return DeviceProfile(
             modelName: values["hw.device.name"].map(readableModelName),
             androidVersion: values["image.sysdir.1"].flatMap(apiLevel(fromSystemImagePath:)).map(androidRelease),
-            screenSize: size
+            screenSize: size,
+            density: values["hw.lcd.density"].flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
         )
     }
 

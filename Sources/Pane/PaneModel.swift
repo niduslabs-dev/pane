@@ -35,6 +35,8 @@ final class PaneModel {
     private(set) var screenHeight = Theme.Frame.screenHeight
     /// Where the title starts: just past the system's traffic lights, measured by the window.
     var titleLeadingInset = Theme.Window.fallbackTitleLeading
+    /// The Window menu size in effect (ticked), or nil after a manual resize.
+    private(set) var sizeMode: ScreenSizeMode?
     /// When the running recording started, or nil when not recording.
     private(set) var recordingStartedAt: Date?
     /// The AVDs on disk, for Start and "Choose another emulator".
@@ -121,6 +123,7 @@ final class PaneModel {
         reloadAVDs()
         startWatcher()
         refresh()
+        applyRememberedSize()
     }
 
     func reloadAVDs() {
@@ -251,8 +254,12 @@ final class PaneModel {
 
     private func setProfile(_ profile: DeviceProfile) {
         let oldSize = deviceSize
+        let oldDensity = self.profile.density
         self.profile = profile
-        if deviceSize != oldSize { relayout(resizeWindow: true) }
+        if deviceSize != oldSize || profile.density != oldDensity {
+            relayout(resizeWindow: true)
+            if screenView.window != nil { applyRememberedSize() }
+        }
     }
 
     /// Rebuilds the layout; the window follows unless the user is resizing it.
@@ -285,10 +292,91 @@ final class PaneModel {
     }
 
     /// The user resized the window to a size `windowWillResize` already snapped to the shape.
+    /// A manual size clears the Window menu's tick.
     func windowResized(screenHeight: CGFloat) {
         guard screenHeight != self.screenHeight else { return }
         self.screenHeight = screenHeight
+        setSizeMode(nil)
         relayout(resizeWindow: false)
+    }
+
+    // MARK: Window menu sizes
+
+    private var sizeAVDName: String? { emulator?.avdName ?? selectedAVD?.name }
+
+    /// The display the window is on, for Physical Size and Pixel Accurate.
+    private var displayMetrics: DisplayMetrics? {
+        guard let screen = screenView.window?.screen ?? NSScreen.main else { return nil }
+        let millimetres: CGFloat
+        if let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+            millimetres = CGDisplayScreenSize(CGDirectDisplayID(number.uint32Value)).width
+        } else {
+            millimetres = 0
+        }
+        return DisplayMetrics(
+            backingScale: screen.backingScaleFactor, widthPoints: screen.frame.width, widthMillimetres: millimetres)
+    }
+
+    /// The screen's long side for a size, or nil when this display can't show it.
+    private func longSide(for mode: ScreenSizeMode) -> CGFloat? {
+        if mode == .fit {
+            guard let available = screenView.window?.screen?.visibleFrame.size ?? NSScreen.main?.visibleFrame.size
+            else { return nil }
+            return screenHeight(fitting: available, available: available)
+        }
+        guard let display = displayMetrics else { return nil }
+        return ScreenSizing.longSide(
+            mode, deviceSize: deviceSize, density: profile.density ?? Theme.Frame.fallbackDensity, display: display
+        ).map { max(Theme.Frame.minScreenHeight, $0.rounded()) }
+    }
+
+    func isAvailable(_ mode: ScreenSizeMode) -> Bool { longSide(for: mode) != nil }
+
+    /// Sizes the window for a Window menu size and remembers it for this AVD. Physical and
+    /// Pixel sizes may be taller than the screen; the window then hangs off the bottom.
+    func applySize(_ mode: ScreenSizeMode) {
+        guard let side = longSide(for: mode) else { return }
+        setSizeMode(mode)
+        guard side != screenHeight else { return }
+        screenHeight = side
+        relayout(resizeWindow: true)
+    }
+
+    /// Re-applies the size after the window moved to another display or its scale changed.
+    func displayChanged() {
+        guard let mode = sizeMode else { return }
+        applySize(mode)
+    }
+
+    /// The remembered size for the AVD on screen, Fit Screen the first time.
+    func applyRememberedSize() {
+        let stored = sizeAVDName.flatMap { UserDefaults.standard.string(forKey: Self.sizeKeyPrefix + $0) }
+        applySize(stored.flatMap(ScreenSizeMode.init(rawValue:)) ?? .fit)
+    }
+
+    private func setSizeMode(_ mode: ScreenSizeMode?) {
+        sizeMode = mode
+        guard let name = sizeAVDName else { return }
+        UserDefaults.standard.set(mode?.rawValue, forKey: Self.sizeKeyPrefix + name)
+    }
+
+    private static let sizeKeyPrefix = "sizeMode."
+
+    private var zoomSizes: [CGFloat] { ScreenSizeMode.allCases.compactMap(longSide(for:)) }
+
+    func canZoom(in up: Bool) -> Bool {
+        ScreenSizing.step(from: screenHeight, among: zoomSizes, up: up) != nil
+    }
+
+    /// Steps to the next Window menu size up or down from the current one.
+    func zoom(in up: Bool) {
+        guard let next = ScreenSizing.step(from: screenHeight, among: zoomSizes, up: up) else { return }
+        let tolerance: CGFloat = 1
+        if let mode = ScreenSizeMode.allCases.first(where: {
+            longSide(for: $0).map { abs($0 - next) <= tolerance } ?? false
+        }) {
+            applySize(mode)
+        }
     }
 
     /// The window moved to a display with another backing scale: ask for sharper or smaller frames.
@@ -424,7 +512,9 @@ final class PaneModel {
         log.info("Orientation \(self.quadrants) -> \(newQuadrants)")
         releaseAll()
         quadrants = newQuadrants
-        if let available = screenView.window?.screen?.visibleFrame.size {
+        if sizeMode == .fit, let side = longSide(for: .fit) {
+            screenHeight = side
+        } else if sizeMode == nil, let available = screenView.window?.screen?.visibleFrame.size {
             screenHeight = min(screenHeight, screenHeight(fitting: available, available: available))
         }
         relayout(resizeWindow: true)

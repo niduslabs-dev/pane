@@ -142,6 +142,8 @@ enum Theme {
         ]
         /// Used until the AVD's `config.ini` or the first frame says otherwise.
         static let fallbackDeviceSize = PixelSize(width: 1080, height: 2400)
+        /// Used when the AVD doesn't say (`hw.lcd.density`): a Pixel 8's.
+        static let fallbackDensity = 420
 
         static let spec = FrameSpec(
             screenHeight: screenHeight, referenceScreenHeight: referenceScreenHeight, bezel: bezel,

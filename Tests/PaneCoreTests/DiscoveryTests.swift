@@ -95,6 +95,7 @@ import Testing
         #expect(profile.modelName == "Pixel 8")
         #expect(profile.androidVersion == "Android 16")
         #expect(profile.screenSize == PixelSize(width: 1080, height: 2400))
+        #expect(profile.density == 420)
         #expect(profile.summary == "Pixel 8 · Android 16")
     }
 

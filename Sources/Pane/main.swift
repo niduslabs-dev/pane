@@ -1,14 +1,16 @@
 import AppKit
+import PaneCore
 import SwiftUI
 import os
 
 /// Creates the one Pane window and wires focus loss to releasing any held touch or key.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private let model = PaneModel()
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = MainMenu.make(target: self)
         let window = PaneWindow(model: model)
         window.delegate = self
         model.onWindowContentSizeChange = { [weak window] size in window?.setContentSizeKeepingTop(size) }
@@ -51,18 +53,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return sender.frameRect(forContentRect: NSRect(origin: .zero, size: content)).size
     }
 
-    /// Follows the new size; a resize that skipped `windowWillResize` (zoom, Accessibility)
-    /// is snapped to the device's shape here.
+    /// Follows a drag (which clears the chosen size); a resize that skipped `windowWillResize`
+    /// (Accessibility) is snapped to the device's shape here. Sizes the model set itself
+    /// already match and are left alone, even when taller than the screen.
     func windowDidResize(_ notification: Notification) {
         guard let window = notification.object as? PaneWindow else { return }
         let content = window.contentRect(forFrameRect: window.frame).size
+        // AppKit rounds frames to whole points, so "already the model's size" is within a point.
+        let expected = model.layout.windowContentSize
+        if !window.inLiveResize, abs(content.width - expected.width) < 1, abs(content.height - expected.height) < 1 {
+            return
+        }
         let available = window.screen?.visibleFrame.size ?? content
         model.windowResized(screenHeight: model.screenHeight(fitting: content, available: available))
         let snapped = model.layout.windowContentSize
-        if !window.inLiveResize, snapped != content { window.setContentSizeKeepingTop(snapped) }
+        if !window.inLiveResize, abs(snapped.width - content.width) >= 1 || abs(snapped.height - content.height) >= 1 {
+            window.setContentSizeKeepingTop(snapped)
+        }
     }
 
-    func windowDidChangeBackingProperties(_ notification: Notification) { model.backingScaleChanged() }
+    func windowDidChangeBackingProperties(_ notification: Notification) {
+        model.backingScaleChanged()
+        model.displayChanged()
+    }
+
+    func windowDidChangeScreen(_ notification: Notification) { model.displayChanged() }
+
+    // MARK: Window menu sizes
+
+    @objc func chooseSize(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = ScreenSizeMode(rawValue: raw) else { return }
+        model.applySize(mode)
+    }
+
+    @objc func zoomIn(_ sender: Any?) { model.zoom(in: true) }
+    @objc func zoomOut(_ sender: Any?) { model.zoom(in: false) }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(chooseSize(_:)):
+            guard let raw = item.representedObject as? String, let mode = ScreenSizeMode(rawValue: raw) else {
+                return false
+            }
+            item.state = model.sizeMode == mode ? .on : .off
+            return model.isAvailable(mode)
+        case #selector(zoomIn(_:)): return model.canZoom(in: true)
+        case #selector(zoomOut(_:)): return model.canZoom(in: false)
+        default: return true
+        }
+    }
     func applicationWillTerminate(_ notification: Notification) { model.releaseAll() }
 
     /// Waits for a running recording to be written before quitting.
@@ -148,6 +187,15 @@ final class PaneWindow: NSWindow {
     var trafficLightsTrailingEdge: CGFloat? {
         guard let zoom = standardWindowButton(.zoomButton), let container = zoom.superview else { return nil }
         return container.convert(zoom.frame, to: nil).maxX
+    }
+
+    /// Lets a window taller than the screen (Pixel Accurate on a small display) hang off the
+    /// bottom, as the Simulator does; only the title bar is kept below the menu bar.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        guard let visible = (screen ?? self.screen)?.visibleFrame else { return frameRect }
+        var rect = frameRect
+        if rect.maxY > visible.maxY { rect.origin.y = visible.maxY - rect.height }
+        return rect
     }
 
     /// The title bar's real height, for checking it against the title row.
