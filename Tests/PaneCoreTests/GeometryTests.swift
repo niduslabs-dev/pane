@@ -84,28 +84,36 @@ import Testing
         ],
         buttonDepth: 3, buttonHitDepth: 14, buttonHitOutset: 4, titleRowHeight: 52, contentInset: 24)
 
+    private static let pixel8 = PixelSize(width: 1080, height: 2400)
+
     @Test func matchesTheBoardForA1080By2400Device() {
-        let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: PixelSize(width: 1080, height: 2400))
-        #expect(layout.bodyRect == CGRect(x: 0, y: 0, width: 335, height: 720))
-        #expect(layout.screenRect == CGRect(x: 10, y: 10, width: 315, height: 700))
+        let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8)
+        // Body 335 × 720 below the 52 pt title row, 24 + 3 pt in from the left.
+        #expect(layout.bodyRect == CGRect(x: 27, y: 52, width: 335, height: 720))
+        #expect(layout.screenRect == CGRect(x: 37, y: 62, width: 315, height: 700))
         // 11 pt hole, 12 pt from the screen's top, centred.
-        #expect(layout.punchHoleRect == CGRect(x: 162, y: 22, width: 11, height: 11))
-        #expect(layout.windowContentSize.height == 796)
-        #expect(layout.bodyOriginInWindow == CGPoint(x: 27, y: 52))
+        #expect(layout.punchHoleRect == CGRect(x: 189, y: 74, width: 11, height: 11))
+        #expect(layout.windowContentSize == CGSize(width: 389, height: 796))
+        #expect(layout.bodyRadius == 46)
+        #expect(layout.screenRadius == 36)
     }
 
     @Test func buttonsAndHitAreasMatchTheBoard() {
-        let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: PixelSize(width: 1080, height: 2400))
+        let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8)
         let byButton = Dictionary(uniqueKeysWithValues: layout.buttons.map { ($0.button, $0) })
-        #expect(byButton[.power]?.visibleRect == CGRect(x: 335, y: 150, width: 3, height: 56))
-        #expect(byButton[.power]?.hitRect == CGRect(x: 335, y: 146, width: 14, height: 64))
-        // The rocker's hit areas meet at the seam instead of overlapping.
-        #expect(byButton[.volumeUp]?.hitRect == CGRect(x: 335, y: 228, width: 14, height: 50))
-        #expect(byButton[.volumeDown]?.hitRect == CGRect(x: 335, y: 278, width: 14, height: 50))
-        #expect(layout.button(at: CGPoint(x: 345, y: 277.9)) == .volumeUp)
-        #expect(layout.button(at: CGPoint(x: 345, y: 278)) == .volumeDown)
-        #expect(layout.button(at: CGPoint(x: 345, y: 147)) == .power)
-        #expect(layout.button(at: CGPoint(x: 345, y: 220)) == nil)
+        #expect(byButton[.power]?.visibleRect == CGRect(x: 362, y: 202, width: 3, height: 56))
+        #expect(byButton[.power]?.hitRect == CGRect(x: 362, y: 198, width: 14, height: 64))
+        #expect(byButton[.power]?.roundedCorners == [.topRight, .bottomRight])
+        // The rocker's hit areas meet at the seam instead of overlapping, and only its outer
+        // ends are rounded.
+        #expect(byButton[.volumeUp]?.hitRect == CGRect(x: 362, y: 280, width: 14, height: 50))
+        #expect(byButton[.volumeDown]?.hitRect == CGRect(x: 362, y: 330, width: 14, height: 50))
+        #expect(byButton[.volumeUp]?.roundedCorners == [.topRight])
+        #expect(byButton[.volumeDown]?.roundedCorners == [.bottomRight])
+        #expect(layout.button(at: CGPoint(x: 372, y: 329.9)) == .volumeUp)
+        #expect(layout.button(at: CGPoint(x: 372, y: 330)) == .volumeDown)
+        #expect(layout.button(at: CGPoint(x: 372, y: 199)) == .power)
+        #expect(layout.button(at: CGPoint(x: 372, y: 272)) == nil)
     }
 
     @Test func screenWidthFollowsTheDeviceAspect() {
@@ -118,12 +126,78 @@ import Testing
         #expect(wide.windowContentSize.width == 468)
     }
 
-    @Test func buttonPositionsScaleWithScreenHeight() {
-        var spec = Self.boardSpec
-        spec.screenHeight = 350
-        let layout = DeviceFrameLayout(spec: spec, deviceSize: PixelSize(width: 1080, height: 2400))
+    @Test func theFrameScalesWithTheScreenButHairlinesDoNot() {
+        let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8, screenHeight: 350)
+        #expect(layout.screenRect.size == CGSize(width: 158, height: 350))
+        #expect(layout.bodyRect.size == CGSize(width: 168, height: 360))
+        #expect(layout.bodyRadius == 23)
+        #expect(layout.screenRadius == 18)
         let power = layout.buttons.first { $0.button == .power }
-        #expect(power?.visibleRect == CGRect(x: layout.bodyRect.maxX, y: 75, width: 3, height: 28))
+        // Positions halve; the 3 pt depth and the title row don't.
+        #expect(power?.visibleRect == CGRect(x: layout.bodyRect.maxX, y: 52 + 75, width: 3, height: 28))
+        #expect(layout.windowContentSize == CGSize(width: 168 + 54, height: 52 + 360 + 24))
+    }
+
+    @Test func fittingFindsTheLargestScreenThatFits() {
+        let range: ClosedRange<CGFloat> = 360...2400
+        let exact = DeviceFrameLayout.screenHeight(
+            fitting: CGSize(width: 389, height: 796), spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 0,
+            range: range)
+        #expect(exact == 700)
+        // Too wide for its height: the height decides, and the result fits both ways.
+        let wide = DeviceFrameLayout.screenHeight(
+            fitting: CGSize(width: 900, height: 600), spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 0,
+            range: range)
+        let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8, screenHeight: wide)
+        #expect(layout.windowContentSize.height <= 600)
+        #expect(layout.windowContentSize.height > 600 - 2)
+        // Never below the minimum or above the maximum.
+        let tiny = DeviceFrameLayout.screenHeight(
+            fitting: CGSize(width: 50, height: 50), spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 0,
+            range: range)
+        #expect(tiny == 360)
+        let landscape = DeviceFrameLayout.screenHeight(
+            fitting: CGSize(width: 2000, height: 500), spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 1,
+            range: range)
+        let turned = DeviceFrameLayout(
+            spec: Self.boardSpec, deviceSize: Self.pixel8, screenHeight: landscape, quadrants: 1)
+        #expect(turned.windowContentSize.height <= 500)
+        #expect(turned.windowContentSize.width <= 2000)
+    }
+
+    @Test func landscapePutsTheButtonsOnTop() {
+        let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 1)
+        // The body turns: 720 × 335, with room for the buttons' depth above it.
+        #expect(layout.bodyRect == CGRect(x: 24, y: 55, width: 720, height: 335))
+        #expect(layout.screenRect == CGRect(x: 34, y: 65, width: 700, height: 315))
+        // The punch hole sits at the device's top, now on the left, centred vertically.
+        #expect(layout.punchHoleRect == CGRect(x: 46, y: 217, width: 11, height: 11))
+        let power = layout.buttons.first { $0.button == .power }
+        #expect(power?.edge == .top)
+        #expect(power?.visibleRect == CGRect(x: 24 + 150, y: 52, width: 56, height: 3))
+        #expect(power?.roundedCorners == [.topLeft, .topRight])
+        #expect(layout.windowContentSize == CGSize(width: 768, height: 55 + 335 + 24))
+    }
+
+    @Test func everyOrientationKeepsTheButtonsOutside() {
+        for quadrants in 0..<4 {
+            let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: quadrants)
+            let expected: FrameEdge = [.right, .top, .left, .bottom][quadrants]
+            for button in layout.buttons {
+                #expect(button.edge == expected)
+                #expect(!button.visibleRect.intersects(layout.bodyRect))
+                #expect(button.visibleRect.minX >= 0 && button.visibleRect.minY >= 0)
+                #expect(button.visibleRect.maxX <= layout.windowContentSize.width)
+                #expect(button.visibleRect.maxY <= layout.windowContentSize.height)
+            }
+            #expect(layout.bodyRect.contains(layout.screenRect))
+            #expect(layout.screenRect.contains(layout.punchHoleRect))
+        }
+        // Upside down: the buttons are on the left, and the hover state grows outwards.
+        let flipped = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 2)
+        let power = flipped.buttons.first { $0.button == .power }
+        #expect(power?.visibleRect(depth: 4).maxX == flipped.bodyRect.minX)
+        #expect(power?.visibleRect(depth: 4).width == 4)
     }
 
     @Test func keyNamesAreW3C() {

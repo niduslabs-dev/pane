@@ -72,9 +72,10 @@ final class ScreenView: NSView {
 /// Hosts the model's one `ScreenView` in SwiftUI.
 struct ScreenRepresentable: NSViewRepresentable {
     let view: ScreenView
+    let cornerRadius: CGFloat
 
     func makeNSView(context: Context) -> ScreenView { view }
-    func updateNSView(_ nsView: ScreenView, context: Context) {}
+    func updateNSView(_ nsView: ScreenView, context: Context) { nsView.layer?.cornerRadius = cornerRadius }
 }
 
 /// Turns a frame's RGBA bytes into a `CGImage` without copying them again.

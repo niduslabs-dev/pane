@@ -91,6 +91,9 @@ enum Theme {
     enum Frame {
         /// The drawn screen's height; the width follows the device's aspect (1080 × 2400 → 315).
         static let screenHeight: CGFloat = 700
+        /// How small and large the window may make the screen's long side.
+        static let minScreenHeight: CGFloat = 360
+        static let maxScreenHeight: CGFloat = 2400
         /// The screen height the button positions below were designed at.
         static let referenceScreenHeight: CGFloat = 700
         static let bezel: CGFloat = 10
@@ -234,5 +237,7 @@ extension Theme {
         static let stopGracePeriod: Duration = .seconds(10)
         static let stopKillWait: Duration = .seconds(5)
         static let stopPoll: Duration = .milliseconds(200)
+        /// Wait this long after the last resize before asking for frames at the new size.
+        static let frameRestartDebounce: Duration = .milliseconds(200)
     }
 }

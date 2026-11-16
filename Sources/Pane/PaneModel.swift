@@ -28,6 +28,10 @@ final class PaneModel {
     private(set) var layout = DeviceFrameLayout(spec: Theme.Frame.spec, deviceSize: Theme.Frame.fallbackDeviceSize)
     /// Frame buttons held down right now, so focus loss can release them.
     private(set) var heldButtons: Set<FrameButton> = []
+    /// Quarter turns counter-clockwise from portrait, from the latest frame.
+    private(set) var quadrants = 0
+    /// The screen's long side in points; the window's size follows from it.
+    private(set) var screenHeight = Theme.Frame.screenHeight
     /// The AVDs on disk, for Start and "Choose another emulator".
     private(set) var avds: [AvdInfo] = []
     /// Why the last Start didn't work, shown under the Start button.
@@ -52,6 +56,11 @@ final class PaneModel {
     @ObservationIgnored private var ownedEmulatorPID: Int32?
     @ObservationIgnored private var hasFrame = false
     @ObservationIgnored private var isBooted = false
+    /// The window resizes itself to this when the layout changes for any reason but a drag.
+    @ObservationIgnored var onWindowContentSizeChange: ((CGSize) -> Void)?
+    /// What the running screen stream was asked for, so a resize only restarts it on change.
+    @ObservationIgnored private var streamRequest: StreamRequest?
+    @ObservationIgnored private var restartFramesTask: Task<Void, Never>?
     @ObservationIgnored private let log = Logger(subsystem: "dev.niduslabs.pane", category: "model")
 
     private static let selectedAVDKey = "selectedAVD"
@@ -98,13 +107,13 @@ final class PaneModel {
 
     func reloadAVDs() {
         avds = AvdCatalog.list()
-        if status == .noEmulator, let avd = selectedAVD { profile = avd.profile }
+        if status == .noEmulator, let avd = selectedAVD { setProfile(avd.profile) }
     }
 
     func selectAVD(_ name: String) {
         selectedAVDName = name
         startProblem = nil
-        if status == .noEmulator, let avd = selectedAVD { profile = avd.profile }
+        if status == .noEmulator, let avd = selectedAVD { setProfile(avd.profile) }
     }
 
     private func startWatcher() {
@@ -157,8 +166,7 @@ final class PaneModel {
             return
         }
         startProblem = nil
-        self.profile = profile
-        layout = DeviceFrameLayout(spec: Theme.Frame.spec, deviceSize: deviceSize)
+        setProfile(profile)
         let process: Process
         do {
             process = try EmulatorLauncher.launch(executable: executable, avdName: avdName)
@@ -214,6 +222,80 @@ final class PaneModel {
         }
     }
 
+    // MARK: Size and layout
+
+    private struct StreamRequest: Equatable {
+        var size: PixelSize
+        var quadrants: Int
+    }
+
+    private func setProfile(_ profile: DeviceProfile) {
+        let oldSize = deviceSize
+        self.profile = profile
+        if deviceSize != oldSize { relayout(resizeWindow: true) }
+    }
+
+    /// Rebuilds the layout; the window follows unless the user is resizing it.
+    private func relayout(resizeWindow: Bool) {
+        let next = DeviceFrameLayout(
+            spec: Theme.Frame.spec, deviceSize: deviceSize, screenHeight: screenHeight, quadrants: quadrants)
+        guard next != layout else { return }
+        layout = next
+        if resizeWindow { onWindowContentSizeChange?(next.windowContentSize) }
+        scheduleFrameRestart()
+    }
+
+    /// The screen height whose layout fits a proposed window content size, kept between the
+    /// theme's minimum and what fits in `available` (the screen's visible area).
+    func screenHeight(fitting contentSize: CGSize, available: CGSize) -> CGFloat {
+        let spec = Theme.Frame.spec
+        let largest = DeviceFrameLayout.screenHeight(
+            fitting: available, spec: spec, deviceSize: deviceSize, quadrants: quadrants,
+            range: Theme.Frame.minScreenHeight...Theme.Frame.maxScreenHeight)
+        return DeviceFrameLayout.screenHeight(
+            fitting: contentSize, spec: spec, deviceSize: deviceSize, quadrants: quadrants,
+            range: Theme.Frame.minScreenHeight...max(Theme.Frame.minScreenHeight, largest))
+    }
+
+    /// The window content size for a screen height, at the current device and orientation.
+    func windowContentSize(screenHeight: CGFloat) -> CGSize {
+        DeviceFrameLayout(
+            spec: Theme.Frame.spec, deviceSize: deviceSize, screenHeight: screenHeight, quadrants: quadrants
+        ).windowContentSize
+    }
+
+    /// The user resized the window to a size `windowWillResize` already snapped to the shape.
+    func windowResized(screenHeight: CGFloat) {
+        guard screenHeight != self.screenHeight else { return }
+        self.screenHeight = screenHeight
+        relayout(resizeWindow: false)
+    }
+
+    /// The window moved to a display with another backing scale: ask for sharper or smaller frames.
+    func backingScaleChanged() { scheduleFrameRestart() }
+
+    /// Restarts the screen stream at the new size once resizing settles, and only when the size
+    /// or orientation to ask for actually changed.
+    private func scheduleFrameRestart() {
+        guard connection != nil else { return }
+        restartFramesTask?.cancel()
+        restartFramesTask = Task { [weak self] in
+            try? await Task.sleep(for: Theme.Timing.frameRestartDebounce)
+            guard let self, !Task.isCancelled, let connection = self.connection else { return }
+            guard self.currentStreamRequest() != self.streamRequest else { return }
+            self.framesTask?.cancel()
+            self.startFrames(on: connection)
+        }
+    }
+
+    private func currentStreamRequest() -> StreamRequest {
+        let backingScale = screenView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        let size = ScreenMapping.requestedImageSize(
+            screenPoints: layout.screenRect.size, backingScale: backingScale, deviceSize: deviceSize,
+            quadrants: quadrants)
+        return StreamRequest(size: size, quadrants: quadrants)
+    }
+
     // MARK: Connection
 
     private func connect(to emulator: RunningEmulator) {
@@ -225,8 +307,7 @@ final class PaneModel {
             ownedEmulatorPID = emulator.pid
         }
         if wasStarting { startTask?.cancel() }
-        profile = emulator.avdDirectory.map(DeviceProfile.load(avdDirectory:)) ?? DeviceProfile()
-        layout = DeviceFrameLayout(spec: Theme.Frame.spec, deviceSize: deviceSize)
+        setProfile(emulator.avdDirectory.map(DeviceProfile.load(avdDirectory:)) ?? DeviceProfile())
         status = wasStarting ? .booting : .connecting
         hasFrame = false
         isBooted = false
@@ -297,9 +378,9 @@ final class PaneModel {
     }
 
     private func startFrames(on connection: EmulatorConnection) {
-        let backingScale = screenView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
-        let size = ScreenMapping.requestedImageSize(
-            screenPoints: layout.screenRect.size, backingScale: backingScale, deviceSize: deviceSize)
+        let request = currentStreamRequest()
+        streamRequest = request
+        let size = request.size
         let screenView = screenView
         log.info("Requesting frames at \(size.description, privacy: .public)")
         let log = log
@@ -324,6 +405,8 @@ final class PaneModel {
                 }
             } catch is CancellationError {
             } catch {
+                // A stream cancelled for a restart ends with an error too; only others count.
+                guard !Task.isCancelled else { return }
                 await MainActor.run { self?.connectionFailed(error, on: connection) }
             }
         }
@@ -334,6 +417,8 @@ final class PaneModel {
         framesTask?.cancel()
         connectionTask?.cancel()
         bootTask?.cancel()
+        restartFramesTask?.cancel()
+        streamRequest = nil
         connection?.shutdown()
         framesTask = nil
         connectionTask = nil
@@ -349,7 +434,8 @@ final class PaneModel {
 
     private var mapping: ScreenMapping {
         ScreenMapping(
-            screenRect: CGRect(origin: .zero, size: layout.screenRect.size), deviceSize: deviceSize)
+            screenRect: CGRect(origin: .zero, size: layout.screenRect.size), deviceSize: deviceSize,
+            quadrants: quadrants)
     }
 
     private func handlePointer(_ phase: ScreenView.PointerPhase, at point: CGPoint) {

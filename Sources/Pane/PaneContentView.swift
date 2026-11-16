@@ -21,7 +21,6 @@ struct PaneContentView: View {
                     .offset(x: Theme.Window.contentInset, y: Theme.Window.titleRowHeight)
             } else {
                 DeviceFrameView(model: model, layout: layout)
-                    .offset(x: layout.bodyOriginInWindow.x, y: layout.bodyOriginInWindow.y)
             }
         }
         .frame(
@@ -87,7 +86,8 @@ struct ToolButton: View {
 }
 
 /// The drawn device: body with its edge rings, the live screen, the punch hole, and the side
-/// buttons with their wider invisible hit areas.
+/// buttons with their wider invisible hit areas. Every rect comes from the layout, in window
+/// coordinates, for the current size and orientation.
 struct DeviceFrameView: View {
     let model: PaneModel
     let layout: DeviceFrameLayout
@@ -98,7 +98,7 @@ struct DeviceFrameView: View {
             ForEach(layout.buttons, id: \.button) { button in
                 buttonShape(button)
             }
-            bodyShape(layout.bodyRect)
+            bodyShape
             screen
             Circle()
                 .fill(Color(nsColor: Theme.Palette.punchHole))
@@ -115,30 +115,31 @@ struct DeviceFrameView: View {
                 }
             }
         }
-        .frame(
-            width: layout.bodyRect.width + Theme.Frame.buttonHitDepth, height: layout.bodyRect.height,
-            alignment: .topLeading)
+        .frame(width: layout.windowContentSize.width, height: layout.windowContentSize.height, alignment: .topLeading)
     }
 
-    private func bodyShape(_ rect: CGRect) -> some View {
-        RoundedRectangle(cornerRadius: Theme.Frame.bodyRadius)
+    private var bodyShape: some View {
+        let rect = layout.bodyRect
+        let radius = layout.bodyRadius
+        return RoundedRectangle(cornerRadius: radius)
             .fill(Color(nsColor: Theme.Palette.frameBody))
             .overlay(
-                RoundedRectangle(cornerRadius: Theme.Frame.bodyRadius)
+                RoundedRectangle(cornerRadius: radius)
                     .strokeBorder(Color(nsColor: Theme.Palette.frameEdge), lineWidth: Theme.Frame.edgeWidth)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Theme.Frame.bodyRadius)
+                RoundedRectangle(cornerRadius: radius)
                     .inset(by: Theme.Frame.innerEdgeInset)
                     .strokeBorder(Color(nsColor: Theme.Palette.frameInnerEdge), lineWidth: Theme.Frame.innerEdgeWidth)
             )
             .frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
     }
 
     @ViewBuilder private var screen: some View {
         let rect = layout.screenRect
         ZStack {
-            ScreenRepresentable(view: model.screenView)
+            ScreenRepresentable(view: model.screenView, cornerRadius: layout.screenRadius)
             switch model.status {
             case .noEmulator: NoEmulatorScreen(model: model)
             case .starting, .booting, .connecting: ProgressScreen(model: model)
@@ -146,25 +147,24 @@ struct DeviceFrameView: View {
             }
         }
         .frame(width: rect.width, height: rect.height)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Frame.screenRadius))
+        .clipShape(RoundedRectangle(cornerRadius: layout.screenRadius))
         .offset(x: rect.minX, y: rect.minY)
     }
 
     private func buttonShape(_ button: DeviceFrameLayout.Button) -> some View {
         let isHovered = hovered == button.button && button.button == .power
-        let depth = isHovered ? Theme.Frame.buttonDepthHover : Theme.Frame.buttonDepth
+        let rect = isHovered ? button.visibleRect(depth: Theme.Frame.buttonDepthHover) : button.visibleRect
         let radius = Theme.Frame.buttonCornerRadius
-        // The volume rocker reads as one piece: only its outer ends are rounded.
-        let radii: RectangleCornerRadii =
-            switch button.button {
-            case .power: RectangleCornerRadii(bottomTrailing: radius, topTrailing: radius)
-            case .volumeUp: RectangleCornerRadii(topTrailing: radius)
-            case .volumeDown: RectangleCornerRadii(bottomTrailing: radius)
-            }
+        let corners = button.roundedCorners
+        let radii = RectangleCornerRadii(
+            topLeading: corners.contains(.topLeft) ? radius : 0,
+            bottomLeading: corners.contains(.bottomLeft) ? radius : 0,
+            bottomTrailing: corners.contains(.bottomRight) ? radius : 0,
+            topTrailing: corners.contains(.topRight) ? radius : 0)
         return UnevenRoundedRectangle(cornerRadii: radii)
             .fill(Color(nsColor: isHovered ? Theme.Palette.frameButtonHover : Theme.Palette.frameButton))
-            .frame(width: depth, height: button.visibleRect.height)
-            .offset(x: button.visibleRect.minX, y: button.visibleRect.minY)
+            .frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
     }
 
     private func hitArea(_ button: DeviceFrameLayout.Button) -> some View {

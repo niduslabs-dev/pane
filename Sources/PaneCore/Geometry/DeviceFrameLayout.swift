@@ -75,45 +75,115 @@ public struct FrameSpec: Sendable, Equatable {
     }
 }
 
-/// The frame laid out for one device: every rect in the frame's own coordinates (origin at the
-/// body's top left, y down), plus the window content size around it.
+/// A side of the drawn device, after rotation.
+public enum FrameEdge: Sendable, Equatable {
+    case top
+    case left
+    case bottom
+    case right
+
+    /// The same side after the device turns a quarter counter-clockwise.
+    var turnedCounterClockwise: FrameEdge {
+        switch self {
+        case .right: .top
+        case .top: .left
+        case .left: .bottom
+        case .bottom: .right
+        }
+    }
+}
+
+/// Corners of a drawn button that are rounded.
+public struct FrameCorners: OptionSet, Sendable, Hashable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    public static let topLeft = FrameCorners(rawValue: 1 << 0)
+    public static let topRight = FrameCorners(rawValue: 1 << 1)
+    public static let bottomLeft = FrameCorners(rawValue: 1 << 2)
+    public static let bottomRight = FrameCorners(rawValue: 1 << 3)
+
+    var turnedCounterClockwise: FrameCorners {
+        var turned: FrameCorners = []
+        if contains(.topRight) { turned.insert(.topLeft) }
+        if contains(.topLeft) { turned.insert(.bottomLeft) }
+        if contains(.bottomLeft) { turned.insert(.bottomRight) }
+        if contains(.bottomRight) { turned.insert(.topRight) }
+        return turned
+    }
+}
+
+/// The frame laid out for one device, size and orientation: every rect in the window content's
+/// coordinates (y down), plus the window content size around it.
+///
+/// The screen's long side is `screenHeight` points; bezel, radii, punch hole and button
+/// positions scale with it from the spec's reference height, while hairlines, button depth and
+/// hit areas stay put. `quadrants` turns the device counter-clockwise from portrait, as the
+/// emulator's `Rotation` reports it, so the side buttons end up on the top (1), left (2) or
+/// bottom (3) edge.
 public struct DeviceFrameLayout: Sendable, Equatable {
     public struct Button: Sendable, Equatable {
         public var button: FrameButton
-        /// The drawn button, outside the body's right edge.
+        /// The drawn button, outside the body's edge.
         public var visibleRect: CGRect
-        /// Where a click presses it: wider and a little taller than what's drawn.
+        /// Where a click presses it: wider and a little longer than what's drawn.
         public var hitRect: CGRect
+        /// The side of the body the button sticks out of.
+        public var edge: FrameEdge
+        /// Its outer corners, except where it meets a neighbour (the volume rocker's seam).
+        public var roundedCorners: FrameCorners
+
+        /// The drawn button grown outwards to `depth`, for the hover state.
+        public func visibleRect(depth: CGFloat) -> CGRect {
+            let extra = depth - (edge == .left || edge == .right ? visibleRect.width : visibleRect.height)
+            switch edge {
+            case .right:
+                return CGRect(x: visibleRect.minX, y: visibleRect.minY, width: depth, height: visibleRect.height)
+            case .left:
+                return CGRect(
+                    x: visibleRect.minX - extra, y: visibleRect.minY, width: depth, height: visibleRect.height)
+            case .bottom:
+                return CGRect(x: visibleRect.minX, y: visibleRect.minY, width: visibleRect.width, height: depth)
+            case .top:
+                return CGRect(x: visibleRect.minX, y: visibleRect.minY - extra, width: visibleRect.width, height: depth)
+            }
+        }
     }
 
+    public var quadrants: Int
+    /// The screen's long side in points.
+    public var screenHeight: CGFloat
     public var bodyRect: CGRect
     public var screenRect: CGRect
     public var punchHoleRect: CGRect
+    public var bodyRadius: CGFloat
+    public var screenRadius: CGFloat
     public var buttons: [Button]
     /// The window's content size: title row, frame, insets, and room for the buttons.
     public var windowContentSize: CGSize
-    /// Where the body sits in the window content (y down, below the title row).
-    public var bodyOriginInWindow: CGPoint
 
-    public init(spec: FrameSpec, deviceSize: PixelSize) {
+    public init(spec: FrameSpec, deviceSize: PixelSize, screenHeight: CGFloat? = nil, quadrants: Int = 0) {
+        let turns = ((quadrants % 4) + 4) % 4
+        let height = screenHeight ?? spec.screenHeight
+        let scale = spec.referenceScreenHeight > 0 ? height / spec.referenceScreenHeight : 1
         let aspect = deviceSize.height > 0 ? CGFloat(deviceSize.width) / CGFloat(deviceSize.height) : 0
-        let screenSize = CGSize(width: (spec.screenHeight * aspect).rounded(), height: spec.screenHeight)
-        let body = CGRect(
-            x: 0, y: 0, width: screenSize.width + 2 * spec.bezel, height: screenSize.height + 2 * spec.bezel)
-        bodyRect = body
-        screenRect = CGRect(origin: CGPoint(x: spec.bezel, y: spec.bezel), size: screenSize)
-        punchHoleRect = CGRect(
-            x: screenRect.midX - spec.punchHoleDiameter / 2, y: screenRect.minY + spec.punchHoleTop,
-            width: spec.punchHoleDiameter, height: spec.punchHoleDiameter)
+        let bezel = spec.bezel * scale
 
-        let scale = spec.referenceScreenHeight > 0 ? spec.screenHeight / spec.referenceScreenHeight : 1
+        // Portrait, with the body's top left at the origin.
+        let screenSize = CGSize(width: (height * aspect).rounded(), height: height)
+        let body = CGRect(x: 0, y: 0, width: screenSize.width + 2 * bezel, height: screenSize.height + 2 * bezel)
+        let screen = CGRect(origin: CGPoint(x: bezel, y: bezel), size: screenSize)
+        let holeDiameter = spec.punchHoleDiameter * scale
+        let hole = CGRect(
+            x: screen.midX - holeDiameter / 2, y: screen.minY + spec.punchHoleTop * scale, width: holeDiameter,
+            height: holeDiameter)
         let visible = spec.buttons.map { button in
-            CGRect(
-                x: body.maxX, y: button.top * scale, width: spec.buttonDepth, height: button.length * scale)
+            CGRect(x: body.maxX, y: button.top * scale, width: spec.buttonDepth, height: button.length * scale)
         }
-        buttons = spec.buttons.enumerated().map { index, button in
+        var portraitButtons = spec.buttons.enumerated().map { index, button in
             var top = visible[index].minY - spec.buttonHitOutset
             var bottom = visible[index].maxY + spec.buttonHitOutset
+            var corners: FrameCorners = [.topRight, .bottomRight]
             for (other, rect) in visible.enumerated() where other != index {
                 if rect.maxY <= visible[index].minY, rect.maxY + spec.buttonHitOutset > top {
                     top = max(top, (rect.maxY + visible[index].minY) / 2)
@@ -121,19 +191,88 @@ public struct DeviceFrameLayout: Sendable, Equatable {
                 if rect.minY >= visible[index].maxY, rect.minY - spec.buttonHitOutset < bottom {
                     bottom = min(bottom, (rect.minY + visible[index].maxY) / 2)
                 }
+                if rect.maxY == visible[index].minY { corners.remove(.topRight) }
+                if rect.minY == visible[index].maxY { corners.remove(.bottomRight) }
             }
             let hit = CGRect(x: body.maxX, y: top, width: spec.buttonHitDepth, height: bottom - top)
-            return Button(button: button.button, visibleRect: visible[index], hitRect: hit)
+            return Button(
+                button: button.button, visibleRect: visible[index], hitRect: hit, edge: .right, roundedCorners: corners)
         }
 
-        let sideMargin = spec.contentInset + spec.buttonDepth
-        bodyOriginInWindow = CGPoint(x: sideMargin, y: spec.titleRowHeight)
-        windowContentSize = CGSize(
-            width: bodyRect.width + 2 * sideMargin,
-            height: spec.titleRowHeight + bodyRect.height + spec.contentInset)
+        // Turn counter-clockwise a quarter at a time; the body stays at the origin.
+        var bodySize = body.size
+        var screenRect = screen
+        var holeRect = hole
+        for _ in 0..<turns {
+            let turn = { (rect: CGRect) in
+                CGRect(x: rect.minY, y: bodySize.width - rect.maxX, width: rect.height, height: rect.width)
+            }
+            screenRect = turn(screenRect)
+            holeRect = turn(holeRect)
+            portraitButtons = portraitButtons.map { button in
+                Button(
+                    button: button.button, visibleRect: turn(button.visibleRect), hitRect: turn(button.hitRect),
+                    edge: button.edge.turnedCounterClockwise,
+                    roundedCorners: button.roundedCorners.turnedCounterClockwise)
+            }
+            bodySize = CGSize(width: bodySize.height, height: bodySize.width)
+        }
+
+        // Margins: the inset on three sides, the title row on top, plus the buttons' depth on
+        // their side (both sides horizontally, so the body stays centred).
+        let edge = portraitButtons.first?.edge ?? .right
+        let horizontal = spec.contentInset + (edge == .left || edge == .right ? spec.buttonDepth : 0)
+        let top = spec.titleRowHeight + (edge == .top ? spec.buttonDepth : 0)
+        let bottom = spec.contentInset + (edge == .bottom ? spec.buttonDepth : 0)
+        let origin = CGPoint(x: horizontal, y: top)
+        let move = { (rect: CGRect) in rect.offsetBy(dx: origin.x, dy: origin.y) }
+
+        self.quadrants = turns
+        self.screenHeight = height
+        bodyRect = CGRect(origin: origin, size: bodySize)
+        self.screenRect = move(screenRect)
+        punchHoleRect = move(holeRect)
+        bodyRadius = spec.bodyRadius * scale
+        screenRadius = spec.screenRadius * scale
+        buttons = portraitButtons.map { button in
+            Button(
+                button: button.button, visibleRect: move(button.visibleRect), hitRect: move(button.hitRect),
+                edge: button.edge, roundedCorners: button.roundedCorners)
+        }
+        windowContentSize = CGSize(width: bodySize.width + 2 * horizontal, height: top + bodySize.height + bottom)
     }
 
-    /// The button whose hit area contains a point in frame coordinates.
+    /// The largest whole-point screen height whose layout fits `contentSize`, within
+    /// `range`. Used to keep the window at the device's shape while it is resized.
+    public static func screenHeight(
+        fitting contentSize: CGSize, spec: FrameSpec, deviceSize: PixelSize, quadrants: Int,
+        range: ClosedRange<CGFloat>
+    ) -> CGFloat {
+        // Width and height grow linearly with the screen height; measure at two heights.
+        let small = DeviceFrameLayout(
+            spec: spec, deviceSize: deviceSize, screenHeight: spec.referenceScreenHeight, quadrants: quadrants)
+        let large = DeviceFrameLayout(
+            spec: spec, deviceSize: deviceSize, screenHeight: 2 * spec.referenceScreenHeight, quadrants: quadrants)
+        let reference = spec.referenceScreenHeight
+        let widthSlope = (large.windowContentSize.width - small.windowContentSize.width) / reference
+        let heightSlope = (large.windowContentSize.height - small.windowContentSize.height) / reference
+        let widthFixed = small.windowContentSize.width - widthSlope * reference
+        let heightFixed = small.windowContentSize.height - heightSlope * reference
+        var fit = range.upperBound
+        if widthSlope > 0 { fit = min(fit, (contentSize.width - widthFixed) / widthSlope) }
+        if heightSlope > 0 { fit = min(fit, (contentSize.height - heightFixed) / heightSlope) }
+        var height = min(max(fit.rounded(.down), range.lowerBound), range.upperBound)
+        // The screen's short side is rounded to whole points, which can overshoot by a fraction.
+        while height > range.lowerBound {
+            let size = DeviceFrameLayout(spec: spec, deviceSize: deviceSize, screenHeight: height, quadrants: quadrants)
+                .windowContentSize
+            if size.width <= contentSize.width, size.height <= contentSize.height { break }
+            height -= 1
+        }
+        return height
+    }
+
+    /// The button whose hit area contains a point in window coordinates.
     public func button(at point: CGPoint) -> FrameButton? {
         buttons.first { $0.hitRect.contains(point) }?.button
     }
