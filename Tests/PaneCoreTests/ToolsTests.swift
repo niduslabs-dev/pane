@@ -435,3 +435,46 @@ private func fixtureDump() throws -> String {
         #expect(failed.meta == "Not connected")
     }
 }
+
+@Suite struct LabelPlacementTests {
+    private let screen = CGRect(x: 0, y: 0, width: 400, height: 800)
+
+    @Test func takesTheFirstClearPlace() {
+        var placement = LabelPlacement(
+            bounds: screen, spacing: 6, avoiding: [CGRect(x: 100, y: 100, width: 100, height: 40)])
+        let frame = placement.place(
+            size: CGSize(width: 40, height: 20), candidates: [CGPoint(x: 150, y: 120), CGPoint(x: 150, y: 300)])
+        #expect(frame == CGRect(x: 130, y: 290, width: 40, height: 20))
+    }
+
+    @Test func laterLabelsAvoidEarlierOnes() {
+        var placement = LabelPlacement(bounds: screen, spacing: 6, avoiding: [])
+        let card = placement.place(size: CGSize(width: 250, height: 100), candidates: [CGPoint(x: 200, y: 400)])
+        let chip = placement.place(
+            size: CGSize(width: 30, height: 20),
+            candidates: LabelPlacement.guideCandidates(
+                from: CGPoint(x: 200, y: 300), to: CGPoint(x: 200, y: 420), chip: CGSize(width: 30, height: 20), gap: 6)
+        )
+        #expect(!chip.insetBy(dx: -6, dy: -6).intersects(card))
+    }
+
+    @Test func staysInsideTheScreen() {
+        var placement = LabelPlacement(bounds: screen, spacing: 6, avoiding: [])
+        let frame = placement.place(size: CGSize(width: 250, height: 100), candidates: [CGPoint(x: 390, y: 790)])
+        #expect(screen.contains(frame))
+    }
+
+    @Test func fallsBackToTheLeastOverlap() {
+        let blocker = CGRect(x: 0, y: 0, width: 400, height: 800)
+        var placement = LabelPlacement(bounds: screen, spacing: 0, avoiding: [blocker])
+        let frame = placement.place(size: CGSize(width: 10, height: 10), candidates: [CGPoint(x: 50, y: 50)])
+        #expect(frame.size == CGSize(width: 10, height: 10))
+    }
+
+    @Test func levelGuidesPutTheirChipUnderTheLineFirst() {
+        let points = LabelPlacement.guideCandidates(
+            from: CGPoint(x: 0, y: 100), to: CGPoint(x: 100, y: 100), chip: CGSize(width: 30, height: 20), gap: 6)
+        #expect(points.first == CGPoint(x: 50, y: 116))
+        #expect(points[1] == CGPoint(x: 50, y: 84))
+    }
+}
