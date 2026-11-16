@@ -10,6 +10,34 @@ struct NoEmulatorScreen: View {
     @State private var linkFrame = CGRect.zero
 
     var body: some View {
+        if model.avds.isEmpty {
+            noEmulatorsSetUp
+        } else {
+            startScreen
+        }
+    }
+
+    /// No emulators at all (board 3): nothing to start, so the screen says so and offers the
+    /// folder instead.
+    private var noEmulatorsSetUp: some View {
+        VStack(spacing: Theme.Screen.lineGap) {
+            Text("No emulators set up.")
+                .font(Theme.Typeface.screenTitle)
+                .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
+            Text("Create one in Android Studio's Device Manager.")
+                .font(Theme.Typeface.screenMeta)
+                .foregroundStyle(Color(nsColor: Theme.Palette.screenMeta))
+            Button("Show Emulators in Finder") { model.onCommand(.showEmulatorsInFinder) }
+                .buttonStyle(ScreenSecondaryCapsuleStyle())
+                .padding(.top, Theme.Screen.actionGap)
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, Theme.Screen.horizontalPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: Theme.Palette.screenEmpty))
+    }
+
+    private var startScreen: some View {
         VStack(spacing: Theme.Screen.lineGap) {
             Text("No emulator running.")
                 .font(Theme.Typeface.screenTitle)
@@ -68,15 +96,25 @@ struct ProgressScreen: View {
             StatusLine(text: statusText)
                 .font(Theme.Typeface.status)
                 .foregroundStyle(Color(nsColor: Theme.Palette.screenMeta))
+            if isSlowStart {
+                Button("Stop") { model.stopStarting() }
+                    .buttonStyle(ScreenSecondaryCapsuleStyle())
+                    .padding(.top, Theme.Screen.actionGap - Theme.Screen.progressGap)
+                    .transition(.opacity)
+            }
         }
         .padding(.horizontal, Theme.Screen.horizontalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: Theme.Palette.screenEmpty))
+        .animation(.easeOut(duration: Theme.StatusSwap.fadeDuration), value: isSlowStart)
     }
+
+    /// A start that hasn't answered after 30 s: the line says so and Stop appears (board 4).
+    private var isSlowStart: Bool { model.status == .starting && model.isSlowStart }
 
     private var statusText: String {
         switch model.status {
-        case .starting: "Starting \(model.title)…"
+        case .starting: model.isSlowStart ? "Still starting. This can take a minute." : "Starting \(model.title)…"
         case .booting: "Booting Android…"
         default: model.reconnectAttempt > 0 ? "Reconnecting…" : "Connecting…"
         }
@@ -85,7 +123,7 @@ struct ProgressScreen: View {
 
 /// Over the live screen while files are dragged over the window (an accent outline and what a
 /// drop would do) and while a drop runs (the `blurSwap` status line: "Installing Splito…",
-/// "Installed.", or adb's error). Never takes clicks.
+/// "Installed.", or what went wrong in a plain sentence, with adb's own reason behind Details).
 struct DropOverlay: View {
     let model: PaneModel
     let cornerRadius: CGFloat
@@ -112,6 +150,25 @@ struct DropOverlay: View {
                         StatusLine(text: status)
                             .font(Theme.Typeface.status)
                             .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
+                        if let detail = model.transferDetail, !model.isTransferring {
+                            if model.showsTransferDetail {
+                                Text(detail)
+                                    .font(Theme.Typeface.statusDetail)
+                                    .foregroundStyle(Color(nsColor: Theme.Palette.screenMeta))
+                                    .multilineTextAlignment(.center)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.top, Theme.Drop.detailsGap - Theme.Screen.progressGap)
+                                    .transition(.opacity)
+                            } else {
+                                Button("Details") { model.showTransferDetail() }
+                                    .buttonStyle(.plain)
+                                    .font(Theme.Typeface.link)
+                                    .foregroundStyle(Color(nsColor: Theme.Palette.screenLink))
+                                    .accessibilityHint("Shows the reason adb gave.")
+                                    .padding(.top, Theme.Drop.detailsGap - Theme.Screen.progressGap)
+                            }
+                        }
                     }
                     .padding(.horizontal, Theme.Screen.horizontalPadding)
                 }
@@ -119,7 +176,9 @@ struct DropOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeOut(duration: Theme.Drop.fadeDuration), value: hover != nil || status != nil)
-        .allowsHitTesting(false)
+        .animation(.easeOut(duration: Theme.Drop.fadeDuration), value: model.showsTransferDetail)
+        // Only a failure that has Details takes clicks; every other state lets them through.
+        .allowsHitTesting(model.transferDetail != nil && !model.isTransferring)
     }
 }
 
@@ -219,6 +278,26 @@ struct ErrorCard: View {
             detail: "Pane didn't start this emulator. Restarting it closes any apps running on it.",
             action: "Restart Emulator"
         ) { model.restartEmulator() }
+    }
+}
+
+/// The secondary capsule on the always-dark screen: a raised ink surface with a hairline.
+struct ScreenSecondaryCapsuleStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Theme.Typeface.screenSecondary)
+            .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, Theme.Capsule.standardPadding)
+            .frame(height: Theme.Capsule.height)
+            .background(Capsule().fill(Color(nsColor: Theme.Palette.screenSecondary)))
+            .overlay(
+                Capsule().strokeBorder(
+                    Color(nsColor: Theme.Palette.screenSecondaryEdge), lineWidth: Theme.Toolbar.hairline * 2)
+            )
+            .overlay(Capsule().fill(Color.white.opacity(configuration.isPressed ? Theme.Toolbar.pressedOpacity : 0)))
+            .contentShape(Capsule())
     }
 }
 

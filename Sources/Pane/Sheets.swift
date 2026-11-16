@@ -267,6 +267,44 @@ struct LocationSheet: View {
     }
 }
 
+/// A confirmation (design guide, Sheet / Confirmation; `confirmDestructive`): content-sized,
+/// Cancel and one moss action that says what happens. Esc and Return both cancel; the action
+/// takes a click, or Space once Tab has reached it.
+struct ConfirmSheet: View {
+    let title: String
+    let detail: String
+    let action: String
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(Theme.Typeface.sheetTitle)
+                .foregroundStyle(Color(nsColor: Theme.Palette.text))
+                .accessibilityAddTraits(.isHeader)
+            Text(detail)
+                .font(Theme.Typeface.sheetBody)
+                .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, Theme.Sheet.descriptionGap)
+            HStack(spacing: Theme.Sheet.buttonGap) {
+                Spacer(minLength: 0)
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.nidusSecondary)
+                    .keyboardShortcut(.defaultAction)
+                Button(action, action: onConfirm)
+                    .buttonStyle(.nidusPrimary)
+            }
+            .padding(.top, Theme.Sheet.footerGap)
+        }
+        .padding(Theme.Sheet.inset)
+        .frame(width: Theme.Sheet.width, alignment: .leading)
+        .background(Color(nsColor: Theme.Palette.sheetSurface))
+        .onExitCommand(perform: onCancel)
+    }
+}
+
 /// Shows SwiftUI content as a sheet on a window.
 @MainActor
 enum SheetPresenter {
@@ -292,20 +330,20 @@ enum SheetPresenter {
         return sheet
     }
 
-    /// A confirmation with a destructive action that isn't the default (Return cancels).
+    /// A confirmation as a Nidus sheet (board 5): the question, what it costs, Cancel and the
+    /// moss action. Cancel is the default, so Return never runs the action by accident.
+    @discardableResult
     static func confirm(
         on window: NSWindow, message: String, detail: String, action: String, then run: @escaping @MainActor () -> Void
-    ) {
-        let alert = NSAlert()
-        alert.messageText = message
-        alert.informativeText = detail
-        let button = alert.addButton(withTitle: action)
-        button.hasDestructiveAction = true
-        button.keyEquivalent = ""
-        let cancel = alert.addButton(withTitle: "Cancel")
-        cancel.keyEquivalent = "\r"
-        alert.beginSheetModal(for: window) { response in
-            if response == .alertFirstButtonReturn { run() }
+    ) -> NSWindow {
+        present(on: window) { close in
+            ConfirmSheet(
+                title: message, detail: detail, action: action, onCancel: close,
+                onConfirm: {
+                    close()
+                    run()
+                })
         }
     }
+
 }

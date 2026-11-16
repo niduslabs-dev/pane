@@ -51,6 +51,13 @@ final class PaneModel {
     private(set) var dropHover: String?
     /// The drop's status line ("Installing Splito…", "Installed.", or adb's error), or nil.
     private(set) var transferStatus: String?
+    /// adb's own reason for a failed drop, offered behind Details; nil when there is none.
+    private(set) var transferDetail: String?
+    /// Details was pressed: the reason shows under the sentence.
+    private(set) var showsTransferDetail = false
+    /// A start that hasn't answered after `Theme.Timing.slowStart`: the line says so and
+    /// offers Stop.
+    private(set) var isSlowStart = false
     /// True while adb runs, for the spinner.
     private(set) var isTransferring = false
 
@@ -351,12 +358,15 @@ final class PaneModel {
     private func waitForStart(of avdName: String, process: Process?) {
         launchedAVDName = avdName
         status = .starting
+        isSlowStart = false
         startTask?.cancel()
         startTask = Task { [weak self] in
             let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: Theme.Timing.startTimeout)
+            let began = clock.now
+            let deadline = began.advanced(by: Theme.Timing.startTimeout)
             while !Task.isCancelled, clock.now < deadline {
                 guard let self, self.status == .starting else { return }
+                if clock.now - began >= Self.slowStartDelay { self.isSlowStart = true }
                 self.startWatcher()
                 self.refresh()
                 if let process, !process.isRunning, self.emulator == nil, self.status == .starting {
@@ -372,6 +382,34 @@ final class PaneModel {
             self.startProblem = "The emulator didn't start."
             self.forgetLaunch()
             self.status = .noEmulator
+        }
+    }
+
+    /// How long a start may take before the line changes. Debug builds take
+    /// `-PaneSlowStartAfter <seconds>` so a check needn't wait.
+    private static var slowStartDelay: Duration {
+        #if DEBUG
+            let seconds = UserDefaults.standard.double(forKey: "PaneSlowStartAfter")
+            if seconds > 0 { return .seconds(seconds) }
+        #endif
+        return Theme.Timing.slowStart
+    }
+
+    /// Stop on a slow start: gives up waiting and shows Start again. An emulator Pane launched
+    /// is stopped (by PID); one started elsewhere is left alone.
+    func stopStarting() {
+        guard status == .starting else { return }
+        log.info("Stop pressed while starting")
+        let process = launchedProcess
+        forgetLaunch()
+        isSlowStart = false
+        status = .noEmulator
+        guard let process, process.isRunning else { return }
+        let pid = process.processIdentifier
+        Task {
+            _ = await EmulatorLauncher.stop(
+                pid: pid, gracePeriod: Theme.Timing.stopGracePeriod, killWait: Theme.Timing.stopKillWait,
+                pollInterval: Theme.Timing.stopPoll)
         }
     }
 
@@ -963,6 +1001,8 @@ final class PaneModel {
         transferTask = nil
         dropHover = nil
         transferStatus = nil
+        transferDetail = nil
+        showsTransferDetail = false
         isTransferring = false
         framesTask?.cancel()
         connectionTask?.cancel()
@@ -1126,6 +1166,7 @@ final class PaneModel {
         transferTask = Task { [weak self] in
             var result = plan.doneText
             var hold = Theme.Drop.doneDuration
+            var detail: String?
             for step in plan.steps {
                 guard let self, !Task.isCancelled else { return }
                 self.transferStatus = DropPlan.progressText(for: step)
@@ -1134,6 +1175,7 @@ final class PaneModel {
                 } catch let failure as Adb.Failure {
                     self.log.error("Drop failed: \(failure.message, privacy: .public)")
                     (result, hold) = (failure.message, Theme.Drop.errorDuration)
+                    detail = failure.detail
                     break
                 } catch {
                     self.log.error("Drop failed: \(String(describing: error), privacy: .public)")
@@ -1143,21 +1185,45 @@ final class PaneModel {
             }
             guard let self, !Task.isCancelled else { return }
             self.isTransferring = false
-            self.finishTransfer(result, after: hold)
+            self.finishTransfer(result, detail: detail, after: hold)
         }
         return true
     }
 
-    /// Shows the result, then clears the status line.
-    private func finishTransfer(_ text: String, after hold: Duration) {
+    /// Shows the result, then clears the status line. `detail` is adb's reason for a failure,
+    /// kept behind Details.
+    private func finishTransfer(_ text: String, detail: String? = nil, after hold: Duration) {
         transferStatus = text
+        transferDetail = detail
+        showsTransferDetail = false
+        clearTransfer(after: hold)
+    }
+
+    private func clearTransfer(after hold: Duration) {
+        transferTask?.cancel()
         transferTask = Task { [weak self] in
             try? await Task.sleep(for: hold)
             guard let self, !Task.isCancelled, !self.isTransferring else { return }
             self.transferStatus = nil
+            self.transferDetail = nil
+            self.showsTransferDetail = false
             self.transferTask = nil
         }
     }
+
+    /// Details on a failed drop: shows adb's reason and keeps the line up longer.
+    func showTransferDetail() {
+        guard transferDetail != nil, !isTransferring else { return }
+        showsTransferDetail = true
+        clearTransfer(after: Theme.Drop.detailsDuration)
+    }
+
+    #if DEBUG
+        /// Shows a failed drop without a device (`pane://check-drop-error`).
+        func checkDropError(message: String, detail: String) {
+            finishTransfer(message, detail: detail, after: Theme.Drop.detailsDuration)
+        }
+    #endif
 
     // MARK: Clipboard
 

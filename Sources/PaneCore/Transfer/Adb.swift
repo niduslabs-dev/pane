@@ -25,8 +25,17 @@ public struct Adb: Sendable {
     }
 
     public struct Failure: Error, Equatable {
-        /// One short line for the status line.
+        /// One plain sentence for the status line ("Couldn't install. This file isn't an
+        /// Android app.").
         public var message: String
+        /// adb's own reason ("INSTALL_PARSE_FAILED_NOT_APK"), shown behind Details. Nil when
+        /// adb gave none.
+        public var detail: String?
+
+        public init(message: String, detail: String? = nil) {
+            self.message = message
+            self.detail = detail
+        }
     }
 
     public func arguments(for step: DropPlan.Step) -> [String] {
@@ -56,7 +65,8 @@ public struct Adb: Sendable {
         let result = try await Self.run(executable, arguments(for: step))
         // `adb install` can print "Failure [...]" yet exit 0 on old versions; check both.
         if result.status != 0 || result.output.contains("Failure [") {
-            throw Failure(message: Self.shortError(from: result.output, step: step))
+            let reason = Self.reason(from: result.output)
+            throw Failure(message: Self.plainError(for: step, reason: reason), detail: reason.isEmpty ? nil : reason)
         }
         if case .copy(let url, true) = step {
             // Best effort: the file is on the device either way.
@@ -64,13 +74,29 @@ public struct Adb: Sendable {
         }
     }
 
-    /// adb's reason, cut to one short line: "Install failed: INSTALL_FAILED_OLDER_SDK".
-    public static func shortError(from output: String, step: DropPlan.Step) -> String {
-        let prefix =
-            switch step {
-            case .install: "Install failed"
-            case .copy: "Copy failed"
+    /// What went wrong in words anyone can read. adb's own reason stays behind Details.
+    public static func plainError(for step: DropPlan.Step, reason: String) -> String {
+        guard case .install = step else { return "Couldn't copy this file." }
+        let cause: String? =
+            if reason.hasPrefix("INSTALL_PARSE_FAILED") || reason.hasPrefix("INSTALL_FAILED_INVALID_APK") {
+                "This file isn't an Android app."
+            } else {
+                switch reason {
+                case "INSTALL_FAILED_OLDER_SDK": "It needs a newer Android."
+                case "INSTALL_FAILED_INSUFFICIENT_STORAGE": "The device is out of space."
+                case "INSTALL_FAILED_NO_MATCHING_ABIS": "It isn't built for this device."
+                case "INSTALL_FAILED_UPDATE_INCOMPATIBLE", "INSTALL_FAILED_VERSION_DOWNGRADE":
+                    "Another version is already on the device."
+                default: nil
+                }
             }
+        return cause.map { "Couldn't install. \($0)" } ?? "Couldn't install this app."
+    }
+
+    /// adb's reason, cut to one short line: the code inside "Failure [...]" for an install
+    /// ("INSTALL_FAILED_OLDER_SDK"), else adb's last line without its "adb: error:" lead.
+    /// Empty when adb printed nothing.
+    public static func reason(from output: String) -> String {
         let lines = output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         var reason = ""
         if let failure = lines.last(where: { $0.contains("Failure [") }),
@@ -85,9 +111,8 @@ public struct Adb: Sendable {
             }
         }
         reason = reason.replacingOccurrences(of: "\u{2014}", with: "-")
-        guard !reason.isEmpty else { return "\(prefix)." }
         if reason.count > maxReasonLength { reason = reason.prefix(maxReasonLength - 1) + "…" }
-        return "\(prefix): \(reason)"
+        return reason
     }
 
     static let maxReasonLength = 48

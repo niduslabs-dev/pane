@@ -66,6 +66,10 @@ enum Theme {
         /// How long "Installed." stays; an error stays longer so it can be read.
         static let doneDuration: Duration = .seconds(2)
         static let errorDuration: Duration = .seconds(5)
+        /// Once Details is open the line stays this long, so adb's reason can be read.
+        static let detailsDuration: Duration = .seconds(15)
+        /// Between the sentence, the Details link and adb's reason.
+        static let detailsGap = Space.s
         static let fadeDuration: Double = 0.15
     }
 
@@ -126,8 +130,9 @@ enum Theme {
         static let lightMaterial = NSVisualEffectView.Material.underWindowBackground
         // Secondary text keeps 5.6:1 with pure white behind (#3C3B41).
         static let darkTintOpacity: CGFloat = 0.86
-        // Secondary text (#64636C) keeps 4.5:1 even with pure black behind the glass (#E0E0E2).
-        static let lightTintOpacity: CGFloat = 0.92
+        // Secondary text (#64636C) keeps 4.5:1 even with pure black behind the glass (#E3E3E5,
+        // 4.6:1). At 92% it measured 4.496:1, a hair under.
+        static let lightTintOpacity: CGFloat = 0.93
     }
 
     /// The device frame we draw: body, bezel, screen corners, punch hole and side buttons.
@@ -190,6 +195,9 @@ enum Theme {
         static let screenMeta = Font.system(size: 12)
         static let capsule = Font.system(size: 13, weight: .semibold)
         static let link = Font.system(size: 12)
+        /// The secondary capsule on the dark screen, and adb's reason behind Details.
+        static let screenSecondary = Font.system(size: 13, weight: .medium)
+        static let statusDetail = Font.system(size: 11, design: .monospaced)
         static let cardTitle = Font.system(size: 15)
         static let cardBody = Font.system(size: 12)
         static let status = Font.system(size: 12)
@@ -246,6 +254,9 @@ enum Theme {
         /// The screen before the first frame and in the no-emulator state.
         static let screenOff = NSColor(hex: 0x000000)
         static let screenEmpty = NSColor(hex: 0x111116)
+        /// The secondary capsule on the always-dark screen (Show Emulators in Finder, Stop).
+        static let screenSecondary = NSColor(hex: 0x2C2B33, alpha: 0.9)
+        static let screenSecondaryEdge = NSColor(hex: 0xF4F4F6, alpha: 0.12)
 
         /// A colour for light and dark, with optional Increase Contrast variants (which default
         /// to the normal ones).
@@ -568,6 +579,8 @@ extension Theme {
         /// How often to look for the registration file while a started emulator comes up (the
         /// folder may not exist yet, so the watcher alone can't be relied on).
         static let startPoll: Duration = .seconds(1)
+        /// A start that hasn't answered by then says so and offers Stop (board 4).
+        static let slowStart: Duration = .seconds(30)
         /// Give up on a started emulator that hasn't registered by then.
         static let startTimeout: Duration = .seconds(120)
         /// SIGTERM, then SIGKILL after this.

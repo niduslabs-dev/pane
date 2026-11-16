@@ -182,7 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// `check-hover?file=…`, `check-hover-end`, `check-drop?file=…`, `check-paste`,
         /// `check-open-link?text=…` (the sheet, prefilled), `check-location?lat=…&lon=…` (the
         /// sheet, prefilled), `check-gif?file=…`, `check-switcher` (opens the title's menu),
-        /// `check-settings`, `check-update?state=…`, `check-save-folder?path=…` (Save to, as the folder picker would
+        /// `check-settings`, `check-update?state=…`, `check-drop-error` and `check-drop-details`
+        /// (a failed drop and its Details), `check-restart` (Restart Emulator), `check-save-folder?path=…` (Save to, as the folder picker would
         /// set it) and `check-select?label=…` (opens a select's menu).
         private func handleCheckURL(_ url: URL) -> Bool {
             guard let controller = activeController else { return false }
@@ -200,6 +201,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case "check-gif": if let file = files.first { model.exportGIF(from: file) }
             case "check-switcher": controller.showSwitcher()
             case "check-settings": showSettings(nil)
+            case "check-drop-error":
+                model.checkDropError(
+                    message: value("message") ?? "Couldn't install. This file isn't an Android app.",
+                    detail: value("detail") ?? "INSTALL_PARSE_FAILED_NOT_APK")
+            case "check-drop-details": model.showTransferDetail()
+            case "check-restart": controller.restart()
             case "check-update": showUpdateCheck(value("state") ?? "")
             case "check-save-folder": if let path = value("path") { settingsWindow.checkChooseFolder(path) }
             case "check-select":

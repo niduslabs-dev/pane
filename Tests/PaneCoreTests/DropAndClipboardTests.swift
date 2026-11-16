@@ -73,21 +73,35 @@ import Testing
                 == "content call --uri content://media --method scan_file --arg '/sdcard/Download/a b.jpg'")
     }
 
-    @Test func errorsAreOneShortLine() {
+    @Test func adbReasonsAreOneShortLine() {
+        #expect(
+            Adb.reason(
+                from:
+                    "Performing Streamed Install\nadb: failed to install a.apk: Failure [INSTALL_FAILED_OLDER_SDK: Requires newer sdk version #99]\n"
+            ) == "INSTALL_FAILED_OLDER_SDK")
+        #expect(
+            Adb.reason(from: "adb: error: device 'emulator-5554' not found\n") == "device 'emulator-5554' not found")
+        #expect(Adb.reason(from: "").isEmpty)
+        #expect(Adb.reason(from: "adb: " + String(repeating: "x", count: 200)).count == Adb.maxReasonLength)
+        #expect(!Adb.reason(from: "error: a \u{2014} b").contains("\u{2014}"))
+    }
+
+    @Test func dropErrorsAreAPlainSentence() {
         let install = DropPlan.Step.install(URL(filePath: "/d/a.apk"))
         let copy = DropPlan.Step.copy(URL(filePath: "/d/a.txt"), isMedia: false)
         #expect(
-            Adb.shortError(
-                from:
-                    "Performing Streamed Install\nadb: failed to install a.apk: Failure [INSTALL_FAILED_OLDER_SDK: Requires newer sdk version #99]\n",
-                step: install) == "Install failed: INSTALL_FAILED_OLDER_SDK")
+            Adb.plainError(for: install, reason: "INSTALL_PARSE_FAILED_NOT_APK")
+                == "Couldn't install. This file isn't an Android app.")
         #expect(
-            Adb.shortError(from: "adb: error: device 'emulator-5554' not found\n", step: copy)
-                == "Copy failed: device 'emulator-5554' not found")
-        #expect(Adb.shortError(from: "", step: copy) == "Copy failed.")
-        let long = Adb.shortError(from: "adb: " + String(repeating: "x", count: 200), step: copy)
-        #expect(long.count == "Copy failed: ".count + Adb.maxReasonLength)
-        #expect(!Adb.shortError(from: "error: a \u{2014} b", step: copy).contains("\u{2014}"))
+            Adb.plainError(for: install, reason: "INSTALL_FAILED_OLDER_SDK")
+                == "Couldn't install. It needs a newer Android.")
+        #expect(
+            Adb.plainError(for: install, reason: "INSTALL_FAILED_INSUFFICIENT_STORAGE")
+                == "Couldn't install. The device is out of space.")
+        // A code Pane has no words for, or none at all: still a sentence, never the code.
+        #expect(Adb.plainError(for: install, reason: "INSTALL_FAILED_SOMETHING_NEW") == "Couldn't install this app.")
+        #expect(Adb.plainError(for: install, reason: "") == "Couldn't install this app.")
+        #expect(Adb.plainError(for: copy, reason: "device 'emulator-5554' not found") == "Couldn't copy this file.")
     }
 
     @Test func adbComesFromTheRealSdk() {

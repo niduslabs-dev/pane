@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import PaneCore
 import Testing
@@ -19,6 +20,32 @@ import Testing
 }
 
 @Suite struct GlassTests {
+    /// WCAG contrast between two sRGB colours.
+    private func contrast(_ a: [CGFloat], _ b: [CGFloat]) -> CGFloat {
+        func luminance(_ c: [CGFloat]) -> CGFloat {
+            let l = c.map { $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
+            return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]
+        }
+        let (x, y) = (luminance(a), luminance(b))
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+    }
+
+    private func channels(_ color: NSColor, _ appearance: NSAppearance.Name) -> [CGFloat] {
+        let resolved = color.resolved(for: NSAppearance(named: appearance)!)
+        return [resolved.redComponent, resolved.greenComponent, resolved.blueComponent]
+    }
+
+    /// The worst case behind the glass is pure black in light and pure white in dark: the
+    /// tint alone must keep secondary text at 4.5:1.
+    @MainActor @Test func secondaryTextKeepsItsContrastOverAnyDesktop() {
+        let paper = channels(Theme.Palette.surface, .aqua).map { $0 * Theme.Glass.lightTintOpacity }
+        #expect(contrast(channels(Theme.Palette.textSecondary, .aqua), paper) >= 4.5)
+        let ink = channels(Theme.Palette.surface, .darkAqua).map {
+            $0 * Theme.Glass.darkTintOpacity + (1 - Theme.Glass.darkTintOpacity)
+        }
+        #expect(contrast(channels(Theme.Palette.textSecondary, .darkAqua), ink) >= 4.5)
+    }
+
     @Test func glassInBothModesUnlessReducedOrHighContrast() {
         #expect(GlassBackgroundView.showsGlass(reduceTransparency: false, increaseContrast: false))
         #expect(!GlassBackgroundView.showsGlass(reduceTransparency: true, increaseContrast: false))
