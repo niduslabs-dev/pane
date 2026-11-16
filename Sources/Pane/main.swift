@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import os
 
 /// Creates the one Pane window and wires focus loss to releasing any held touch or key.
 @MainActor
@@ -15,6 +16,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.window = window
         NSApp.activate()
         model.start()
+        #if DEBUG
+            // Shows whether mouse events reach the app at all, for scripted background checks.
+            NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { event in
+                Logger(subsystem: "dev.niduslabs.pane", category: "events").debug(
+                    "AppKit \(String(describing: event.type), privacy: .public) window \(event.windowNumber) at \(event.locationInWindow.x), \(event.locationInWindow.y)"
+                )
+                return event
+            }
+        #endif
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

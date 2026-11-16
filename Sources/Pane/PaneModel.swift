@@ -103,9 +103,18 @@ final class PaneModel {
             screenPoints: layout.screenRect.size, backingScale: backingScale, deviceSize: deviceSize)
         let screenView = screenView
         log.info("Requesting frames at \(size.description, privacy: .public)")
+        let log = log
         framesTask = Task.detached { [weak self] in
+            var stats = FrameStats(intervalSeconds: Theme.Diagnostics.frameStatsInterval)
             do {
                 for try await frame in connection.screenFrames(size: size) {
+                    if let summary = stats.record(
+                        sequence: frame.sequence, emulatorTimestamp: frame.timestampMicroseconds)
+                    {
+                        log.info(
+                            "Frames: \(summary.frames) in window, \(summary.framesPerSecond, format: .fixed(precision: 1)) fps, \(summary.dropped) dropped, latency mean \(summary.meanLatencyMilliseconds, format: .fixed(precision: 1)) ms max \(summary.maxLatencyMilliseconds, format: .fixed(precision: 1)) ms, \(frame.size.description, privacy: .public)"
+                        )
+                    }
                     let image = FrameImage.make(frame)
                     await MainActor.run {
                         screenView.show(image)
@@ -140,6 +149,7 @@ final class PaneModel {
     }
 
     private func handlePointer(_ phase: ScreenView.PointerPhase, at point: CGPoint) {
+        log.debug("Pointer \(String(describing: phase), privacy: .public) at \(point.x), \(point.y)")
         guard let connection else { return }
         switch phase {
         case .down:
@@ -180,6 +190,7 @@ final class PaneModel {
         } else {
             guard heldButtons.remove(button) != nil else { return }
         }
+        log.debug("Key \(button.keyName, privacy: .public) \(isDown ? "down" : "up", privacy: .public)")
         connection.send(.key(name: button.keyName, isDown: isDown))
     }
 

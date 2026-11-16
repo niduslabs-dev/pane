@@ -91,3 +91,58 @@ enum FrameImage {
             provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 }
+
+/// A frame button's invisible hit area. AppKit, not a SwiftUI gesture, so the first click on an
+/// inactive window presses the button (as in the iOS Simulator) instead of only focusing the
+/// window. Pressed for as long as the mouse is down; an accessibility press is a short click.
+@MainActor
+final class FrameButtonHitView: NSView {
+    var onPress: ((Bool) -> Void)?
+    var onHover: ((Bool) -> Void)?
+    private var isPressed = false
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) { setPressed(true) }
+    override func mouseUp(with event: NSEvent) { setPressed(false) }
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
+
+    /// Called on focus loss too, through the model's `releaseAll`; this only guards repeats.
+    private func setPressed(_ pressed: Bool) {
+        guard pressed != isPressed else { return }
+        isPressed = pressed
+        onPress?(pressed)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityPerformPress() -> Bool {
+        setPressed(true)
+        setPressed(false)
+        return true
+    }
+}
+
+struct FrameButtonHitArea: NSViewRepresentable {
+    let label: String
+    let onPress: (Bool) -> Void
+    let onHover: (Bool) -> Void
+
+    func makeNSView(context: Context) -> FrameButtonHitView { FrameButtonHitView() }
+
+    func updateNSView(_ view: FrameButtonHitView, context: Context) {
+        view.onPress = onPress
+        view.onHover = onHover
+        view.toolTip = label
+        view.setAccessibilityLabel(label)
+    }
+}

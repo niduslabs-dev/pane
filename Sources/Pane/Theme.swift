@@ -118,3 +118,11 @@ extension NSColor {
             blue: CGFloat(hex & 0xFF) / channelMax, alpha: alpha)
     }
 }
+
+extension Theme {
+    /// Values for logging, not drawing.
+    enum Diagnostics {
+        /// How often frame rate, drops and latency are logged while frames arrive.
+        static let frameStatsInterval: Double = 1
+    }
+}

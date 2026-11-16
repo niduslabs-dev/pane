@@ -167,20 +167,15 @@ struct DeviceFrameView: View {
     }
 
     private func hitArea(_ button: DeviceFrameLayout.Button) -> some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .frame(width: button.hitRect.width, height: button.hitRect.height)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in model.setButton(button.button, isDown: true) }
-                    .onEnded { _ in model.setButton(button.button, isDown: false) }
-            )
-            .onHover { inside in hovered = inside ? button.button : (hovered == button.button ? nil : hovered) }
-            .help(helpText(button.button))
-            .accessibilityElement()
-            .accessibilityLabel(helpText(button.button))
-            .accessibilityAddTraits(.isButton)
-            .offset(x: button.hitRect.minX, y: button.hitRect.minY)
+        FrameButtonHitArea(
+            label: helpText(button.button),
+            onPress: { isDown in model.setButton(button.button, isDown: isDown) },
+            onHover: { inside in
+                hovered = inside ? button.button : (hovered == button.button ? nil : hovered)
+            }
+        )
+        .frame(width: button.hitRect.width, height: button.hitRect.height)
+        .offset(x: button.hitRect.minX, y: button.hitRect.minY)
     }
 
     private func helpText(_ button: FrameButton) -> String {

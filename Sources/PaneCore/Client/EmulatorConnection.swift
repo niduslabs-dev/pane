@@ -111,6 +111,7 @@ public final class EmulatorConnection: Sendable {
             key.eventType = isDown ? .keydown : .keyup
             event.keyEvent = key
         }
+        Self.log.debug("Input \(String(describing: command), privacy: .public)")
         inputContinuation.yield(event)
     }
 

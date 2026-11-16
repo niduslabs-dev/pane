@@ -25,6 +25,8 @@ scripts/format.sh                   # swift format; --lint for the strict check
 scripts/generate-protos.sh          # regenerate Sources/PaneCore/Generated (pinned protoc in .claude/tools)
 ```
 
+**Checking the app without taking focus** (`.claude/checks/`, gitignored): launch with `open -g build/Pane.app` (append `--args -NSRequiresAquaSystemAppearance YES` for light), find the window with `window-info.swift <pid>`, capture with `screencapture -l <id> -o -x`, and click with `click <pid> <windowID> <x> <y> [hold] [toX toY steps]` (window-local points; it posts an `NSEvent`'s `CGEvent` to the PID, so nothing activates). The debug build logs pointer, key and per-second frame stats (fps, drops, latency) under subsystem `dev.niduslabs.pane`. Quit by PID.
+
 ## Conventions
 
 - **Never log or print the gRPC token.** `GRPCToken` redacts every textual form; only the `authorization` header sees it.
