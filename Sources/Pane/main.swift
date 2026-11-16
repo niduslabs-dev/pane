@@ -104,14 +104,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
     func applicationWillTerminate(_ notification: Notification) { model.releaseAll() }
 
-    /// Waits for a running recording to be written before quitting.
+    /// Finishes a running recording before quitting: this quit is put off, the movie is
+    /// written, then Pane quits again. (Replying later from a task never ran: AppKit's wait
+    /// for the reply doesn't service the main actor.)
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let finishing = model.stopRecording() else { return .terminateNow }
         Task {
             await finishing.value
-            sender.reply(toApplicationShouldTerminate: true)
+            sender.terminate(nil)
         }
-        return .terminateLater
+        return .terminateCancel
     }
 
     func windowWillClose(_ notification: Notification) { model.stopRecording() }
@@ -212,6 +214,13 @@ final class PaneWindow: NSWindow {
     /// The title bar's real height, for checking it against the title row.
     var titleBarHeight: CGFloat { frame.height - contentLayoutRect.height }
 }
+
+/// SIGTERM (a logout, `kill`) quits through `terminate`, so a running recording is finished
+/// instead of left unreadable.
+signal(SIGTERM, SIG_IGN)
+let terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+terminationSource.setEventHandler { MainActor.assumeIsolated { NSApp.terminate(nil) } }
+terminationSource.resume()
 
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { AppDelegate() }

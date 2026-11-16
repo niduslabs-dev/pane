@@ -77,6 +77,8 @@ final class PaneModel {
     /// What the running screen stream was asked for, so a resize only restarts it on change.
     @ObservationIgnored private var streamRequest: StreamRequest?
     @ObservationIgnored private var restartFramesTask: Task<Void, Never>?
+    /// The orientation last asked for and not yet shown by the emulator.
+    @ObservationIgnored private var pendingQuadrants: Int?
     /// The recording the frame loop feeds, readable off the main actor.
     @ObservationIgnored nonisolated let recorderSlot = RecorderSlot()
     @ObservationIgnored private let log = Logger(subsystem: "dev.niduslabs.pane", category: "model")
@@ -496,7 +498,10 @@ final class PaneModel {
     func rotate() {
         guard let connection, status == .live else { return }
         let quarterTurnsInACircle = 4
-        let target = (quadrants + 1) % quarterTurnsInACircle
+        // The emulator can take seconds to show a turn; presses meanwhile count from the last
+        // one asked for, so each press turns once more.
+        let target = ((pendingQuadrants ?? quadrants) + 1) % quarterTurnsInACircle
+        pendingQuadrants = target
         releaseAll()
         Task { [weak self] in
             do {
@@ -510,6 +515,7 @@ final class PaneModel {
     /// A frame arrived in another orientation than the stream was asked for: turn the layout
     /// (keeping the screen's size, within the display) and ask for frames in the new shape.
     private func orientationChanged(to newQuadrants: Int, on connection: EmulatorConnection) {
+        if newQuadrants == pendingQuadrants { pendingQuadrants = nil }
         guard newQuadrants != quadrants else { return }
         log.info("Orientation \(self.quadrants) -> \(newQuadrants)")
         releaseAll()
@@ -686,6 +692,7 @@ final class PaneModel {
         bootTask?.cancel()
         restartFramesTask?.cancel()
         streamRequest = nil
+        pendingQuadrants = nil
         connection?.shutdown()
         framesTask = nil
         connectionTask = nil
