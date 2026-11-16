@@ -58,18 +58,22 @@ public struct LabelPlacement {
 
     /// Places for a distance chip along a guide from `from` to `to`: beside its middle first
     /// (under a level guide, right of an upright one), then the other side, then nearer each
-    /// end on both sides.
+    /// end on both sides, then the same again one and two chips further out, for a short guide
+    /// crowded by the outline and the size chip.
     public static func guideCandidates(from: CGPoint, to: CGPoint, chip: CGSize, gap: CGFloat) -> [CGPoint] {
         let horizontal = abs(to.x - from.x) >= abs(to.y - from.y)
         let side = horizontal ? chip.height / 2 + gap : chip.width / 2 + gap
+        let step = horizontal ? chip.height + gap : chip.width + gap
         var points: [CGPoint] = []
-        for fraction in [0.5, 0.25, 0.75] {
-            let point = CGPoint(x: from.x + (to.x - from.x) * fraction, y: from.y + (to.y - from.y) * fraction)
-            for sign in [1.0, -1.0] {
-                points.append(
-                    horizontal
-                        ? CGPoint(x: point.x, y: point.y + sign * side)
-                        : CGPoint(x: point.x + sign * side, y: point.y))
+        for distance in [side, side + step, side + 2 * step] {
+            for fraction in [0.5, 0.25, 0.75] {
+                let point = CGPoint(x: from.x + (to.x - from.x) * fraction, y: from.y + (to.y - from.y) * fraction)
+                for sign in [1.0, -1.0] {
+                    points.append(
+                        horizontal
+                            ? CGPoint(x: point.x, y: point.y + sign * distance)
+                            : CGPoint(x: point.x + sign * distance, y: point.y))
+                }
             }
         }
         return points

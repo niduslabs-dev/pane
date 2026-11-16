@@ -136,8 +136,9 @@ struct InspectOverlay: View {
         let card: CGRect
     }
 
-    /// The card first (under the outline, else above it, else at the screen's bottom or top),
-    /// then each distance chip beside its guide, all clear of each other.
+    /// Each distance chip beside its guide first (they belong to the geometry), then the card
+    /// where it is clear of them: under the outline, else above it, else at the screen's bottom
+    /// or top.
     private func layout(
         pinned view: InspectedView, rect: CGRect, sizeChip: CGRect, scale: ScreenScale, in size: CGSize
     ) -> PinnedLayout {
@@ -145,20 +146,6 @@ struct InspectOverlay: View {
         var placement = LabelPlacement(
             bounds: CGRect(origin: .zero, size: size).insetBy(dx: margin, dy: margin), spacing: Theme.Tools.chipGap,
             avoiding: [rect.insetBy(dx: -Theme.Tools.haloWidth, dy: -Theme.Tools.haloWidth), sizeChip])
-        let rows = CGFloat(InspectCard.rowCount(for: view.node))
-        let cardSize = CGSize(
-            width: min(Theme.Tools.cardWidth, size.width - 2 * margin),
-            height: rows * Theme.Tools.cardLineHeight + (rows - 1) * Theme.Tools.cardRowGap
-                + 2 * Theme.Tools.cardPaddingV)
-        let below = rect.maxY + Theme.Tools.cardGap + cardSize.height / 2
-        let above = min(rect.minY, sizeChip.minY) - Theme.Tools.cardGap - cardSize.height / 2
-        let card = placement.place(
-            size: cardSize,
-            candidates: [
-                CGPoint(x: rect.midX, y: below), CGPoint(x: rect.midX, y: above),
-                CGPoint(x: size.width / 2, y: size.height - margin - cardSize.height / 2),
-                CGPoint(x: size.width / 2, y: margin + cardSize.height / 2),
-            ])
         let frame = view.node.frame
         let parent = view.parentFrame ?? CGRect(origin: .zero, size: scale.pixelSize)
         let inside = EdgeDistances(frame: frame, parent: parent)
@@ -179,6 +166,20 @@ struct InspectOverlay: View {
             )
             return Guide(from: from, to: to, text: text, chip: chip)
         }
+        let rows = CGFloat(InspectCard.rowCount(for: view.node))
+        let cardSize = CGSize(
+            width: min(Theme.Tools.cardWidth, size.width - 2 * margin),
+            height: rows * Theme.Tools.cardLineHeight + (rows - 1) * Theme.Tools.cardRowGap
+                + 2 * Theme.Tools.cardPaddingV)
+        let below = rect.maxY + Theme.Tools.cardGap + cardSize.height / 2
+        let above = min(rect.minY, sizeChip.minY) - Theme.Tools.cardGap - cardSize.height / 2
+        let card = placement.place(
+            size: cardSize,
+            candidates: [
+                CGPoint(x: rect.midX, y: below), CGPoint(x: rect.midX, y: above),
+                CGPoint(x: size.width / 2, y: size.height - margin - cardSize.height / 2),
+                CGPoint(x: size.width / 2, y: margin + cardSize.height / 2),
+            ])
         return PinnedLayout(guides: guides, card: card)
     }
 
