@@ -169,13 +169,13 @@ extension PaneModel {
         }
     }
 
-    /// The custom location remembered for the AVD on screen; nil is Location ▸ None.
+    /// The custom location remembered for the AVD on screen; nil is Location ▸ Default.
     var customLocation: DeviceLocation? {
         (emulator?.avdName).flatMap(settings.location(for:))
     }
 
     /// Location ▸ Custom…: moves the device's GPS there and remembers it for this AVD.
-    /// Location ▸ None (nil): forgets it and puts the GPS back where the emulator starts.
+    /// Location ▸ Default (nil): forgets it and puts the GPS back where the emulator starts.
     func setCustomLocation(_ location: DeviceLocation?) {
         guard let emulator else { return }
         settings.setLocation(location, for: emulator.avdName)

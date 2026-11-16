@@ -64,7 +64,7 @@ enum DeviceMenu {
         location.submenu = submenu(
             "Location",
             [
-                item("None", .locationNone, target: target, action: action),
+                item("Default", .locationNone, target: target, action: action),
                 item("Custom…", .locationCustom, target: target, action: action),
             ])
         return [appearance, textSize, location]
@@ -146,7 +146,7 @@ enum DeviceMenu {
                 "text", "Text size", DeviceTextSize.allCases.map { ($0.title, $0, .textSize($0)) },
                 current: model.deviceTextSize),
             choices(
-                "location", "Location", [("None", false, .locationNone), ("Custom…", true, .locationCustom)],
+                "location", "Location", [("Default", false, .locationNone), ("Custom…", true, .locationCustom)],
                 current: hasLocation),
             .divider("d3"),
             action("restart", "Restart emulator", .restart, enabled: model.emulator != nil),
