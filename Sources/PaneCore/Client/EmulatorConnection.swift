@@ -118,9 +118,12 @@ public final class EmulatorConnection: Sendable {
     /// `MouseEvent.buttons` bit for the primary (left) button.
     private static let primaryButton: Int32 = 1
 
-    /// The emulator's version and boot state, as a cheap authenticated round trip.
-    public func status() async throws -> (version: String, booted: Bool) {
-        let status = try await controller.getStatus(Google_Protobuf_Empty(), options: callOptions)
+    /// The emulator's version and boot state, as a cheap authenticated round trip. Fails after
+    /// `timeout`, so a stopped or wedged emulator is noticed.
+    public func status(timeout: Duration) async throws -> (version: String, booted: Bool) {
+        var options = callOptions
+        options.timeout = timeout
+        let status = try await controller.getStatus(Google_Protobuf_Empty(), options: options)
         return (status.version, status.booted)
     }
 

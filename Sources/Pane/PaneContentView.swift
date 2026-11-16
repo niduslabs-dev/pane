@@ -11,8 +11,18 @@ struct PaneContentView: View {
         ZStack(alignment: .topLeading) {
             TitleRow(model: model)
                 .frame(width: layout.windowContentSize.width, height: Theme.Window.titleRowHeight)
-            DeviceFrameView(model: model, layout: layout)
-                .offset(x: layout.bodyOriginInWindow.x, y: layout.bodyOriginInWindow.y)
+            if model.status == .failed {
+                ErrorCard(model: model)
+                    .frame(
+                        width: layout.windowContentSize.width - 2 * Theme.Window.contentInset,
+                        height: layout.windowContentSize.height - Theme.Window.titleRowHeight
+                            - Theme.Window.contentInset
+                    )
+                    .offset(x: Theme.Window.contentInset, y: Theme.Window.titleRowHeight)
+            } else {
+                DeviceFrameView(model: model, layout: layout)
+                    .offset(x: layout.bodyOriginInWindow.x, y: layout.bodyOriginInWindow.y)
+            }
         }
         .frame(
             width: layout.windowContentSize.width, height: layout.windowContentSize.height, alignment: .topLeading
@@ -100,8 +110,10 @@ struct DeviceFrameView: View {
                 .frame(width: layout.punchHoleRect.width, height: layout.punchHoleRect.height)
                 .offset(x: layout.punchHoleRect.minX, y: layout.punchHoleRect.minY)
                 .allowsHitTesting(false)
-            ForEach(layout.buttons, id: \.button) { button in
-                hitArea(button)
+            if model.status == .live {
+                ForEach(layout.buttons, id: \.button) { button in
+                    hitArea(button)
+                }
             }
         }
         .frame(
@@ -129,24 +141,14 @@ struct DeviceFrameView: View {
         ZStack {
             ScreenRepresentable(view: model.screenView)
             switch model.status {
-            case .noEmulator: message("No emulator running.")
-            case .failed: message("Can't connect to the emulator.")
-            case .connecting, .live: EmptyView()
+            case .noEmulator: NoEmulatorScreen(model: model)
+            case .starting, .booting, .connecting: ProgressScreen(model: model)
+            case .live, .failed: EmptyView()
             }
         }
         .frame(width: rect.width, height: rect.height)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Frame.screenRadius))
         .offset(x: rect.minX, y: rect.minY)
-    }
-
-    private func message(_ text: String) -> some View {
-        Text(text)
-            .font(Theme.Typeface.screenMessage)
-            .foregroundStyle(Color(nsColor: Theme.Palette.screenMessage))
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: Theme.Palette.screenEmpty))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Frame.screenRadius))
-            .allowsHitTesting(false)
     }
 
     private func buttonShape(_ button: DeviceFrameLayout.Button) -> some View {
