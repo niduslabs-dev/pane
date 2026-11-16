@@ -1,0 +1,1 @@
+Stands in for the emulator JWKS folder that sits beside pid_<pid>.ini; discovery must skip it.
