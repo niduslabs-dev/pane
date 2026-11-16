@@ -27,7 +27,6 @@ struct PaneContentView: View {
         .frame(
             width: layout.windowContentSize.width, height: layout.windowContentSize.height, alignment: .topLeading
         )
-        .background(Color(nsColor: Theme.Palette.surface))
     }
 }
 

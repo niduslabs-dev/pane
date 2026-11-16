@@ -54,14 +54,16 @@ final class PaneWindow: NSWindow {
         titlebarSeparatorStyle = .none
         toolbar = NSToolbar(identifier: "pane.titlebar")
         toolbarStyle = .unified
-        backgroundColor = Theme.Palette.surface
+        // Clear so the ink glass shows; `GlassBackgroundView` paints paper or ink otherwise.
+        backgroundColor = .clear
+        isOpaque = false
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
 
         let hosting = NSHostingView(rootView: PaneContentView(model: model))
         hosting.safeAreaRegions = []
         hosting.sizingOptions = [.preferredContentSize]
-        contentView = hosting
+        contentView = GlassBackgroundView(content: hosting)
     }
 
     /// The title bar's real height, for checking it against the title row.

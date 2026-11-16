@@ -16,3 +16,12 @@ import Testing
         #expect(layout.windowContentSize.width == 389)
     }
 }
+
+@Suite struct GlassTests {
+    @Test func glassOnlyInDarkModeWithFullTransparency() {
+        #expect(GlassBackgroundView.showsGlass(isDark: true, reduceTransparency: false, increaseContrast: false))
+        #expect(!GlassBackgroundView.showsGlass(isDark: false, reduceTransparency: false, increaseContrast: false))
+        #expect(!GlassBackgroundView.showsGlass(isDark: true, reduceTransparency: true, increaseContrast: false))
+        #expect(!GlassBackgroundView.showsGlass(isDark: true, reduceTransparency: false, increaseContrast: true))
+    }
+}

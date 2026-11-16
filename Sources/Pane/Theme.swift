@@ -81,6 +81,12 @@ enum Theme {
         static let disabledToolOpacity: CGFloat = 0.45
     }
 
+    /// Ink glass (design guide `inkGlass`): behind-window blur under an ink tint, dark mode only.
+    enum Glass {
+        static let material = NSVisualEffectView.Material.hudWindow
+        static let tintOpacity: CGFloat = 0.86
+    }
+
     /// The device frame we draw: body, bezel, screen corners, punch hole and side buttons.
     enum Frame {
         /// The drawn screen's height; the width follows the device's aspect (1080 × 2400 → 315).
@@ -134,8 +140,8 @@ enum Theme {
 
     /// Colours, light and dark (ink). Light values are the board's `light`, dark its `ink`.
     enum Palette {
-        /// Window background, title bar included (`titleBarMatchesContent`). The board's dark
-        /// value is ink glass (`#1C1B22` at 94% over the desktop); the spike draws it solid.
+        /// Window background, title bar included (`titleBarMatchesContent`). Dark mode draws it
+        /// as ink glass (`Glass`) unless transparency is reduced or contrast increased.
         static let surface = dynamic(light: 0xF4F4F6, dark: 0x1C1B22)
         static let text = dynamic(light: 0x17161C, dark: 0xF4F4F6)
         static let textSecondary = dynamic(
