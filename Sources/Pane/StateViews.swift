@@ -3,109 +3,194 @@ import PaneCore
 import SwiftUI
 
 /// No emulator running (canvas option A): the frame stays, and the dark screen offers Start for
-/// the selected AVD plus a menu of the others.
+/// the selected AVD. With two or more AVDs, "Choose another emulator" opens their menu.
 struct NoEmulatorScreen: View {
     let model: PaneModel
+    @State private var menuOpen = false
 
     var body: some View {
-        VStack(spacing: Theme.Screen.lineGap) {
-            Text("No emulator running.")
-                .font(Theme.Typeface.screenTitle)
-                .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
-            Text(model.selectedAVD?.summary ?? "No emulators set up.")
-                .font(Theme.Typeface.screenMeta)
-                .foregroundStyle(Color(nsColor: Theme.Palette.screenMeta))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Button("Start") { model.startSelectedEmulator() }
-                .buttonStyle(CapsuleButtonStyle(horizontalPadding: Theme.Capsule.startPadding))
-                .disabled(model.selectedAVD == nil)
-                .padding(.top, Theme.Screen.actionGap)
-            if let problem = model.startProblem {
-                Text(problem)
+        ZStack {
+            if menuOpen {
+                // A click anywhere else closes the menu, as a native menu does.
+                Color.clear.contentShape(Rectangle()).onTapGesture { menuOpen = false }
+            }
+            VStack(spacing: Theme.Screen.lineGap) {
+                Text("No emulator running.")
+                    .font(Theme.Typeface.screenTitle)
+                    .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
+                Text(model.selectedAVD?.summary ?? "No emulators set up.")
                     .font(Theme.Typeface.screenMeta)
                     .foregroundStyle(Color(nsColor: Theme.Palette.screenMeta))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Button("Start") { model.startSelectedEmulator() }
+                    .buttonStyle(CapsuleButtonStyle(horizontalPadding: Theme.Capsule.startPadding))
+                    .disabled(model.selectedAVD == nil)
+                    .padding(.top, Theme.Screen.actionGap)
+                if let problem = model.startProblem {
+                    Text(problem)
+                        .font(Theme.Typeface.screenMeta)
+                        .foregroundStyle(Color(nsColor: Theme.Palette.screenMeta))
+                        .padding(.top, Theme.Screen.linkGap)
+                }
+                if model.avds.count >= 2 {
+                    Button {
+                        model.reloadAVDs()
+                        menuOpen.toggle()
+                    } label: {
+                        Text("Choose another emulator")
+                            .font(Theme.Typeface.link)
+                            .foregroundStyle(Color(nsColor: Theme.Palette.screenLink))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(.isButton)
                     .padding(.top, Theme.Screen.linkGap)
+                    .overlay(alignment: .top) {
+                        if menuOpen {
+                            // Below the link's top padding and the link itself, then 4 pt.
+                            AvdMenu(model: model) { menuOpen = false }
+                                .fixedSize()
+                                .offset(y: Theme.Screen.linkGap + Theme.AvdMenu.linkHeight + Theme.AvdMenu.gap)
+                        }
+                    }
+                    .zIndex(1)
+                }
             }
-            if !model.avds.isEmpty {
-                AvdMenuLink(model: model)
-                    .padding(.top, Theme.Screen.linkGap)
-            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, Theme.Screen.horizontalPadding)
         }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, Theme.Screen.horizontalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: Theme.Palette.screenEmpty))
+        .onExitCommand { menuOpen = false }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            menuOpen = false
+        }
     }
 }
 
-/// "Choose another emulator": a link that opens a menu of every AVD, the selected one ticked.
-struct AvdMenuLink: View {
+/// The emulators menu (canvas EmptyMenu, the guide's Select menu): every AVD as name over
+/// model and Android version, a Running tag on any with an emulator up, then Show emulators in
+/// Finder. Choosing a running one attaches; any other is shown with Start ready.
+struct AvdMenu: View {
     let model: PaneModel
-    @State private var anchor = MenuAnchor()
+    let close: () -> Void
 
     var body: some View {
-        Button {
-            showMenu()
-        } label: {
-            Text("Choose another emulator")
-                .font(Theme.Typeface.link)
-                .foregroundStyle(Color(nsColor: Theme.Palette.screenLink))
+        VStack(alignment: .leading, spacing: Theme.AvdMenu.rowSpacing) {
+            ForEach(model.avds) { avd in
+                AvdMenuRow(avd: avd, isRunning: model.runningAVDNames.contains(avd.name)) {
+                    model.choose(avd)
+                    close()
+                }
+            }
+            Rectangle()
+                .fill(Color(nsColor: Theme.Palette.menuDivider))
+                .frame(height: Theme.AvdMenu.dividerHeight)
+                .padding(.horizontal, Theme.AvdMenu.rowPaddingH)
+                .padding(.vertical, Theme.AvdMenu.dividerPaddingV)
+            MenuRowButton(label: "Show emulators in Finder") {
+                close()
+                NSWorkspace.shared.open(PaneModel.avdHome)
+            } content: { highlighted in
+                Text("Show emulators in Finder")
+                    .font(Theme.Typeface.menuRow)
+                    .foregroundStyle(highlighted ? Color.white : Color(nsColor: Theme.Palette.screenTitle))
+            }
+        }
+        .padding(Theme.AvdMenu.inset)
+        .frame(width: Theme.AvdMenu.width)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.AvdMenu.radius, style: .continuous)
+                .fill(Color(nsColor: Theme.Palette.menuSurface))
+                .shadow(
+                    color: .black.opacity(Theme.AvdMenu.shadowOpacity), radius: Theme.AvdMenu.shadowRadius,
+                    y: Theme.AvdMenu.shadowY)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.AvdMenu.radius, style: .continuous)
+                .strokeBorder(Color(nsColor: Theme.Palette.menuHairline), lineWidth: Theme.AvdMenu.hairline)
+        )
+        .multilineTextAlignment(.leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Emulators")
+    }
+}
+
+private struct AvdMenuRow: View {
+    let avd: AvdInfo
+    let isRunning: Bool
+    let action: () -> Void
+
+    var body: some View {
+        MenuRowButton(label: accessibilityText, action: action) { highlighted in
+            HStack(spacing: Theme.AvdMenu.tagGap) {
+                VStack(alignment: .leading, spacing: Theme.AvdMenu.lineSpacing) {
+                    Text(avd.name)
+                        .font(Theme.Typeface.menuRow)
+                        .foregroundStyle(highlighted ? Color.white : Color(nsColor: Theme.Palette.screenTitle))
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(Theme.Typeface.menuDetail)
+                            .foregroundStyle(
+                                highlighted
+                                    ? Color.white.opacity(Theme.AvdMenu.highlightedDetailOpacity)
+                                    : Color(nsColor: Theme.Palette.screenMeta))
+                    }
+                }
+                .lineLimit(1)
+                Spacer(minLength: 0)
+                if isRunning {
+                    Text("Running")
+                        .font(Theme.Typeface.menuTag)
+                        .foregroundStyle(highlighted ? Color.white : Color(nsColor: Theme.Palette.screenMeta))
+                        .padding(.horizontal, Theme.AvdMenu.tagPaddingH)
+                        .padding(.vertical, Theme.AvdMenu.tagPaddingV)
+                        .overlay(
+                            Capsule().strokeBorder(
+                                highlighted
+                                    ? Color.white.opacity(Theme.AvdMenu.highlightedTagStrokeOpacity)
+                                    : Color(nsColor: Theme.Palette.menuHairline),
+                                lineWidth: Theme.AvdMenu.hairline))
+                }
+            }
+        }
+    }
+
+    private var detail: String {
+        [avd.profile.modelName, avd.profile.androidVersion].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// "dev_android36, Pixel 8, Android 16, running".
+    private var accessibilityText: String {
+        ([avd.name, avd.profile.modelName, avd.profile.androidVersion].compactMap { $0 }
+            + (isRunning ? ["running"] : []))
+            .joined(separator: ", ")
+    }
+}
+
+/// A menu row: the system selection colour under the pointer, white text on it.
+private struct MenuRowButton<Content: View>: View {
+    let label: String
+    let action: () -> Void
+    @ViewBuilder let content: (Bool) -> Content
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            content(hovered)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Theme.AvdMenu.rowPaddingH)
+                .padding(.vertical, Theme.AvdMenu.rowPaddingV)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.AvdMenu.rowRadius, style: .continuous)
+                        .fill(hovered ? Color(nsColor: .selectedContentBackgroundColor) : Color.clear)
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(MenuAnchorView(anchor: anchor))
-        .accessibilityAddTraits(.isButton)
+        .onHover { hovered = $0 }
+        .accessibilityLabel(label)
     }
-
-    private func showMenu() {
-        model.reloadAVDs()
-        let menu = NSMenu()
-        for avd in model.avds {
-            let item = NSMenuItem(title: avd.summary, action: nil, keyEquivalent: "")
-            item.state = avd.name == model.selectedAVD?.name ? .on : .off
-            let handler = MenuAction { model.selectAVD(avd.name) }
-            item.target = handler
-            item.action = #selector(MenuAction.run)
-            item.representedObject = handler
-            menu.addItem(item)
-        }
-        guard let view = anchor.view else { return }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.maxY), in: view)
-    }
-}
-
-/// Holds the AppKit view a menu pops up from.
-@MainActor
-final class MenuAnchor {
-    weak var view: NSView?
-}
-
-struct MenuAnchorView: NSViewRepresentable {
-    let anchor: MenuAnchor
-
-    func makeNSView(context: Context) -> NSView {
-        let view = FlippedView()
-        anchor.view = view
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) { anchor.view = nsView }
-}
-
-private final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
-
-/// A menu item's closure; kept alive by the item's `representedObject`.
-@MainActor
-final class MenuAction: NSObject {
-    private let action: () -> Void
-
-    init(_ action: @escaping () -> Void) {
-        self.action = action
-    }
-
-    @objc func run() { action() }
 }
 
 /// Starting or booting: a spinner and a `blurSwap` status line on the dark screen.

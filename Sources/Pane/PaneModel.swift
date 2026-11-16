@@ -131,8 +131,33 @@ final class PaneModel {
     }
 
     func reloadAVDs() {
-        avds = AvdCatalog.list()
+        avds = AvdCatalog.list(in: Self.avdHome)
+        runningAVDNames = Set(EmulatorDiscovery.runningEmulators().map(\.avdName))
         if status == .noEmulator, let avd = selectedAVD { setProfile(avd.profile) }
+    }
+
+    /// AVDs with an emulator running right now, for the menu's Running tags.
+    private(set) var runningAVDNames: Set<String> = []
+
+    /// `~/.android/avd`. Debug builds take `-PaneAVDHome <path>`, so checks can show a fixture
+    /// list without creating real AVDs.
+    static var avdHome: URL {
+        #if DEBUG
+            if let path = UserDefaults.standard.string(forKey: "PaneAVDHome") {
+                return URL(filePath: path, directoryHint: .isDirectory)
+            }
+        #endif
+        return AvdCatalog.directory()
+    }
+
+    /// Chosen in the menu: attaches when that AVD is running, otherwise shows it with Start ready.
+    func choose(_ avd: AvdInfo) {
+        selectAVD(avd.name)
+        guard runningAVDNames.contains(avd.name),
+            let running = EmulatorDiscovery.runningEmulators().first(where: { $0.avdName == avd.name })
+        else { return }
+        if emulator != nil { disconnect() }
+        connect(to: running)
     }
 
     func selectAVD(_ name: String) {
@@ -164,6 +189,11 @@ final class PaneModel {
             if status != .starting { status = .noEmulator }
         }
         guard emulator == nil else { return }
+        #if DEBUG
+            // `-PaneNoAutoAttach YES` keeps the no-emulator screen up while one runs, so checks
+            // can show the menu's Running tag and attach from it.
+            if status == .noEmulator, UserDefaults.standard.bool(forKey: "PaneNoAutoAttach") { return }
+        #endif
         let wanted = status == .starting ? launchedAVDName : selectedAVDName
         if let next = running.first(where: { $0.avdName == wanted }) ?? (status == .starting ? nil : running.first) {
             connect(to: next)

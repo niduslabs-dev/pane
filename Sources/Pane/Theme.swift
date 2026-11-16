@@ -29,6 +29,33 @@ enum Theme {
         static let progressGap = Space.m
     }
 
+    /// The emulators menu under "Choose another emulator" (canvas EmptyMenu; the guide's Select
+    /// menu metrics): always on the dark screen.
+    enum AvdMenu {
+        static let width: CGFloat = 248
+        static let inset: CGFloat = 6
+        static let radius: CGFloat = 8
+        static let rowSpacing: CGFloat = 2
+        static let rowRadius: CGFloat = 6
+        static let rowPaddingH: CGFloat = 10
+        static let rowPaddingV: CGFloat = 6
+        static let lineSpacing: CGFloat = 1
+        static let tagGap = Space.s
+        static let tagPaddingH = Space.s
+        static let tagPaddingV: CGFloat = 2
+        static let hairline: CGFloat = 0.5
+        static let dividerHeight: CGFloat = 0.5
+        static let dividerPaddingV = Space.xxs
+        /// The link's line height and the gap below it, so the menu opens 4 pt under the link.
+        static let linkHeight: CGFloat = 15
+        static let gap = Space.xxs
+        static let shadowOpacity: Double = 0.45
+        static let shadowRadius: CGFloat = 15
+        static let shadowY: CGFloat = 10
+        static let highlightedDetailOpacity: Double = 0.82
+        static let highlightedTagStrokeOpacity: Double = 0.6
+    }
+
     /// The can't-connect card, which takes the frame's place (canvas error state).
     enum ErrorCard {
         static let radius: CGFloat = 14
@@ -173,6 +200,9 @@ enum Theme {
         static let cardTitle = Font.system(size: 15)
         static let cardBody = Font.system(size: 12)
         static let status = Font.system(size: 12)
+        static let menuRow = Font.system(size: 13)
+        static let menuDetail = Font.system(size: 11)
+        static let menuTag = Font.system(size: 11, weight: .medium)
     }
 
     /// Colours, light and dark (ink). Light values are the board's `light`, dark its `ink`.
@@ -223,6 +253,10 @@ enum Theme {
         /// The screen before the first frame and in the no-emulator state.
         static let screenOff = NSColor(hex: 0x000000)
         static let screenEmpty = NSColor(hex: 0x111116)
+        /// The emulators menu on the dark screen.
+        static let menuSurface = NSColor(hex: 0x2C2B33, alpha: 0.96)
+        static let menuHairline = NSColor(hex: 0xF4F4F6, alpha: 0.16)
+        static let menuDivider = NSColor(hex: 0xF4F4F6, alpha: 0.14)
 
         /// A colour for light and dark, with optional Increase Contrast variants (which default
         /// to the normal ones).
