@@ -3,12 +3,15 @@ import PaneCore
 import SwiftUI
 import os
 
-/// Creates the one Pane window and wires focus loss to releasing any held touch or key.
+/// The app: its windows (one per emulator), the menu bar, and requests from outside
+/// (`pane://attach?avd=` from the emulator wrapper).
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
-    private let model = PaneModel()
-    private var window: NSWindow?
-    /// An attach request (`pane://attach?avd=`) that arrived before the model started.
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    private var controllers: [PaneWindowController] = []
+    private var roster = WindowRoster<ObjectIdentifier>()
+    /// The window the menu bar acts on when none is key (Pane in the background).
+    private weak var lastActive: PaneWindowController?
+    /// An attach request (`pane://attach?avd=`) that arrived before the first window opened.
     private var pendingAttach: String?
     private var started = false
     /// True while the takeover script runs, so the menu item can't start a second run.
@@ -17,23 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make(target: self)
-        let window = PaneWindow(model: model)
-        window.delegate = self
-        model.onWindowContentSizeChange = { [weak window] size in window?.setContentSizeKeepingTop(size) }
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
-        if let trailing = window.trafficLightsTrailingEdge {
-            model.titleLeadingInset = trailing + Theme.Window.titleGap
-        }
         let launchAttach = AttachRequest.avdName(fromArguments: CommandLine.arguments)
         // Opened by the emulator wrapper: stay in the background, as `open -g` asked.
+        let first = openWindow(showing: nil, activate: launchAttach == nil)
         if launchAttach == nil { NSApp.activate() }
-        model.start()
         started = true
         if let name = pendingAttach ?? launchAttach {
             pendingAttach = nil
-            model.requestAttach(avdName: name)
+            first.model.requestAttach(avdName: name)
         }
         #if DEBUG
             // Shows whether mouse events reach the app at all, for scripted background checks.
@@ -47,9 +41,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         #endif
     }
 
+    /// Closing the last window quits Pane. Emulators keep running.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// `pane://attach?avd=<name>` from the emulator wrapper: show that AVD.
+    // MARK: Windows
+
+    /// The window the menu bar's commands go to: the key or main one, else the last one used.
+    private var activeController: PaneWindowController? {
+        let front = NSApp.keyWindow ?? NSApp.mainWindow
+        return controllers.first { $0.window === front } ?? lastActive ?? controllers.first
+    }
+
+    private func controller(showing avd: String) -> PaneWindowController? {
+        roster.window(showing: avd).flatMap { id in controllers.first { ObjectIdentifier($0) == id } }
+    }
+
+    /// Opens a window. `avd` is what it shows (nil for the first window: the AVD remembered
+    /// from last time, else any running emulator).
+    @discardableResult
+    private func openWindow(showing avd: String?, activate: Bool) -> PaneWindowController {
+        let controller = PaneWindowController(initialAVD: avd)
+        let id = ObjectIdentifier(controller)
+        controllers.append(controller)
+        roster.add(id, showing: avd)
+        lastActive = lastActive ?? controller
+        controller.model.isShownElsewhere = { [weak self] name in
+            self?.roster.avdsShown(except: id).contains(name) ?? false
+        }
+        controller.model.showWindow = { [weak self] name in
+            self?.controller(showing: name)?.window.makeKeyAndOrderFront(nil)
+        }
+        controller.onShownAVDChange = { [weak self] name in self?.roster.set(name, for: id) }
+        controller.onBecameKey = { [weak self, weak controller] in self?.lastActive = controller }
+        controller.openInNewWindow = { [weak self] name in self?.showInNewWindow(name) }
+        controller.onClose = { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            self.controllers.removeAll { $0 === controller }
+            self.roster.remove(id)
+        }
+        let front = lastActive
+        controller.start(activate: activate)
+        // A second window with no remembered place sits a step right of and below the one in
+        // front, as new windows do.
+        if let front, front !== controller,
+            controller.model.shownAVDName.flatMap(PaneSettings.shared.windowTopLeft(for:)) == nil
+        {
+            let frame = front.window.frame
+            controller.window.setFrameTopLeftPoint(
+                CGPoint(x: frame.minX + Theme.Window.cascadeStep, y: frame.maxY - Theme.Window.cascadeStep))
+        }
+        return controller
+    }
+
+    /// The switcher's "Open in New Window": the AVD's own window if it has one, else a new
+    /// one, attached when the AVD runs and started headless when it doesn't.
+    private func showInNewWindow(_ avd: String) {
+        if let existing = controller(showing: avd) {
+            existing.window.makeKeyAndOrderFront(nil)
+            return
+        }
+        let controller = openWindow(showing: avd, activate: true)
+        controller.model.switchTo(avdName: avd)
+    }
+
+    /// File › New Window: a window for the first emulator that doesn't have one.
+    @objc func newWindow(_ sender: Any?) {
+        guard let avd = avdForNewWindow else { return }
+        openWindow(showing: avd, activate: true)
+    }
+
+    private var avdForNewWindow: String? {
+        roster.avdForNewWindow(
+            avds: AvdCatalog.list(in: PaneModel.avdHome).map(\.name),
+            running: EmulatorDiscovery.runningEmulators(in: PaneModel.registrationFolder).map(\.avdName))
+    }
+
+    /// `pane://attach?avd=<name>` from the emulator wrapper: show that AVD, in its own window
+    /// when the ones open are busy with other emulators.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             #if DEBUG
@@ -59,26 +127,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 log.error("Ignored URL \(url.absoluteString, privacy: .public)")
                 continue
             }
-            if started {
-                model.requestAttach(avdName: name)
-            } else {
+            guard started else {
                 pendingAttach = name
+                continue
             }
+            attach(name)
+        }
+    }
+
+    private func attach(_ avd: String) {
+        let idle = controllers.filter { $0.model.emulator == nil && $0.model.status != .starting }
+        switch roster.placement(for: avd, idle: idle.map { ObjectIdentifier($0) }) {
+        case .existing(let id), .reuse(let id):
+            controllers.first { ObjectIdentifier($0) == id }?.model.requestAttach(avdName: avd)
+        case .newWindow:
+            // Stays behind whatever is in front: the wrapper opened Pane in the background.
+            openWindow(showing: avd, activate: false).model.requestAttach(avdName: avd)
         }
     }
 
     #if DEBUG
-        /// Background checks can't drag files or press keys in a window that isn't in front, so
-        /// the debug build takes `pane://check-hover?file=…`, `check-hover-end`,
-        /// `check-drop?file=…` and `check-paste`, which call the same handlers.
+        /// Background checks can't drag files, press keys or type in a window that isn't in
+        /// front, so the debug build takes `pane://check-…` URLs that call the same handlers:
+        /// `check-hover?file=…`, `check-hover-end`, `check-drop?file=…`, `check-paste`,
+        /// `check-open-link?text=…` (the sheet, prefilled), `check-location?lat=…&lon=…` (the
+        /// sheet, prefilled), `check-gif?file=…` and `check-switcher` (opens the title's menu).
         private func handleCheckURL(_ url: URL) -> Bool {
-            let files = (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
-                .filter { $0.name == "file" }.compactMap(\.value).map { URL(filePath: $0) }
+            guard let controller = activeController else { return false }
+            let model = controller.model
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let files = items.filter { $0.name == "file" }.compactMap(\.value).map { URL(filePath: $0) }
+            func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
             switch url.host() {
             case "check-hover": _ = model.dragChanged(files: files)
             case "check-hover-end": _ = model.dragChanged(files: nil)
             case "check-drop": _ = model.drop(files: files)
             case "check-paste": model.paste()
+            case "check-open-link": controller.showOpenLink(text: value("text") ?? "")
+            case "check-location": controller.showCustomLocation(latitude: value("lat"), longitude: value("lon"))
+            case "check-gif": if let file = files.first { model.exportGIF(from: file) }
+            case "check-switcher": controller.showSwitcher()
             default: return false
             }
             return true
@@ -109,109 +197,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 let alert = NSAlert()
                 alert.messageText = "Couldn't change where emulators open."
                 alert.informativeText = (error as? EmulatorTakeover.Failure)?.output ?? error.localizedDescription
-                if let window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
+                if let window = activeController?.window {
+                    alert.beginSheetModal(for: window, completionHandler: nil)
+                } else {
+                    alert.runModal()
+                }
             }
         }
     }
 
-    func applicationWillResignActive(_ notification: Notification) { model.releaseAll() }
-    func windowDidResignKey(_ notification: Notification) {
-        model.releaseAll()
-        model.windowResignedKey()
+    func applicationWillResignActive(_ notification: Notification) {
+        for controller in controllers { controller.model.releaseAll() }
     }
 
-    /// Keys go to the emulator's screen whenever the window is key.
-    func windowDidBecomeKey(_ notification: Notification) {
-        (notification.object as? NSWindow)?.makeFirstResponder(model.screenView)
-        model.windowBecameKey()
+    // MARK: Menu bar commands (they act on the window in front)
+
+    @objc func runDeviceCommand(_ sender: NSMenuItem) {
+        guard let command = sender.deviceCommand else { return }
+        activeController?.perform(command)
     }
-
-    /// Snaps every resize to the device's shape: the largest frame that fits the proposed size.
-    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        let proposed = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: frameSize)).size
-        let available = sender.screen?.visibleFrame.size ?? proposed
-        let height = model.screenHeight(fitting: proposed, available: available)
-        let content = model.windowContentSize(screenHeight: height)
-        return sender.frameRect(forContentRect: NSRect(origin: .zero, size: content)).size
-    }
-
-    /// Follows a drag (which clears the chosen size); a resize that skipped `windowWillResize`
-    /// (Accessibility) is snapped to the device's shape here. Sizes the model set itself
-    /// already match and are left alone, even when taller than the screen.
-    func windowDidResize(_ notification: Notification) {
-        guard let window = notification.object as? PaneWindow else { return }
-        let content = window.contentRect(forFrameRect: window.frame).size
-        // AppKit rounds frames to whole points, so "already the model's size" is within a point.
-        let expected = model.layout.windowContentSize
-        if !window.inLiveResize, abs(content.width - expected.width) < 1, abs(content.height - expected.height) < 1 {
-            return
-        }
-        let available = window.screen?.visibleFrame.size ?? content
-        model.windowResized(screenHeight: model.screenHeight(fitting: content, available: available))
-        let snapped = model.layout.windowContentSize
-        if !window.inLiveResize, abs(snapped.width - content.width) >= 1 || abs(snapped.height - content.height) >= 1 {
-            window.setContentSizeKeepingTop(snapped)
-        }
-    }
-
-    func windowDidChangeBackingProperties(_ notification: Notification) {
-        model.backingScaleChanged()
-        model.displayChanged()
-    }
-
-    func windowDidChangeScreen(_ notification: Notification) { model.displayChanged() }
-
-    // MARK: Window menu sizes
 
     @objc func chooseSize(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mode = ScreenSizeMode(rawValue: raw) else { return }
-        model.applySize(mode)
+        activeController?.model.applySize(mode)
     }
 
-    @objc func zoomIn(_ sender: Any?) { model.zoom(in: true) }
-    @objc func zoomOut(_ sender: Any?) { model.zoom(in: false) }
+    @objc func zoomIn(_ sender: Any?) { activeController?.model.zoom(in: true) }
+    @objc func zoomOut(_ sender: Any?) { activeController?.model.zoom(in: false) }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        let model = activeController?.model
         switch item.action {
+        case #selector(runDeviceCommand(_:)):
+            return DeviceMenu.validate(item, model: model)
+        case #selector(newWindow(_:)):
+            return avdForNewWindow != nil
         case #selector(chooseSize(_:)):
-            guard let raw = item.representedObject as? String, let mode = ScreenSizeMode(rawValue: raw) else {
-                return false
-            }
+            guard let model, let raw = item.representedObject as? String, let mode = ScreenSizeMode(rawValue: raw)
+            else { return false }
             item.state = model.sizeMode == mode ? .on : .off
             return model.isAvailable(mode)
-        case #selector(zoomIn(_:)): return model.canZoom(in: true)
-        case #selector(zoomOut(_:)): return model.canZoom(in: false)
+        case #selector(zoomIn(_:)): return model?.canZoom(in: true) ?? false
+        case #selector(zoomOut(_:)): return model?.canZoom(in: false) ?? false
         case #selector(toggleTakeover(_:)):
             item.state = EmulatorTakeover.isInstalled() ? .on : .off
             return !takeoverRunning
         default: return true
         }
     }
-    func applicationWillTerminate(_ notification: Notification) { model.releaseAll() }
 
-    /// Finishes a running recording before quitting: this quit is put off, the movie is
+    func applicationWillTerminate(_ notification: Notification) {
+        for controller in controllers { controller.model.releaseAll() }
+    }
+
+    /// Finishes running recordings before quitting: this quit is put off, the movies are
     /// written, then Pane quits again. (Replying later from a task never ran: AppKit's wait
     /// for the reply doesn't service the main actor.)
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let finishing = model.stopRecording() else { return .terminateNow }
+        let finishing = controllers.compactMap { $0.model.stopRecording() }
+        guard !finishing.isEmpty else { return .terminateNow }
         Task {
-            await finishing.value
+            for task in finishing { await task.value }
             sender.terminate(nil)
         }
         return .terminateCancel
-    }
-
-    func windowWillClose(_ notification: Notification) { model.stopRecording() }
-
-    /// The green button zooms to the largest frame that fits the screen (no full screen).
-    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
-        let available = window.screen?.visibleFrame ?? newFrame
-        let height = model.screenHeight(fitting: available.size, available: available.size)
-        let content = model.windowContentSize(screenHeight: height)
-        let size = window.frameRect(forContentRect: NSRect(origin: .zero, size: content)).size
-        return NSRect(
-            x: min(max(window.frame.midX - size.width / 2, available.minX), available.maxX - size.width),
-            y: max(window.frame.maxY - size.height, available.minY), width: size.width, height: size.height)
     }
 }
 
@@ -227,8 +276,8 @@ final class PaneWindow: NSWindow {
     private weak var hosting: FirstClickHostingView<PaneContentView>?
     private let model: PaneModel
 
-    init(model: PaneModel) {
-        toolbarController = TitlebarToolbar(model: model)
+    init(model: PaneModel, moreMenu: NSMenu) {
+        toolbarController = TitlebarToolbar(moreMenu: moreMenu)
         self.model = model
         let size = model.layout.windowContentSize
         super.init(
@@ -309,6 +358,18 @@ final class PaneWindow: NSWindow {
     /// rest (an inactive window).
     override func sendEvent(_ event: NSEvent) {
         if event.type == .mouseMoved { hosting?.reportPointer(event) }
+        // The title bar takes clicks before the content under it, so a click on the device
+        // name is handed to the emulator switcher here.
+        if event.type == .leftMouseDown, attachedSheet == nil {
+            let point = CGPoint(x: event.locationInWindow.x, y: frame.height - event.locationInWindow.y)
+            if model.switcherFrame.contains(point) {
+                model.onShowSwitcher()
+                return
+            }
+            // Any other click in the title row closes the open switcher, as a click outside
+            // a menu does.
+            if point.y < Theme.Window.titleRowHeight { model.switcher = nil }
+        }
         super.sendEvent(event)
     }
 
@@ -380,14 +441,15 @@ final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
 }
 
 /// The title bar's one toolbar item, More, as Device Hub has it: a real `NSToolbar` item, so the
-/// system draws its glass pill and sizes the traffic lights as in Device Hub.
+/// system draws its glass pill and sizes the traffic lights as in Device Hub. Its menu is the
+/// window's device menu (`DeviceMenu.moreItems`).
 @MainActor
 final class TitlebarToolbar: NSObject, NSToolbarDelegate {
     private static let more = NSToolbarItem.Identifier("pane.more")
-    private let model: PaneModel
+    private let moreMenu: NSMenu
 
-    init(model: PaneModel) {
-        self.model = model
+    init(moreMenu: NSMenu) {
+        self.moreMenu = moreMenu
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -410,45 +472,7 @@ final class TitlebarToolbar: NSObject, NSToolbarDelegate {
         item.showsIndicator = false
         // Bordered gives the system's glass pill, as Device Hub's More has.
         item.isBordered = true
-        item.menu = MoreMenu.make(model: model)
+        item.menu = moreMenu
         return item
     }
-}
-
-/// The More menu. Rebuilt each time it opens, so its items follow the model.
-@MainActor
-final class MoreMenu: NSObject, NSMenuDelegate {
-    private let model: PaneModel
-
-    private init(model: PaneModel) {
-        self.model = model
-    }
-
-    static func make(model: PaneModel) -> NSMenu {
-        let menu = NSMenu(title: "More")
-        let delegate = MoreMenu(model: model)
-        menu.delegate = delegate
-        objc_setAssociatedObject(menu, &associationKey, delegate, .OBJC_ASSOCIATION_RETAIN)
-        delegate.menuNeedsUpdate(menu)
-        return menu
-    }
-
-    nonisolated(unsafe) private static var associationKey: UInt8 = 0
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        let restart = NSMenuItem(title: "Restart Emulator", action: #selector(restart), keyEquivalent: "")
-        restart.target = self
-        menu.addItem(restart)
-        menu.addItem(.separator())
-        let share = NSMenuItem(title: "Share Clipboard", action: #selector(toggleClipboard), keyEquivalent: "")
-        share.target = self
-        share.state = model.sharesClipboard ? .on : .off
-        share.toolTip = "Copied text moves between this Mac and the device while Pane is in front."
-        menu.addItem(share)
-    }
-
-    @objc private func toggleClipboard() { model.sharesClipboard.toggle() }
-
-    @objc private func restart() { model.restartEmulator() }
 }

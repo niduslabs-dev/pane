@@ -169,7 +169,7 @@ private struct AvdMenuRow: View {
 }
 
 /// A menu row: the system selection colour under the pointer, white text on it.
-private struct MenuRowButton<Content: View>: View {
+struct MenuRowButton<Content: View>: View {
     let label: String
     let action: () -> Void
     @ViewBuilder let content: (Bool) -> Content
@@ -351,17 +351,11 @@ struct ErrorCard: View {
             return
         }
         guard let window = model.screenView.window ?? NSApp.windows.first(where: { $0 is PaneWindow }) else { return }
-        let alert = NSAlert()
-        alert.messageText = "Restart \(model.title)?"
-        alert.informativeText = "Pane didn't start this emulator. Restarting it closes any apps running on it."
-        let restart = alert.addButton(withTitle: "Restart Emulator")
-        restart.hasDestructiveAction = true
-        restart.keyEquivalent = ""
-        let cancel = alert.addButton(withTitle: "Cancel")
-        cancel.keyEquivalent = "\r"
-        alert.beginSheetModal(for: window) { response in
-            if response == .alertFirstButtonReturn { model.restartEmulator() }
-        }
+        SheetPresenter.confirm(
+            on: window, message: "Restart \(model.title)?",
+            detail: "Pane didn't start this emulator. Restarting it closes any apps running on it.",
+            action: "Restart Emulator"
+        ) { model.restartEmulator() }
     }
 }
 

@@ -46,8 +46,16 @@ final class ScreenView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// The frame on screen now, for Pick Colour.
+    private(set) var latestImage: CGImage?
+    /// Command-V through the Edit menu.
+    var onPaste: (() -> Void)?
+
+    @objc func paste(_ sender: Any?) { onPaste?() }
+
     /// Shows a frame, or the off screen for nil.
     func show(_ image: CGImage?) {
+        latestImage = image
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.contents = image

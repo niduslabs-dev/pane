@@ -11,11 +11,7 @@ struct TitleBar: View {
     var body: some View {
         HStack(spacing: Theme.Window.titleGap) {
             VStack(alignment: .leading, spacing: Theme.Window.titleLineSpacing) {
-                Text(model.title)
-                    .font(Theme.Typeface.windowTitle)
-                    .foregroundStyle(Color(nsColor: Theme.Palette.text))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                SwitcherButton(model: model)
                 Text(model.meta)
                     .font(Theme.Typeface.meta)
                     .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
@@ -27,6 +23,42 @@ struct TitleBar: View {
         }
         .padding(.leading, model.titleLeadingInset)
         .padding(.trailing, Theme.Window.titleRowTrailingPadding)
+    }
+}
+
+/// The device name in the title, as a pop-up: it opens the emulator switcher. The title bar
+/// takes real clicks before SwiftUI does, so the window routes a click on `SwitcherButton.frame`
+/// here; Accessibility presses the button itself.
+struct SwitcherButton: View {
+    let model: PaneModel
+
+    var body: some View {
+        Button {
+            model.onShowSwitcher()
+        } label: {
+            HStack(spacing: Theme.Window.titleChevronGap) {
+                Text(model.title)
+                    .font(Theme.Typeface.windowTitle)
+                    .foregroundStyle(Color(nsColor: Theme.Palette.text))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: Theme.Window.titleChevronSize, weight: .semibold))
+                    .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Emulator, \(model.title)")
+        .accessibilityHint("Shows the emulators.")
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { model.switcherFrame = proxy.frame(in: .global) }
+                    .onChange(of: proxy.frame(in: .global)) { _, frame in model.switcherFrame = frame }
+            }
+        )
     }
 }
 

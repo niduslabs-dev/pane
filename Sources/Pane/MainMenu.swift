@@ -1,7 +1,8 @@
 import AppKit
 import PaneCore
 
-/// Pane's menu bar: the app menu and a Window menu with the iOS Simulator's sizes.
+/// Pane's menu bar: the app menu, File, Edit and Device (the More menu's commands, for the window
+/// in front, with the same shortcuts), and a Window menu with the iOS Simulator's sizes.
 @MainActor
 enum MainMenu {
     /// Each size's menu title and shortcut (Command and a digit, as in the Simulator).
@@ -37,6 +38,58 @@ enum MainMenu {
         appItem.submenu = appMenu
         main.addItem(appItem)
 
+        let command = #selector(AppDelegate.runDeviceCommand(_:))
+
+        let fileItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+        let newWindow = NSMenuItem(
+            title: "New Window", action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
+        newWindow.target = target
+        newWindow.toolTip = "Opens a window for an emulator that doesn't have one."
+        fileMenu.addItem(newWindow)
+        fileMenu.addItem(.separator())
+        for item in DeviceMenu.captureItems(target: target, action: command) where item.deviceCommand != .copyScreenshot
+        {
+            fileMenu.addItem(item)
+        }
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        fileItem.submenu = fileMenu
+        main.addItem(fileItem)
+
+        // The standard items serve the sheets' text fields; Paste in the window pastes on the device.
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+        for item in DeviceMenu.captureItems(target: target, action: command) where item.deviceCommand == .copyScreenshot
+        {
+            editMenu.addItem(item)
+        }
+        editItem.submenu = editMenu
+        main.addItem(editItem)
+
+        let deviceItem = NSMenuItem()
+        let deviceMenu = NSMenu(title: "Device")
+        let groups = [
+            DeviceMenu.deviceItems(target: target, action: command),
+            DeviceMenu.toolItems(target: target, action: command),
+            DeviceMenu.emulatorItems(target: target, action: command),
+        ]
+        for (index, group) in groups.enumerated() {
+            if index > 0 { deviceMenu.addItem(.separator()) }
+            for item in group { deviceMenu.addItem(item) }
+        }
+        deviceItem.submenu = deviceMenu
+        main.addItem(deviceItem)
+
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
         for size in sizes {
@@ -57,7 +110,6 @@ enum MainMenu {
         windowMenu.addItem(.separator())
         windowMenu.addItem(
             withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
         NSApp.windowsMenu = windowMenu

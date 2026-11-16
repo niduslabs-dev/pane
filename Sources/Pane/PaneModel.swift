@@ -54,19 +54,54 @@ final class PaneModel {
     /// True while adb runs, for the spinner.
     private(set) var isTransferring = false
 
-    /// Share Clipboard (More menu): text moves both ways while the window is key. On unless
-    /// turned off, remembered.
-    var sharesClipboard: Bool = UserDefaults.standard.object(forKey: PaneModel.shareClipboardKey) as? Bool ?? true {
-        didSet { UserDefaults.standard.set(sharesClipboard, forKey: Self.shareClipboardKey) }
+    /// A short line over the bottom of the screen ("Copied.", "Saved GIF.", an error), or nil.
+    private(set) var notice: String?
+    /// True while the notice's work is still running, for its spinner.
+    private(set) var noticeIsBusy = false
+
+    /// The device's theme and text size as last read, for the menus' ticks; nil when unknown.
+    var deviceAppearance: DeviceAppearance?
+    var deviceTextSize: DeviceTextSize?
+
+    /// What Pane remembers between launches.
+    @ObservationIgnored let settings: PaneSettings
+    /// Inspect Layout, Measure and Pick Colour.
+    @ObservationIgnored let tools = ToolsModel()
+
+    /// Share Clipboard: text moves both ways while the window is key.
+    var sharesClipboard: Bool {
+        get { settings.sharesClipboard }
+        set { settings.sharesClipboard = newValue }
     }
 
-    /// The AVD Start launches, remembered across launches.
+    /// The AVD Start launches. The last one chosen in any window is remembered for the next
+    /// launch.
     var selectedAVDName: String? {
-        didSet { UserDefaults.standard.set(selectedAVDName, forKey: Self.selectedAVDKey) }
+        didSet { if selectedAVDName != nil { settings.selectedAVDName = selectedAVDName } }
     }
+
+    /// The AVD this window is about: the emulator on screen, the one starting, or the one
+    /// Start would launch. One window per emulator is kept through this.
+    var shownAVDName: String? { emulator?.avdName ?? launchedAVDName ?? selectedAVD?.name }
+
+    /// Set by the app: whether another window already shows an AVD, and how to bring that
+    /// window forward.
+    /// Where the title's device name is drawn (window content, y down), so the window can
+    /// send a click there to the switcher.
+    @ObservationIgnored var switcherFrame = CGRect.zero
+    /// The emulator switcher's rows while it is open under the title; nil when closed.
+    var switcher: [SwitcherEntry]?
+    /// The connection ended: the window closes any sheet that was about the device.
+    @ObservationIgnored var onDeviceGone: () -> Void = {}
+    /// Runs a menu command in this window (set by the window).
+    @ObservationIgnored var onCommand: (DeviceCommand) -> Void = { _ in }
+    /// Opens the emulator switcher under the title (set by the window).
+    @ObservationIgnored var onShowSwitcher: () -> Void = {}
+    @ObservationIgnored var isShownElsewhere: (String) -> Bool = { _ in false }
+    @ObservationIgnored var showWindow: (String) -> Void = { _ in }
 
     @ObservationIgnored let screenView = ScreenView(cornerRadius: Theme.Frame.screenRadius)
-    @ObservationIgnored private var connection: EmulatorConnection?
+    @ObservationIgnored private(set) var connection: EmulatorConnection?
     @ObservationIgnored private var connectionTask: Task<Void, Never>?
     @ObservationIgnored private var framesTask: Task<Void, Never>?
     @ObservationIgnored private var bootTask: Task<Void, Never>?
@@ -77,10 +112,11 @@ final class PaneModel {
     @ObservationIgnored private var wheelReleaseTask: Task<Void, Never>?
     /// Named keys held down right now (arrows, Backspace), so focus loss can release them.
     @ObservationIgnored private var heldKeys: Set<String> = []
-    /// The emulator process Pane launched, and the PID of the emulator it became once it
-    /// registered. Pane only ever stops these without asking.
+    /// The emulator process this window launched.
     @ObservationIgnored private var launchedProcess: Process?
-    @ObservationIgnored private var ownedEmulatorPID: Int32?
+    /// The emulators Pane started (any window), by the PID each registered with. Pane only
+    /// ever stops these without asking.
+    private static var ownedEmulatorPIDs: Set<Int32> = []
     /// Failed tries since the connection last worked; drives the backoff.
     private(set) var reconnectAttempt = 0
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
@@ -95,10 +131,10 @@ final class PaneModel {
     @ObservationIgnored private var pendingQuadrants: Int?
     /// The recording the frame loop feeds, readable off the main actor.
     @ObservationIgnored nonisolated let recorderSlot = RecorderSlot()
-    @ObservationIgnored private let log = Logger(subsystem: "dev.niduslabs.pane", category: "model")
+    @ObservationIgnored let log = Logger(subsystem: "dev.niduslabs.pane", category: "model")
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    @ObservationIgnored var exportTask: Task<Void, Never>?
 
-    private static let selectedAVDKey = "selectedAVD"
-    private static let shareClipboardKey = "shareClipboard"
     @ObservationIgnored private var transferTask: Task<Void, Never>?
     @ObservationIgnored private var clipboardSync = ClipboardSync()
     @ObservationIgnored private var clipboardTask: Task<Void, Never>?
@@ -122,25 +158,31 @@ final class PaneModel {
         }
     }
 
+    /// The chosen AVD, else the first one no other window shows.
     var selectedAVD: AvdInfo? {
-        avds.first { $0.name == selectedAVDName } ?? avds.first
+        avds.first { $0.name == selectedAVDName } ?? avds.first { !isShownElsewhere($0.name) } ?? avds.first
     }
 
     /// True when the emulator on screen is one Pane started, so it may restart it unasked.
     var ownsEmulator: Bool {
         guard let emulator else { return false }
-        return emulator.pid == ownedEmulatorPID
+        return Self.ownedEmulatorPIDs.contains(emulator.pid)
     }
 
     var deviceSize: PixelSize { profile.screenSize ?? Theme.Frame.fallbackDeviceSize }
 
-    init() {
-        selectedAVDName = UserDefaults.standard.string(forKey: Self.selectedAVDKey)
+    /// `initialAVD` is what a second window opens on; the first window passes nil and shows the
+    /// AVD remembered from last time.
+    init(settings: PaneSettings = .shared, initialAVD: String? = nil) {
+        self.settings = settings
+        selectedAVDName = initialAVD ?? settings.selectedAVDName
+        tools.host = self
         screenView.onPointer = { [weak self] phase, point in self?.handlePointer(phase, at: point) }
         screenView.onScroll = { [weak self] point, dx, dy, phase in
             self?.handleScroll(at: point, deltaX: dx, deltaY: dy, phase: phase)
         }
         screenView.onKey = { [weak self] event, isDown in self?.handleKey(event, isDown: isDown) ?? false }
+        screenView.onPaste = { [weak self] in self?.paste() }
     }
 
     /// Starts watching for emulators and attaches to the first one running.
@@ -189,6 +231,10 @@ final class PaneModel {
 
     /// Chosen in the menu: attaches when that AVD is running, otherwise shows it with Start ready.
     func choose(_ avd: AvdInfo) {
+        if isShownElsewhere(avd.name) {
+            showWindow(avd.name)
+            return
+        }
         selectAVD(avd.name)
         guard runningAVDNames.contains(avd.name),
             let running = EmulatorDiscovery.runningEmulators(in: Self.registrationFolder).first(where: {
@@ -226,7 +272,7 @@ final class PaneModel {
             // launch that started it is forgotten, so nothing can pick it up again.
             log.info("Emulator \(current.avdName, privacy: .public) is gone; showing Start")
             disconnect()
-            if ownedEmulatorPID == current.pid { ownedEmulatorPID = nil }
+            Self.ownedEmulatorPIDs.remove(current.pid)
             if status != .starting {
                 forgetLaunch()
                 status = .noEmulator
@@ -239,7 +285,9 @@ final class PaneModel {
             if status == .noEmulator, UserDefaults.standard.bool(forKey: "PaneNoAutoAttach") { return }
         #endif
         let wanted = status == .starting ? launchedAVDName : selectedAVDName
-        if let next = running.first(where: { $0.avdName == wanted }) ?? (status == .starting ? nil : running.first) {
+        // An emulator another window shows is that window's.
+        let free = running.filter { !isShownElsewhere($0.avdName) }
+        if let next = free.first(where: { $0.avdName == wanted }) ?? (status == .starting ? nil : free.first) {
             connect(to: next)
         }
     }
@@ -354,7 +402,7 @@ final class PaneModel {
         let profile = profile
         log.info("Restarting \(avdName, privacy: .public), PID \(current.pid)")
         disconnect()
-        if ownedEmulatorPID == current.pid { ownedEmulatorPID = nil }
+        Self.ownedEmulatorPIDs.remove(current.pid)
         status = .starting
         launchedAVDName = avdName
         startTask?.cancel()
@@ -365,6 +413,84 @@ final class PaneModel {
             guard let self, !Task.isCancelled else { return }
             self.launch(avdName: avdName, profile: profile)
         }
+    }
+
+    /// Shuts the emulator on screen down and shows Start. Callers confirm first unless
+    /// `ownsEmulator`.
+    func shutDownEmulator() {
+        guard let current = emulator else { return }
+        log.info("Shutting down \(current.avdName, privacy: .public), PID \(current.pid)")
+        reconnectAttempt = 0
+        reconnectTask?.cancel()
+        selectedAVDName = current.avdName
+        disconnect()
+        Self.ownedEmulatorPIDs.remove(current.pid)
+        forgetLaunch()
+        status = .noEmulator
+        Task {
+            _ = await EmulatorLauncher.stop(
+                pid: current.pid, gracePeriod: Theme.Timing.stopGracePeriod, killWait: Theme.Timing.stopKillWait,
+                pollInterval: Theme.Timing.stopPoll)
+        }
+    }
+
+    /// The emulator switcher's "Show in This Window": attaches to a running AVD, or starts a
+    /// stopped one headless. The emulator this window showed keeps running. An AVD another
+    /// window shows brings that window forward instead.
+    func switchTo(avdName: String) {
+        guard avdName != emulator?.avdName, !(status == .starting && launchedAVDName == avdName) else { return }
+        if isShownElsewhere(avdName) {
+            showWindow(avdName)
+            return
+        }
+        log.info("Switching to \(avdName, privacy: .public)")
+        reloadAVDs()
+        reconnectTask?.cancel()
+        reconnectAttempt = 0
+        if emulator != nil { disconnect() }
+        forgetLaunch()
+        status = .noEmulator
+        selectedAVDName = avdName
+        startProblem = nil
+        if let running = EmulatorDiscovery.runningEmulators(in: Self.registrationFolder).first(where: {
+            $0.avdName == avdName
+        }) {
+            connect(to: running)
+        } else if let avd = avds.first(where: { $0.name == avdName }) {
+            launch(avdName: avd.name, profile: avd.profile)
+        }
+    }
+
+    /// The window is closing: lets go of the emulator (which keeps running) and stops watching.
+    func close() {
+        tools.deactivate()
+        exportTask?.cancel()
+        reconnectTask?.cancel()
+        startTask?.cancel()
+        disconnect()
+        watcher = nil
+    }
+
+    // MARK: Notices
+
+    /// Shows a short line over the bottom of the screen. With `busy` it stays (with a spinner)
+    /// until the next notice; otherwise it clears itself after `hold`.
+    func showNotice(_ text: String, busy: Bool = false, for hold: Duration = Theme.Notice.doneDuration) {
+        noticeTask?.cancel()
+        notice = text
+        noticeIsBusy = busy
+        guard !busy else { return }
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: hold)
+            guard let self, !Task.isCancelled else { return }
+            self.notice = nil
+        }
+    }
+
+    /// An error stays up longer so it can be read.
+    func showProblem(_ text: String) {
+        NSSound.beep()
+        showNotice(text, for: Theme.Notice.errorDuration)
     }
 
     // MARK: Size and layout
@@ -472,8 +598,7 @@ final class PaneModel {
 
     /// The remembered size for the AVD on screen, Fit Screen the first time.
     func applyRememberedSize() {
-        let stored = sizeAVDName.flatMap { UserDefaults.standard.string(forKey: Self.sizeKeyPrefix + $0) }
-        applySize(stored.flatMap(ScreenSizeMode.init(rawValue:)) ?? .fit)
+        applySize(sizeAVDName.flatMap(settings.sizeMode(for:)) ?? .fit)
     }
 
     private func setSizeMode(_ mode: ScreenSizeMode?) {
@@ -481,10 +606,8 @@ final class PaneModel {
             "Size \(mode?.rawValue ?? "manual", privacy: .public), long side \(self.screenHeight, privacy: .public)")
         sizeMode = mode
         guard let name = sizeAVDName else { return }
-        UserDefaults.standard.set(mode?.rawValue, forKey: Self.sizeKeyPrefix + name)
+        settings.setSizeMode(mode, for: name)
     }
-
-    private static let sizeKeyPrefix = "sizeMode."
 
     private var zoomSizes: [CGFloat] { ScreenSizeMode.allCases.compactMap(longSide(for:)) }
 
@@ -571,9 +694,11 @@ final class PaneModel {
         recorderSlot.current = nil
         recordingStartedAt = nil
         let log = log
+        let settings = settings
         return Task {
             do {
                 try await recorder.finish()
+                settings.lastRecording = recorder.url
                 log.info("Saved recording \(recorder.url.lastPathComponent, privacy: .public)")
             } catch {
                 log.error("Recording not saved: \(String(describing: error), privacy: .public)")
@@ -582,23 +707,6 @@ final class PaneModel {
     }
 
     // MARK: Screenshot
-
-    /// Saves a full-size PNG of the screen to the screenshot folder, named as macOS names its own.
-    func saveScreenshot() {
-        guard let connection, status == .live else { return }
-        let folder = Self.captureFolder
-        Task { [weak self] in
-            do {
-                let png = try await connection.screenshotPNG()
-                let url = CaptureFileName.unusedURL(in: folder, prefix: "Pane", date: Date(), fileExtension: "png")
-                try png.write(to: url, options: .withoutOverwriting)
-                self?.log.info("Saved screenshot \(url.lastPathComponent, privacy: .public)")
-            } catch {
-                self?.log.error("Screenshot failed: \(String(describing: error), privacy: .public)")
-                NSSound.beep()
-            }
-        }
-    }
 
     /// Where macOS saves screenshots (`CaptureLocation`), read at each capture so a change in
     /// the Screenshot app applies at once. Debug builds take `-PaneCaptureFolder <path>` (checks
@@ -671,7 +779,7 @@ final class PaneModel {
         if let launched = launchedProcess?.processIdentifier, launchedAVDName == emulator.avdName,
             emulator.pid == launched || EmulatorLauncher.parentPID(of: emulator.pid) == launched
         {
-            ownedEmulatorPID = emulator.pid
+            Self.ownedEmulatorPIDs.insert(emulator.pid)
         }
         if wasStarting { startTask?.cancel() }
         setProfile(emulator.avdDirectory.map(DeviceProfile.load(avdDirectory:)) ?? DeviceProfile())
@@ -733,6 +841,7 @@ final class PaneModel {
         guard isBooted, hasFrame, status == .connecting || status == .booting else { return }
         status = .live
         reconnectAttempt = 0
+        deviceBecameLive()
     }
 
     private func connectionFailed(_ error: any Error, on failed: EmulatorConnection?) {
@@ -810,6 +919,7 @@ final class PaneModel {
                         screenView.show(image)
                         self.hasFrame = true
                         self.updateLiveStatus()
+                        self.tools.screenChanged()
                     }
                 }
             } catch is CancellationError {
@@ -821,9 +931,13 @@ final class PaneModel {
         }
     }
 
-    private func disconnect() {
+    func disconnect() {
         releaseAll()
         stopRecording()
+        tools.deactivate()
+        onDeviceGone()
+        deviceAppearance = nil
+        deviceTextSize = nil
         clipboardTask?.cancel()
         clipboardTask = nil
         transferTask?.cancel()
@@ -859,6 +973,11 @@ final class PaneModel {
 
     private func handlePointer(_ phase: ScreenView.PointerPhase, at point: CGPoint) {
         log.debug("Pointer \(String(describing: phase), privacy: .public) at \(point.x), \(point.y)")
+        // While a tool is on, the screen's clicks are the tool's and never reach the device.
+        if tools.isActive {
+            tools.pointer(phase, at: point)
+            return
+        }
         guard let connection, status == .live else { return }
         switch phase {
         case .down:
@@ -886,7 +1005,7 @@ final class PaneModel {
 
     /// Scrolls by dragging a finger on the device's screen (see `ScrollGesture`).
     private func handleScroll(at point: CGPoint, deltaX: CGFloat, deltaY: CGFloat, phase: ScrollGesture.Phase?) {
-        guard let connection, status == .live, pressedAt == nil else { return }
+        guard let connection, status == .live, pressedAt == nil, !tools.isActive else { return }
         let gesturePhase: ScrollGesture.Phase
         var delta = CGVector(dx: deltaX, dy: deltaY)
         if let phase {
@@ -918,6 +1037,11 @@ final class PaneModel {
 
     /// Sends a key while the window is key. Command shortcuts stay with the Mac's menus.
     func handleKey(_ event: NSEvent, isDown: Bool) -> Bool {
+        if tools.isActive {
+            // Esc leaves the tool; every other key is kept from the device.
+            if isDown, Int(event.keyCode) == kVK_Escape { tools.deactivate() }
+            return !event.modifierFlags.contains(.command)
+        }
         guard let connection, status == .live else { return false }
         if event.modifierFlags.contains(.command) {
             let shortcut = event.modifierFlags.intersection([.command, .shift, .option, .control])
@@ -1006,7 +1130,7 @@ final class PaneModel {
 
     // MARK: Clipboard
 
-    private var isKey: Bool {
+    var isKey: Bool {
         #if DEBUG
             if UserDefaults.standard.bool(forKey: "PaneTreatAsKey") { return true }
         #endif
@@ -1116,8 +1240,19 @@ final class PaneModel {
 
     /// The pointer moved over the window (window coordinates, y down), or left it (nil).
     func pointerMoved(to point: CGPoint?) {
+        if tools.isActive {
+            if nearButton != nil { nearButton = nil }
+            tools.hover(at: point.map { CGPoint(x: $0.x - layout.screenRect.minX, y: $0.y - layout.screenRect.minY) })
+            return
+        }
         let near = point.flatMap { layout.nearestButton(to: $0, within: Theme.Frame.buttonProximity) }
         if near != nearButton { nearButton = near }
+    }
+
+    /// The Mac clipboard was just written by Pane itself (a copied colour or screenshot): not
+    /// a change to send to the device.
+    func noteOwnPasteboardWrite() {
+        pasteboardChangeCount = Self.pasteboard.changeCount
     }
 
     /// Presses or releases a frame button. Power is held for as long as the mouse is down, so a
@@ -1125,6 +1260,7 @@ final class PaneModel {
     func setButton(_ button: FrameButton, isDown: Bool) {
         guard let connection else { return }
         if isDown {
+            guard !tools.isActive else { return }
             guard heldButtons.insert(button).inserted else { return }
         } else {
             guard heldButtons.remove(button) != nil else { return }

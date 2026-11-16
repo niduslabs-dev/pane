@@ -8,6 +8,8 @@
 #
 # Usage: scripts/build-app.sh            release build
 #        scripts/build-app.sh --debug    debug build
+# PANE_APP=<path> builds the app somewhere else, so a check's debug copy never replaces the
+# copy that is running from build/.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -22,7 +24,7 @@ if [ "$CONFIG" = debug ]; then BUNDLE_ID=dev.niduslabs.pane.debug; DISPLAY_NAME=
 VERSION=0.1.0
 BUILD_NUMBER=1
 MIN_MACOS=15.0
-APP=build/Pane.app
+APP=${PANE_APP:-build/Pane.app}
 
 scripts/swift.sh build -c "$CONFIG" --product Pane
 BIN_DIR=$(scripts/swift.sh build -c "$CONFIG" --show-bin-path)
@@ -38,7 +40,7 @@ vtool -set-build-version macos "$MIN_MACOS" "$SDK_VERSION" -replace -output "$AP
 # actool is Xcode's; clear Homebrew's LLVM env for it as swift.sh does.
 env -u CC -u CXX -u CPPFLAGS -u LDFLAGS -u LIBRARY_PATH xcrun actool Resources/Assets.xcassets \
     --compile "$APP/Contents/Resources" --platform macosx --minimum-deployment-target "$MIN_MACOS" \
-    --output-partial-info-plist "build/assets-partial.plist" >/dev/null
+    --output-partial-info-plist "$(dirname "$APP")/assets-partial.plist" >/dev/null
 cp scripts/emulator-takeover.sh "$APP/Contents/Resources/emulator-takeover.sh"
 
 cat > "$APP/Contents/Info.plist" <<PLIST

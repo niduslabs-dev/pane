@@ -26,6 +26,9 @@ struct PaneContentView: View {
             DeviceToolbar(model: model)
                 .frame(width: layout.windowContentSize.width, height: Theme.Toolbar.bandHeight)
                 .offset(y: layout.windowContentSize.height - Theme.Toolbar.bandHeight)
+            if let entries = model.switcher {
+                SwitcherLayer(model: model, entries: entries)
+            }
         }
         .frame(
             width: layout.windowContentSize.width, height: layout.windowContentSize.height, alignment: .topLeading
@@ -93,6 +96,10 @@ struct DeviceFrameView: View {
             case .starting, .booting, .connecting: ProgressScreen(model: model)
             case .live, .failed: EmptyView()
             }
+            if model.status == .live {
+                ToolOverlay(tools: model.tools)
+            }
+            NoticePill(model: model)
             DropOverlay(model: model, cornerRadius: layout.screenRadius)
         }
         .frame(width: rect.width, height: rect.height)

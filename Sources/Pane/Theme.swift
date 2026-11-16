@@ -56,6 +56,18 @@ enum Theme {
         static let highlightedTagStrokeOpacity: Double = 0.6
     }
 
+    /// The emulator switcher under the title's device name. Rows and surface are `AvdMenu`'s.
+    enum Switcher {
+        /// Below the title row's bottom edge (the menu overlaps the row a little, as a pop-up
+        /// under its button does).
+        static let topOverlap = Space.s
+        static let headerPaddingV = Space.xxs
+        static let checkSlot: CGFloat = 14
+        static let checkSize: CGFloat = 11
+        static let chevronSize: CGFloat = 10
+        static let edgeMargin = Space.s
+    }
+
     /// The can't-connect card, which takes the frame's place (canvas error state).
     enum ErrorCard {
         static let radius: CGFloat = 14
@@ -114,6 +126,11 @@ enum Theme {
         /// Room kept clear of the title on the right; More is a real toolbar item over it.
         static let titleRowTrailingPadding: CGFloat = 56
         static let titleLineSpacing: CGFloat = 0
+        /// How far a second window opens down and right of the one in front.
+        static let cascadeStep: CGFloat = 28
+        /// Between the device name and its pop-up chevron.
+        static let titleChevronGap = Space.xxs
+        static let titleChevronSize: CGFloat = 8
     }
 
     /// The floating toolbar under the device (Device Hub's): a glass capsule with Home,
@@ -304,6 +321,163 @@ extension NSColor {
             srgbRed: CGFloat((hex >> 16) & 0xFF) / channelMax, green: CGFloat((hex >> 8) & 0xFF) / channelMax,
             blue: CGFloat(hex & 0xFF) / channelMax, alpha: alpha)
     }
+}
+
+extension Theme.Frame {
+    /// The frame's colours and line widths for a screenshot with Include Device Frame, in the
+    /// window's light or dark look.
+    @MainActor
+    static func exportStyle(appearance: NSAppearance) -> ReadOnlyBox<FrameStyle> {
+        var style: FrameStyle?
+        appearance.performAsCurrentDrawingAppearance {
+            style = FrameStyle(
+                body: Theme.Palette.frameBody.cgColor, edge: Theme.Palette.frameEdge.cgColor,
+                innerEdge: Theme.Palette.frameInnerEdge.cgColor, button: Theme.Palette.frameButton.cgColor,
+                buttonEdge: Theme.Palette.frameButtonEdge.cgColor, punchHole: Theme.Palette.punchHole.cgColor,
+                punchHoleRing: Theme.Palette.punchHoleRing.cgColor, edgeWidth: edgeWidth,
+                innerEdgeInset: innerEdgeInset, innerEdgeWidth: innerEdgeWidth, buttonEdgeWidth: buttonEdgeWidth,
+                buttonCornerRadius: buttonCornerRadius, punchHoleRingWidth: punchHoleRingWidth)
+        }
+        // `performAsCurrentDrawingAppearance` runs its block before returning.
+        return ReadOnlyBox(value: style!)
+    }
+}
+
+extension Theme {
+    /// The short line over the bottom of the screen ("Copied.", "Saved GIF.", an error).
+    enum Notice {
+        static let doneDuration: Duration = .seconds(2)
+        static let errorDuration: Duration = .seconds(5)
+        static let bottomInset = Space.xl
+        static let paddingH = Space.m
+        static let height: CGFloat = 28
+        static let gap = Space.s
+        static let hairline: CGFloat = 0.5
+        static let fadeDuration: Double = 0.15
+    }
+
+    /// Export Recording as GIF: small and light enough to drop into a pull request.
+    enum Export {
+        static let gif = GifExporter.Options(maxSide: 640, framesPerSecond: 15)
+    }
+
+    /// Sheets (design guide, Sheet): Open Link and Custom Location.
+    enum Sheet {
+        static let width: CGFloat = 420
+        static let inset = Space.xl
+        static let descriptionGap = Space.s
+        static let bodyGap: CGFloat = 16
+        static let footerGap = Space.xl
+        static let buttonGap = Space.s
+        static let fieldHeight: CGFloat = 28
+        static let fieldRadius: CGFloat = 8
+        static let fieldPaddingH: CGFloat = 10
+        static let fieldLabelGap: CGFloat = 6
+        static let hairline: CGFloat = 0.5
+        static let rowHeight: CGFloat = 28
+        static let rowRadius: CGFloat = 6
+        static let rowPaddingH = Space.s
+        static let listGap: CGFloat = 2
+        static let problemGap = Space.s
+        /// Two fields side by side (latitude and longitude).
+        static let fieldPairGap = Space.m
+    }
+
+    /// Inspect Layout, Measure and Pick Colour: what they draw over the live screen.
+    enum Tools {
+        /// The outline around the inspected view and the measured line.
+        static let outlineWidth: CGFloat = 1.5
+        /// The lines from the view to the nearest screen edges.
+        static let guideWidth: CGFloat = 1
+        static let guideDash: [CGFloat] = [3, 3]
+        /// The dp labels on the outline, the guides and the measured line.
+        static let tagHeight: CGFloat = 18
+        static let tagPaddingH: CGFloat = 6
+        static let tagRadius: CGFloat = 4
+        static let tagGap = Space.xxs
+        /// The details card (label, type, frame, pixels, id).
+        static let cardWidth: CGFloat = 236
+        static let cardInset: CGFloat = 10
+        static let cardRadius: CGFloat = 10
+        static let cardRowGap: CGFloat = 3
+        static let cardKeyWidth: CGFloat = 44
+        static let cardMargin = Space.s
+        static let hairline: CGFloat = 0.5
+        /// The hint line at the top of the screen ("Inspect Layout · Esc to exit").
+        static let hintTop = Space.xxl
+        static let hintHeight: CGFloat = 24
+        static let hintPaddingH: CGFloat = 10
+        /// The measured line's round end points.
+        static let handleDiameter: CGFloat = 7
+        /// The loupe: this many screen pixels on each side of the one under the pointer, drawn
+        /// in cells of this many points.
+        static let loupeRadius = 5
+        static let loupeCell: CGFloat = 9
+        static let loupeRingWidth: CGFloat = 2
+        static let loupeCentreWidth: CGFloat = 1.5
+        /// From the pointer to the loupe's edge, and from the loupe to its readout.
+        static let loupeOffset = Space.m
+        static let loupeReadoutGap: CGFloat = 6
+        static let swatchSize: CGFloat = 10
+        static let swatchRadius: CGFloat = 2
+        static let shadowOpacity: Double = 0.35
+        static let shadowRadius: CGFloat = 8
+        static let shadowY: CGFloat = 3
+        /// Measure snaps a line to level or upright within this many degrees.
+        static let axisSnapDegrees: CGFloat = 4
+        /// Measure snaps an end to a view's edge within this many screen points.
+        static let edgeSnapPoints: CGFloat = 5
+        /// Wait this long after the screen last changed before reading the layout again, and
+        /// read it anyway once changes have gone on this long.
+        static let refreshDebounce: Duration = .milliseconds(450)
+        static let refreshMaxWait: Duration = .seconds(3)
+        /// When reads keep finding the same layout, the gap between them doubles from the
+        /// first value up to the second.
+        static let unchangedBackoffStart: Duration = .seconds(2)
+        static let unchangedBackoffMax: Duration = .seconds(16)
+        /// How long "Copied." stays in the colour readout.
+        static let copiedDuration: Duration = .milliseconds(1500)
+        /// A layout read may take this long (animations make uiautomator wait for idle).
+        static let dumpTimeout: Duration = .seconds(15)
+    }
+}
+
+extension Theme.Typeface {
+    static let sheetTitle = Font.system(size: 15, weight: .semibold)
+    static let sheetBody = Font.system(size: 13)
+    static let sheetLabel = Font.system(size: 11, weight: .medium)
+    static let toolTag = Font.system(size: 11, weight: .medium).monospacedDigit()
+    static let toolHint = Font.system(size: 11, weight: .medium)
+    static let toolCardTitle = Font.system(size: 12, weight: .semibold)
+    static let toolCardKey = Font.system(size: 11)
+    static let toolCardValue = Font.system(size: 11).monospacedDigit()
+    static let notice = Font.system(size: 12, weight: .medium)
+}
+
+extension Theme.Palette {
+    /// The outline around the inspected view and its size tag: moss for dark surfaces.
+    static let toolOutline = NSColor(hex: 0x8DBB82)
+    /// A pinned view's outline.
+    static let toolPinned = NSColor(hex: 0xF2C14E)
+    /// The inspected view's wash.
+    static let toolFill = NSColor(hex: 0x8DBB82, alpha: 0.16)
+    /// Guides to the screen edges and the measured line.
+    static let toolGuide = NSColor(hex: 0xFF6B9A)
+    /// Text on the outline and guide tags.
+    static let toolTagText = NSColor(hex: 0x111116)
+    /// The details card, hint and readouts: always dark, over any app.
+    static let toolSurface = NSColor(hex: 0x1C1B22, alpha: 0.94)
+    static let toolHairline = NSColor(hex: 0xF4F4F6, alpha: 0.18)
+    static let toolText = NSColor(hex: 0xF4F4F6)
+    static let toolTextSecondary = NSColor(hex: 0xB9B8C2)
+    /// The loupe's ring and its centre cell's outline.
+    static let loupeRing = NSColor(hex: 0xF4F4F6)
+    static let loupeGrid = NSColor(hex: 0x000000, alpha: 0.18)
+    /// Sheet surfaces (design guide roles): the sheet itself, fields on it, secondary buttons.
+    static let sheetSurface = dynamic(light: 0xF4F4F6, dark: 0x1C1B22)
+    static let fieldSurface = dynamic(light: 0xFFFFFF, dark: 0x2C2B33)
+    static let secondaryAction = dynamic(light: 0xECECEF, dark: 0x24232B)
+    static let problemText = dynamic(light: 0xB0281B, dark: 0xFF7A6E)
 }
 
 extension Theme {
