@@ -84,3 +84,12 @@ scripts/generate-protos.sh          # regenerate Sources/PaneCore/Generated (pin
 - **The title bar takes clicks before SwiftUI content under it,** so `PaneWindow.sendEvent` hands a click on the device name to the switcher, and the model tracks the pointer over it for the hover shade.
 - **Menu bar shortcuts** (the panels show the same): Open Link ⌘L, Save Screenshot ⌘S, Copy Screenshot ⇧⌘C, Inspect Layout ⌥⌘I, Measure ⌥⌘M, Pick Colour ⌥⌘P, New Window ⌘N.
 - **One agent drives the emulator at a time** (shared device, see the workspace guide).
+
+## Updates and releasing (branch `ship`, not released yet)
+
+Plan, open questions and the credential steps: `../plans/pane-ship.md`. Mirrors Drop (`../drop/AGENTS.md`, Releasing).
+
+- **Updates:** Sparkle (pinned `exact:`) with Pane's own surfaces, never Sparkle's windows. `Sources/Pane/Updates/UpdateModel.swift` is the state machine (no Sparkle types; `PaneTests/UpdateModelTests` drive it with a fake feed), `UpdateDriver.swift` maps Sparkle's callbacks to it, and the UI implements `UpdateSurface`. No surface exists yet. "Check for Updates…" is in the app menu.
+- **Only Developer ID builds update.** `build-app.sh` writes `SUFeedURL` and `SUPublicEDKey` only for a real `SIGN_IDENTITY` (or when `SPARKLE_PUBLIC_KEY` is passed for a test), and the app starts Sparkle only when both are there. Debug builds never do, except with `-PaneUpdateFeed <url>` (a local test appcast).
+- **Releases** are built only by `.github/workflows/release.yml` (tag `vX.Y.Z` or by hand): lint, test, `build-app.sh` (env `VERSION`, `BUILD`, `SIGN_IDENTITY`), `scripts/package-dmg.sh <version>` (DMG; signs, notarizes and staples when its env is set), `sign_update`, `scripts/appcast.sh`, then a GitHub release with the DMG and `appcast.xml`. Notes come from the version's section in `RELEASE_NOTES.md`. Nothing is signed or notarized from a laptop.
+- **Secrets** belong to the `release` environment and are set by Jatin only. `scripts/new-update-key.sh` makes the update-signing key; agents never run it.

@@ -1,0 +1,150 @@
+# Builds a Developer ID signed, notarized and stapled Pane DMG, signs it for Sparkle, and
+# publishes it with its appcast.xml as the latest GitHub release. Installed copies find it at
+# releases/latest/download/appcast.xml (SUFeedURL).
+#
+# Runs on a pushed tag vX.Y.Z (notes: that version's section in RELEASE_NOTES.md, else the
+# tag's message), or by hand with a version (tags the current commit). Never on pull
+# requests. The secrets belong to the `release` environment, which is also where required
+# reviewers go (Settings › Environments › release); no other job can read them.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, without the v (0.9.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # GitHub-hosted, as Drop: a fresh machine for every release, and never the studio's
+    # self-hosted Macs, which a public repo must not reach.
+    runs-on: xcode-27
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write
+    env:
+      IDENTITY: "Developer ID Application: Jatin Kumar (2M54BB9U46)"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Select Xcode 27
+        run: |
+          XCODE=$(printf '%s\n' /Applications/Xcode_27*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          swift --version
+
+      - name: Version and notes
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then VERSION=$INPUT_VERSION; else VERSION=${GITHUB_REF_NAME#v}; fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version must be X.Y.Z, got '$VERSION'"; exit 1
+          fi
+          NOTES=$RUNNER_TEMP/notes.md
+          # The "## X.Y.Z" section of RELEASE_NOTES.md, up to the next heading.
+          awk -v v="$VERSION" '/^## /{on = ($2 == v); next} on' RELEASE_NOTES.md > "$NOTES"
+          if ! grep -q '[^[:space:]]' "$NOTES" && git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            git for-each-ref "refs/tags/v$VERSION" --format='%(contents)' > "$NOTES"
+          fi
+          if ! grep -q '[^[:space:]]' "$NOTES"; then
+            echo "::error::No release notes for $VERSION: add a '## $VERSION' section to RELEASE_NOTES.md"; exit 1
+          fi
+          {
+            echo "VERSION=$VERSION"
+            echo "NOTES=$NOTES"
+            echo "DMG=$RUNNER_TEMP/Pane-$VERSION.dmg"
+          } >> "$GITHUB_ENV"
+
+      # Before any secret is touched: a release never ships code that fails its own checks.
+      - name: Lint and test
+        run: |
+          scripts/format.sh --lint
+          scripts/swift.sh test
+
+      # A throwaway keychain with a random password, first in the search list for this job
+      # only; the cleanup step deletes it whatever happens.
+      - name: Import the Developer ID certificate
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          KEYCHAIN=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          P12=$RUNNER_TEMP/developer-id.p12
+          printf '%s' "$DEVELOPER_ID_P12" | base64 --decode > "$P12"
+          security import "$P12" -k "$KEYCHAIN" -f pkcs12 -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$P12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          # shellcheck disable=SC2046 # one argument per keychain already in the list
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN" | grep -q "$IDENTITY"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Build and sign Pane.app
+        run: |
+          # VERSION is already in the environment (Version and notes).
+          BUILD=$VERSION SIGN_IDENTITY="$IDENTITY" scripts/build-app.sh
+          codesign --verify --deep --strict --verbose=2 build/Pane.app
+          codesign -dv build/Pane.app 2>&1 | grep -E 'Authority=Developer ID Application|flags=.*runtime'
+
+      # The .p8 is on disk for this step only.
+      - name: Pack, notarize and staple the DMG
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          KEY=$RUNNER_TEMP/asc-key.p8
+          trap 'rm -f "$KEY"' EXIT
+          (umask 077; printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY")
+          SIGN_IDENTITY="$IDENTITY" NOTARY_KEY="$KEY" NOTARY_KEY_ID="$ASC_KEY_ID" NOTARY_ISSUER_ID="$ASC_ISSUER_ID" \
+            scripts/package-dmg.sh "$VERSION"
+
+      # The private key goes to sign_update on stdin (`--ed-key-file -`), never to disk.
+      - name: Sign for Sparkle and write the appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          SIGN_UPDATE=.build/artifacts/sparkle/Sparkle/bin/sign_update
+          SIGNATURE=$(printf '%s\n' "$SPARKLE_ED_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$DMG")
+          printf '%s\n' "$SPARKLE_ED_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - --verify "$DMG" "$SIGNATURE"
+          scripts/appcast.sh "$VERSION" "$VERSION" "$DMG" "$SIGNATURE" "$NOTES" > "$RUNNER_TEMP/appcast.xml"
+          xmllint --noout "$RUNNER_TEMP/appcast.xml"
+          cat "$RUNNER_TEMP/appcast.xml"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TARGET=()
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then TARGET=(--target "$GITHUB_SHA"); fi
+          gh release create "v$VERSION" "${TARGET[@]}" --title "Pane $VERSION" --notes-file "$NOTES" --latest \
+            "$DMG" "$RUNNER_TEMP/appcast.xml"
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
+          security list-keychains -d user -s login.keychain-db
+          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/asc-key.p8"
