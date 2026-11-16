@@ -155,20 +155,22 @@ final class PaneModel {
     /// The Mac clipboard's change count last seen, so only later changes are sent.
     @ObservationIgnored private var pasteboardChangeCount = PaneModel.pasteboard.changeCount
 
-    var title: String {
-        switch status {
-        case .noEmulator: "Pane"
-        case .starting: launchedAVDName ?? selectedAVD?.name ?? "Pane"
-        case .connecting, .booting, .live, .failed: emulator?.avdName ?? "Pane"
-        }
-    }
+    var title: String { titleRow.title }
 
-    var meta: String {
-        switch status {
-        case .live, .connecting, .booting, .starting: profile.summary.isEmpty ? "Android emulator" : profile.summary
-        case .failed: "Not connected"
-        case .noEmulator: "Android emulator"
-        }
+    var meta: String { titleRow.meta }
+
+    /// The Start screen names the emulator Start would launch, so a second window isn't "Pane".
+    private var titleRow: TitleRow {
+        let state: TitleRow.State =
+            switch status {
+            case .noEmulator: .noEmulator
+            case .starting: .starting
+            case .connecting, .booting, .live: .connected
+            case .failed: .failed
+            }
+        return TitleRow(
+            state: state, emulatorName: emulator?.avdName, startingName: launchedAVDName, selected: selectedAVD,
+            profile: profile)
     }
 
     /// The chosen AVD, else the first one no other window shows.

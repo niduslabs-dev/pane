@@ -389,3 +389,49 @@ private func fixtureDump() throws -> String {
         #expect(Adb.shortReason(from: "") == "")
     }
 }
+
+@Suite struct TitleRowTests {
+    private let pixel = AvdInfo(
+        name: "dev_android36", directory: URL(filePath: "/avd/dev_android36.avd"),
+        profile: DeviceProfile(modelName: "Pixel 8", androidVersion: "Android 16"))
+
+    @Test func startScreenNamesTheChosenEmulator() {
+        let row = TitleRow(
+            state: .noEmulator, emulatorName: nil, startingName: nil, selected: pixel, profile: DeviceProfile())
+        #expect(row.title == "dev_android36")
+        #expect(row.meta == "Pixel 8 · Android 16")
+    }
+
+    @Test func startScreenWithNoEmulatorsSetUpSaysPane() {
+        let row = TitleRow(
+            state: .noEmulator, emulatorName: nil, startingName: nil, selected: nil, profile: DeviceProfile())
+        #expect(row.meta == "Android emulator")
+        #expect(row.title == "Pane")
+    }
+
+    @Test func aChosenEmulatorWithNoProfileKeepsTheGenericLine() {
+        let bare = AvdInfo(name: "tablet", directory: URL(filePath: "/avd/tablet.avd"))
+        let row = TitleRow(
+            state: .noEmulator, emulatorName: nil, startingName: nil, selected: bare, profile: DeviceProfile())
+        #expect(row.title == "tablet")
+        #expect(row.meta == "Android emulator")
+    }
+
+    @Test func aRunningEmulatorWinsOverTheChosenOne() {
+        let row = TitleRow(
+            state: .connected, emulatorName: "other", startingName: nil, selected: pixel,
+            profile: DeviceProfile(modelName: "Pixel 9", androidVersion: "Android 15"))
+        #expect(row.title == "other")
+        #expect(row.meta == "Pixel 9 · Android 15")
+    }
+
+    @Test func startingAndFailed() {
+        let starting = TitleRow(
+            state: .starting, emulatorName: nil, startingName: "booting", selected: pixel, profile: pixel.profile)
+        #expect(starting.title == "booting")
+        let failed = TitleRow(
+            state: .failed, emulatorName: "dev_android36", startingName: nil, selected: pixel, profile: pixel.profile)
+        #expect(failed.title == "dev_android36")
+        #expect(failed.meta == "Not connected")
+    }
+}
