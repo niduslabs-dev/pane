@@ -92,8 +92,65 @@ public struct Adb: Sendable {
 
     static let maxReasonLength = 48
 
-    private static func run(_ executable: URL, _ arguments: [String]) async throws -> (status: Int32, output: String) {
-        let process = Process()
+    /// What one adb call printed (standard output and error together) and its exit status.
+    public struct Output: Sendable, Equatable {
+        public var status: Int32
+        public var text: String
+
+        public init(status: Int32, text: String) {
+            self.status = status
+            self.text = text
+        }
+    }
+
+    /// The full argument list for a call against this emulator: `-s <serial>`, then `arguments`.
+    public func targeted(_ arguments: [String]) -> [String] { ["-s", serial] + arguments }
+
+    /// Runs adb against this emulator with `arguments` exactly as given (never a local shell)
+    /// and returns what it printed. A call still running after `timeout` is stopped and throws
+    /// `Failure`. Remember that `adb shell` joins its arguments for the device's own shell:
+    /// quote anything user-typed with `deviceShellQuoted`.
+    public func run(_ arguments: [String], timeout: Duration = Adb.defaultTimeout) async throws -> Output {
+        let executable = executable
+        let all = targeted(arguments)
+        return try await withThrowingTaskGroup(of: Output?.self) { group in
+            let process = Process()
+            group.addTask {
+                let result = try await Self.run(executable, all, process: process)
+                return Output(status: result.status, text: result.output)
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return nil
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next(), let output = first else {
+                if process.isRunning { process.terminate() }
+                throw Failure(message: "adb took too long.")
+            }
+            return output
+        }
+    }
+
+    /// How long a general adb call may run before it is stopped.
+    public static let defaultTimeout: Duration = .seconds(20)
+
+    /// The last line adb printed that says something, without its "adb: error:" lead-ins, cut
+    /// to one short line. Empty when adb printed nothing.
+    public static func shortReason(from output: String) -> String {
+        let lines = output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard var reason = lines.last(where: { !$0.isEmpty }) else { return "" }
+        for lead in ["adb: error: ", "adb: ", "error: ", "Error: ", "ERROR: "] where reason.hasPrefix(lead) {
+            reason = String(reason.dropFirst(lead.count))
+        }
+        reason = reason.replacingOccurrences(of: "\u{2014}", with: "-")
+        if reason.count > maxReasonLength { reason = reason.prefix(maxReasonLength - 1) + "…" }
+        return reason
+    }
+
+    private static func run(
+        _ executable: URL, _ arguments: [String], process: Process = Process()
+    ) async throws -> (status: Int32, output: String) {
         process.executableURL = executable
         process.arguments = arguments
         let pipe = Pipe()

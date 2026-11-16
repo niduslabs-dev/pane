@@ -158,6 +158,25 @@ public final class EmulatorConnection: Sendable {
         try await controller.getClipboard(Google_Protobuf_Empty(), options: callOptions).text
     }
 
+    /// Moves the device's GPS to a place. Android samples GPS about once a second, so apps see
+    /// it a moment later.
+    public func setLocation(_ location: DeviceLocation) async throws {
+        var state = Android_Emulation_Control_GpsState()
+        state.latitude = location.latitude
+        state.longitude = location.longitude
+        state.satellites = Self.gpsSatellites
+        _ = try await controller.setGps(state, options: callOptions)
+    }
+
+    /// Where the emulator's GPS is now.
+    public func location() async throws -> DeviceLocation {
+        let state = try await controller.getGps(Google_Protobuf_Empty(), options: callOptions)
+        return DeviceLocation(latitude: state.latitude, longitude: state.longitude)
+    }
+
+    /// A believable fix: fewer than four satellites reads as no fix to some apps.
+    private static let gpsSatellites: Int32 = 8
+
     /// The device's clipboard text: its current state first when it has one (emulator 37.2.13
     /// sends nothing for an empty clipboard), then each change made on the device (the emulator
     /// leaves out this connection's own `setClipboard`). Cancelling the

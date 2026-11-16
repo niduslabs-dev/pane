@@ -27,4 +27,21 @@ public enum CaptureFileName {
         }
         return url
     }
+
+    /// A URL beside `file` with the same name and another extension that doesn't exist yet:
+    /// "Pane Recording ….gif", then "… (2).gif".
+    public static func unusedSibling(
+        of file: URL, fileExtension: String,
+        exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+    ) -> URL {
+        let folder = file.deletingLastPathComponent()
+        let stem = file.deletingPathExtension().lastPathComponent
+        var url = folder.appending(path: "\(stem).\(fileExtension)")
+        var copy = 2
+        while exists(url) {
+            url = folder.appending(path: "\(stem) (\(copy)).\(fileExtension)")
+            copy += 1
+        }
+        return url
+    }
 }
