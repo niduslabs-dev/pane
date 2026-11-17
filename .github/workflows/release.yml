@@ -1,6 +1,7 @@
 # Builds a Developer ID signed, notarized and stapled Pane DMG, signs it for Sparkle, and
 # publishes it with its appcast.xml as the latest GitHub release. Installed copies find it at
-# releases/latest/download/appcast.xml (SUFeedURL).
+# releases/latest/download/appcast.xml (SUFeedURL); the website links to
+# releases/latest/download/Pane.dmg, a copy of the DMG under a fixed name.
 #
 # Runs on a pushed tag vX.Y.Z (notes: that version's section in RELEASE_NOTES.md, else the
 # tag's message), or by hand with a version (tags the current commit). Never on pull
@@ -139,8 +140,11 @@ jobs:
         run: |
           TARGET=()
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then TARGET=(--target "$GITHUB_SHA"); fi
+          # A copy under a fixed name, so the website can link to
+          # releases/latest/download/Pane.dmg. Sparkle's feed uses the versioned one.
+          cp "$DMG" "$RUNNER_TEMP/Pane.dmg"
           gh release create "v$VERSION" "${TARGET[@]}" --title "Pane $VERSION" --notes-file "$NOTES" --latest \
-            "$DMG" "$RUNNER_TEMP/appcast.xml"
+            "$DMG" "$RUNNER_TEMP/Pane.dmg" "$RUNNER_TEMP/appcast.xml"
 
       - name: Clean up signing material
         if: always()
