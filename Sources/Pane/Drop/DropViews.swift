@@ -108,7 +108,7 @@ struct DragCardView: View {
             }
         }
         .modifier(DropCardSurface())
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(card.announcement)
         .accessibilityIdentifier("drop-drag-card")
     }
