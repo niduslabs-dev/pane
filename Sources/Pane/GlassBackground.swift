@@ -60,9 +60,11 @@ final class GlassBackgroundView: NSView {
         let glass = Self.showsGlass(reduceTransparency: reduceTransparency, increaseContrast: increaseContrast)
         blur.isHidden = !glass
         blur.material = isDark ? Theme.Glass.darkMaterial : Theme.Glass.lightMaterial
-        let color = Theme.Palette.surface.resolved(for: effectiveAppearance)
         let opacity = isDark ? Theme.Glass.darkTintOpacity : Theme.Glass.lightTintOpacity
-        tint.layer?.backgroundColor = (glass ? color.withAlphaComponent(opacity) : color).cgColor
+        tint.layer?.backgroundColor =
+            glass
+            ? Theme.Palette.surface.resolved(for: effectiveAppearance).withAlphaComponent(opacity).cgColor
+            : Theme.Palette.surfaceSolid.resolved(for: effectiveAppearance).cgColor
     }
 }
 

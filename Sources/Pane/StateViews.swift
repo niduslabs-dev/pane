@@ -298,9 +298,13 @@ struct ScreenSecondaryCapsuleStyle: ButtonStyle {
             .background(Capsule().fill(Color(nsColor: Theme.Palette.screenSecondary)))
             .overlay(
                 Capsule().strokeBorder(
-                    Color(nsColor: Theme.Palette.screenSecondaryEdge), lineWidth: Theme.Toolbar.hairline * 2)
+                    Color(nsColor: Theme.Palette.screenSecondaryEdge), lineWidth: Theme.Capsule.border)
             )
-            .overlay(Capsule().fill(Color.white.opacity(configuration.isPressed ? Theme.Toolbar.pressedOpacity : 0)))
+            .overlay(
+                Capsule().fill(
+                    Color(nsColor: Theme.Palette.screenShade)
+                        .opacity(configuration.isPressed ? Theme.Toolbar.pressedOpacity : 0))
+            )
             .contentShape(Capsule())
     }
 }
@@ -320,13 +324,28 @@ extension ButtonStyle where Self == PlainRowButtonStyle {
     static var plainRow: PlainRowButtonStyle { PlainRowButtonStyle() }
 }
 
-/// The primary capsule (`actionPrimary`): moss, white semibold text, darker while pressed,
-/// dimmed in place when disabled.
+/// The primary capsule (`actionPrimary`): moss, white semibold text, a shade darker under the
+/// pointer and darker again while pressed, dimmed in place when disabled.
 struct CapsuleButtonStyle: ButtonStyle {
     let horizontalPadding: CGFloat
-    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
+        CapsuleButtonBody(configuration: configuration, horizontalPadding: horizontalPadding)
+    }
+}
+
+private struct CapsuleButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let horizontalPadding: CGFloat
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    private var fill: NSColor {
+        if configuration.isPressed { return Theme.Palette.actionPrimaryPressed }
+        return isHovered ? Theme.Palette.actionPrimaryHover : Theme.Palette.actionPrimary
+    }
+
+    var body: some View {
         configuration.label
             .font(Theme.Typeface.capsule)
             .foregroundStyle(Color(nsColor: Theme.Palette.onAction))
@@ -334,14 +353,10 @@ struct CapsuleButtonStyle: ButtonStyle {
             .fixedSize()
             .padding(.horizontal, horizontalPadding)
             .frame(height: Theme.Capsule.height)
-            .background(
-                Capsule().fill(
-                    Color(
-                        nsColor: configuration.isPressed
-                            ? Theme.Palette.actionPrimaryPressed : Theme.Palette.actionPrimary
-                    ))
-            )
+            .background(Capsule().fill(Color(nsColor: fill)))
             .contentShape(Capsule())
+            .onHover { isHovered = $0 && isEnabled }
+            .animation(.easeOut(duration: Theme.Toolbar.hoverDuration), value: isHovered)
             .opacity(isEnabled ? 1 : Theme.Capsule.disabledOpacity)
     }
 }

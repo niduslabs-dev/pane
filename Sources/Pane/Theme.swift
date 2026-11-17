@@ -60,6 +60,8 @@ enum Theme {
         /// Start on the screen is a little wider than a standard capsule, as on the board.
         static let startPadding: CGFloat = 20
         static let standardPadding = T.Size.Button.paddingX
+        /// The secondary capsule's edge on the dark screen.
+        static let border = T.Border.control
         static let disabledOpacity = Opacity.disabled
     }
 
@@ -77,7 +79,7 @@ enum Theme {
         static let detailsDuration: Duration = .seconds(15)
         /// Between the sentence, the Details link and adb's reason.
         static let detailsGap = Space.s
-        static let fadeDuration: Double = 0.15
+        static let fadeDuration = T.Motion.Duration.fade
     }
 
     enum StatusSwap {
@@ -220,24 +222,26 @@ enum Theme {
         /// as ink glass (`Glass`) unless transparency is reduced or contrast increased.
         static let surface = dynamic(
             T.App.Pane.Colour.glassLight.light.opaque, dark: T.Colour.Role.glassTint.dark)
+        /// The window where no glass is drawn (Reduce Transparency, Increase Contrast): paper in
+        /// light, `surfaceBaseSolid` in dark.
+        static let surfaceSolid = dynamic(
+            T.App.Pane.Colour.glassLight.light.opaque, dark: T.Colour.Role.surfaceBaseSolid.dark)
         static let text = T.Colour.Role.textPrimary.nsColor
         static let textSecondary = T.Colour.Role.textSecondary.nsColor
         /// The error card (`surfaceCard`): paper recessed in light, ink raised in dark.
-        static let card = dynamic(light: 0xECECEF, dark: 0x24232B)
+        static let card = T.Colour.Role.surfaceCard.nsColor
         /// `hairline`: `controlBoundary` under Increase Contrast.
-        static let hairline = dynamic(
-            light: 0x17161C, lightAlpha: 0.12, dark: 0xF4F4F6, darkAlpha: 0.14, contrastLight: 0x5E5D66,
-            contrastLightAlpha: 1, contrastDark: 0xA09FA8, contrastDarkAlpha: 1)
+        static let hairline = T.Colour.Role.hairline.nsColor
         /// `actionPrimary`: moss with white text, darker under Increase Contrast.
         static let actionPrimary = T.Colour.Role.actionPrimary.nsColor
-        static let actionPrimaryPressed = dynamic(light: 0x466E41, dark: 0x5A8A54)
+        static let actionPrimaryHover = T.Colour.Role.actionPrimaryHover.nsColor
+        static let actionPrimaryPressed = T.Colour.Role.actionPrimaryPressed.nsColor
         static let onAction = T.Colour.Role.onAction.nsColor
         /// Text on the always-dark off screen.
         static let screenTitle = T.Colour.Brand.paper.nsColor
         static let screenMeta = T.Colour.Role.textSecondary.alwaysDark.nsColor
         /// `link` on the dark screen: moss for dark surfaces.
-        static let screenLink = dynamic(
-            light: 0x8DBB82, dark: 0x8DBB82, contrastLight: 0xB2D8A8, contrastDark: 0xB2D8A8)
+        static let screenLink = T.Colour.Role.link.alwaysDark.nsColor
         static let icon = T.Colour.Role.toolbarIcon.nsColor
         /// The toolbar capsules and More button when transparency is reduced.
         static let pill = T.Colour.Role.surfacePill.nsColor
@@ -259,8 +263,10 @@ enum Theme {
         /// The screen with nothing on it: no emulator, starting, booting.
         static let screenEmpty = T.App.Pane.Colour.screenEmpty.nsColor
         /// The secondary capsule on the always-dark screen (Show Emulators in Finder, Stop).
-        static let screenSecondary = NSColor(hex: 0x2C2B33, alpha: 0.9)
-        static let screenSecondaryEdge = NSColor(hex: 0xF4F4F6, alpha: 0.12)
+        static let screenSecondary = T.Colour.Role.actionSecondary.alwaysDark.nsColor
+        static let screenSecondaryEdge = T.Colour.Role.hairline.alwaysDark.nsColor
+        /// The press shade on the always-dark screen's capsules.
+        static let screenShade = T.Colour.Role.toolbarShade.alwaysDark.nsColor
 
         /// One fixed value in light and another in dark, the same under Increase Contrast.
         static func dynamic(_ light: ThemeColour.RGBA, dark: ThemeColour.RGBA) -> NSColor {
@@ -366,7 +372,7 @@ extension Theme {
         static let shadowOpacity: Double = 0.3
         static let shadowRadius: CGFloat = 8
         static let shadowY: CGFloat = 3
-        static let fadeDuration: Double = 0.15
+        static let fadeDuration = T.Motion.Duration.fade
     }
 
     /// Export Recording as GIF: small and light enough to drop into a pull request.
@@ -447,7 +453,7 @@ extension Theme {
         static let rowGap = T.Size.Select.rowIconGap
         static let lineSpacing: CGFloat = 1
         static let checkSlot = T.Size.Select.checkSlot
-        static let checkSize: CGFloat = 11
+        static let checkSize = T.Size.Select.check
         static let chevronSize = T.Size.Select.chevron
         static let headerHeight = T.Size.MenuPanel.headerHeight
         static let headerBottomPadding = Space.xxxs
@@ -617,25 +623,25 @@ extension Theme.Palette {
     /// The row under the pointer or the keys (`highlight`).
     static let menuHighlight = T.Colour.Role.highlight.nsColor
     /// A menu's tick: the link moss of each mode.
-    static let menuCheck = dynamic(light: 0x466E41, dark: 0x8DBB82)
+    static let menuCheck = T.Colour.Role.link.nsColor
     /// The mode pill: `surfaceRaised` with its Done button on paper or raised ink.
     static let modePill = T.Colour.Role.surfacePill.nsColor
-    static let modePillButton = dynamic(light: 0xF4F4F6, dark: 0x2C2B33, darkAlpha: 0.9)
+    static let modePillButton = T.Colour.Role.actionSecondary.nsColor
     /// The short notice line over the screen (always dark, over any app).
     static let toolSurface = T.App.Pane.Colour.toolChip.nsColor
     static let toolHairline = T.App.Pane.Colour.toolChipEdge.nsColor
     static let toolText = T.App.Pane.Colour.toolChipText.nsColor
     /// Sheet surfaces (design guide roles): the sheet itself, fields on it, secondary buttons.
-    static let sheetSurface = dynamic(light: 0xFFFFFF, dark: 0x24232B)
-    static let fieldSurface = dynamic(light: 0xFFFFFF, dark: 0x2C2B33, darkAlpha: 0.9)
-    static let secondaryAction = dynamic(light: 0xF4F4F6, dark: 0x2C2B33, darkAlpha: 0.9)
-    /// The Recent list's card on a sheet.
-    static let sheetCard = dynamic(light: 0xF4F4F6, dark: 0x1C1B22)
+    static let sheetSurface = T.Colour.Role.surfaceBaseSolid.nsColor
+    static let fieldSurface = T.Colour.Role.surfaceRaised.nsColor
+    static let secondaryAction = T.Colour.Role.actionSecondary.nsColor
+    /// The Recent list's card on a sheet: recessed in light, raised in dark.
+    static let sheetCard = T.Colour.Role.surfaceCard.nsColor
     /// A field's focus ring (moss) and its halo; red when the field's value was refused.
-    static let fieldFocus = NSColor(hex: 0x4F7A4A)
-    static let fieldFocusHalo = dynamic(light: 0x4F7A4A, lightAlpha: 0.25, dark: 0x8DBB82, darkAlpha: 0.6)
-    static let problemText = dynamic(light: 0xC4271B, dark: 0xFF8A80)
-    static let problemHalo = dynamic(light: 0xFDECEA, dark: 0xFF8A80, darkAlpha: 0.25)
+    static let fieldFocus = T.Colour.Role.focusRing.nsColor
+    static let fieldFocusHalo = T.Colour.Role.openRing.nsColor
+    static let problemText = T.Colour.Role.Status.danger.nsColor
+    static let problemHalo = T.Colour.Role.Status.dangerFill.nsColor
 }
 
 extension Theme {
