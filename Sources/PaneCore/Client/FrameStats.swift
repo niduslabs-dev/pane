@@ -25,7 +25,12 @@ public struct FrameStats: Sendable {
 
     /// Wall-clock now in microseconds, the clock `timestampUs` uses.
     public static func nowMicroseconds() -> UInt64 {
-        UInt64(Date().timeIntervalSince1970 * 1_000_000)
+        microseconds(at: Date())
+    }
+
+    /// `date` in wall-clock microseconds.
+    public static func microseconds(at date: Date) -> UInt64 {
+        UInt64(date.timeIntervalSince1970 * 1_000_000)
     }
 
     /// Records one frame; returns a summary when the interval has passed.

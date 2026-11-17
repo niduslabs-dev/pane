@@ -15,6 +15,8 @@ import Testing
         return context.makeImage()!
     }
 
+    private let wait = FrameRecorder.EncoderWait(limit: .seconds(1), poll: .milliseconds(5))
+
     private func scratchURL() -> URL {
         FileManager.default.temporaryDirectory.appending(path: "pane-recording-\(UUID().uuidString).mov")
     }
@@ -34,14 +36,15 @@ import Testing
             // The encoder takes frames as fast as a real stream sends them.
             try await Task.sleep(for: .milliseconds(20))
         }
-        // A frame that doesn't move time forward is skipped.
-        #expect(await !recorder.append(image(width: 160, height: 350, gray: 1), timestampMicroseconds: start))
+        // A frame stamped no later than the one before is newer content: it goes just after it.
+        #expect(await recorder.append(image(width: 160, height: 350, gray: 1), timestampMicroseconds: start))
+        try await Task.sleep(for: .milliseconds(20))
         // A rotated frame is letterboxed, not rejected.
         #expect(
             await recorder.append(
                 image(width: 350, height: 160, gray: 1), timestampMicroseconds: start + 1_600_000))
         try await recorder.finish()
-        #expect(await recorder.framesWritten == 6)
+        #expect(await recorder.framesWritten == 7)
 
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration)
@@ -57,6 +60,123 @@ import Testing
         let url = scratchURL()
         let recorder = try FrameRecorder(url: url, size: PixelSize(width: 64, height: 64))
         await #expect(throws: FrameRecorder.RecorderError.notRecording) { try await recorder.finish() }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    private func frame(width: Int, height: Int, gray: UInt8, timestamp: UInt64) throws -> StreamFrame {
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, nil, &buffer)
+        let pixels = try #require(buffer)
+        CVPixelBufferLockBaseAddress(pixels, [])
+        memset(CVPixelBufferGetBaseAddress(pixels), Int32(gray), CVPixelBufferGetDataSize(pixels))
+        CVPixelBufferUnlockBaseAddress(pixels, [])
+        return StreamFrame(
+            size: PixelSize(width: width, height: height), pixelBuffer: pixels, sequence: 0,
+            timestampMicroseconds: timestamp, rotationQuadrants: 0)
+    }
+
+    private func movie(_ url: URL) async throws -> (seconds: Double, samples: Int) {
+        let asset = AVURLAsset(url: url)
+        let duration = try await asset.load(.duration)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        reader.add(output)
+        reader.startReading()
+        var samples = 0
+        while let sample = output.copyNextSampleBuffer() {
+            if CMSampleBufferGetNumSamples(sample) > 0 { samples += 1 }
+        }
+        return (duration.seconds, samples)
+    }
+
+    /// A still screen sends no frames, yet the movie has the frame from Start and lasts until Stop.
+    @Test func stillScreenMakesAMovieAsLongAsTheRecording() async throws {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let start: UInt64 = 1_700_000_000_000_000
+        let onScreen = try frame(width: 64, height: 128, gray: 200, timestamp: start - 3_000_000)
+        let recorder = try FrameRecorder(
+            url: url, size: PixelSize(width: 64, height: 128), start: start, firstFrame: onScreen)
+        try await recorder.finish(at: start + 5_000_000, onScreen: onScreen, wait: wait)
+        #expect(await recorder.framesWritten == 2)
+        let result = try await movie(url)
+        #expect(abs(result.seconds - 5) < 0.05)
+        #expect(try await brightness(url, at: 0) > 150)
+        #expect(try await brightness(url, at: 4.9) > 150)
+    }
+
+    /// A frame shown at Stop that the recorder never got (it raced Stop) closes the movie.
+    @Test func aNewerFrameOnScreenAtStopClosesTheMovie() async throws {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let start: UInt64 = 1_700_000_000_000_000
+        let recorder = try FrameRecorder(
+            url: url, size: PixelSize(width: 64, height: 128), start: start,
+            firstFrame: try frame(width: 64, height: 128, gray: 220, timestamp: start - 1_000_000))
+        let shown = try frame(width: 64, height: 128, gray: 20, timestamp: start + 1_000_000)
+        try await recorder.finish(at: start + 2_000_000, onScreen: shown, wait: wait)
+        #expect(abs(try await movie(url).seconds - 2) < 0.05)
+        #expect(try await brightness(url, at: 0) > 150)
+        #expect(try await brightness(url, at: 1.99) < 100)
+    }
+
+    /// The middle pixel's green channel of the frame at `seconds`.
+    private func brightness(_ url: URL, at seconds: Double) async throws -> Int {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        let image = try await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600)).image
+        let context = try #require(
+            CGContext(
+                data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.draw(
+            image, in: CGRect(x: -image.width / 2, y: -image.height / 2, width: image.width, height: image.height))
+        return Int(try #require(context.data).load(fromByteOffset: 1, as: UInt8.self))
+    }
+
+    /// Frames between Start and Stop keep their own times; the closing frame is the newest.
+    @Test func framesBetweenStartAndStopKeepTheirTimes() async throws {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let start: UInt64 = 1_700_000_000_000_000
+        let size = PixelSize(width: 64, height: 128)
+        let recorder = try FrameRecorder(
+            url: url, size: size, start: start,
+            firstFrame: try frame(width: 64, height: 128, gray: 10, timestamp: start - 1_000_000))
+        #expect(await recorder.append(try frame(width: 64, height: 128, gray: 90, timestamp: start + 1_000_000)))
+        try await Task.sleep(for: .milliseconds(20))
+        // Rotated mid-recording: letterboxed.
+        #expect(await recorder.append(try frame(width: 128, height: 64, gray: 160, timestamp: start + 2_000_000)))
+        try await recorder.finish(at: start + 3_000_000, wait: wait)
+        #expect(await recorder.framesWritten == 4)
+        let result = try await movie(url)
+        #expect(abs(result.seconds - 3) < 0.05)
+        #expect(result.samples == 4)
+    }
+
+    /// Stop within one frame of Start still makes a short, valid movie.
+    @Test func stopRightAfterStart() async throws {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let start: UInt64 = 1_700_000_000_000_000
+        let onScreen = try frame(width: 64, height: 128, gray: 50, timestamp: start - 1)
+        let recorder = try FrameRecorder(
+            url: url, size: PixelSize(width: 64, height: 128), start: start, firstFrame: onScreen)
+        try await recorder.finish(at: start, onScreen: onScreen, wait: wait)
+        #expect(await recorder.framesWritten == 2)
+        #expect(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    /// Nothing on screen at Start and nothing after it: still no movie.
+    @Test func noFrameAtAllMeansNoMovie() async throws {
+        let url = scratchURL()
+        let start: UInt64 = 1_700_000_000_000_000
+        let recorder = try FrameRecorder(url: url, size: PixelSize(width: 64, height: 64), start: start)
+        await #expect(throws: FrameRecorder.RecorderError.notRecording) {
+            try await recorder.finish(at: start + 1_000_000, wait: wait)
+        }
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 

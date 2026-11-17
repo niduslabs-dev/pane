@@ -791,15 +791,18 @@ final class PaneModel {
         }
     }
 
-    /// Records the frames already arriving into a movie in the screenshot folder. A movie is
+    /// Records the frames already arriving into a movie in the screenshot folder, starting with
+    /// the frame on screen now, so a screen that never changes still makes a movie. A movie is
     /// always a file, whatever macOS's recording target says (`CaptureOutcome`).
     private func startRecording(animation: Animation?) {
         guard status == .live, let size = streamRequest?.size else { return }
+        let now = Date()
         let url = CaptureFileName.unusedURL(
-            in: Self.captureFolder, prefix: "Pane Recording", date: Date(), fileExtension: "mov")
+            in: Self.captureFolder, prefix: "Pane Recording", date: now, fileExtension: "mov")
         do {
-            recorderSlot.current = try FrameRecorder(url: url, size: size)
-            withAnimation(animation) { recordingStartedAt = Date() }
+            recorderSlot.current = try FrameRecorder(
+                url: url, size: size, start: FrameStats.microseconds(at: now), firstFrame: screenView.latestFrame)
+            withAnimation(animation) { recordingStartedAt = now }
             log.info("Recording to \(url.lastPathComponent, privacy: .public)")
         } catch {
             log.error("Recording failed to start: \(String(describing: error), privacy: .public)")
@@ -807,19 +810,22 @@ final class PaneModel {
         }
     }
 
-    /// Ends the recording, if any, and returns once the movie is written. The pill then says
+    /// Ends the recording, if any, and returns once the movie is written. The frame on screen
+    /// is written again at Stop, so the movie is as long as the recording. The pill then says
     /// where it went, or that it couldn't be saved.
     @discardableResult
     func stopRecording(animation: Animation? = nil) -> Task<Void, Never>? {
         guard let recorder = recorderSlot.current else { return nil }
         recorderSlot.current = nil
+        let stop = FrameStats.nowMicroseconds()
+        let onScreen = screenView.latestFrame
         withAnimation(animation) { recordingStartedAt = nil }
         let log = log
         let settings = settings
         let folder = recorder.url.deletingLastPathComponent()
         return Task { [weak self] in
             do {
-                try await recorder.finish()
+                try await recorder.finish(at: stop, onScreen: onScreen, wait: Theme.Timing.recordingEncoderWait)
                 settings.lastRecording = recorder.url
                 log.info("Saved recording \(recorder.url.lastPathComponent, privacy: .public)")
                 self?.showNotice(.recordingSaved(to: folder))
@@ -1036,25 +1042,30 @@ final class PaneModel {
                             "Frames: \(summary.frames) in window, \(summary.framesPerSecond, format: .fixed(precision: 1)) fps, \(summary.dropped) dropped, latency mean \(summary.meanLatencyMilliseconds, format: .fixed(precision: 1)) ms max \(summary.maxLatencyMilliseconds, format: .fixed(precision: 1)) ms, \(frame.size.description, privacy: .public)"
                         )
                     }
-                    if let recorder = self?.recorderSlot.current {
-                        await recorder.append(frame)
-                    }
-                    await MainActor.run {
-                        guard let self, self.connection === connection else { return }
+                    // The recording is read on the main actor as the frame is shown, so every
+                    // frame after the one Start wrote first is recorded, and none twice.
+                    let recorder: FrameRecorder? = await MainActor.run {
+                        guard let self, self.connection === connection else { return nil }
                         // Frames in an orientation the stream wasn't asked for are dropped, and
                         // the stream restarts in the new one (as Android Studio does).
                         if frame.rotationQuadrants != self.streamRequest?.quadrants {
                             // While a turn is under way the emulator eases the angle and can
                             // pass through another orientation (180 to -90 goes via 0); only
                             // the one asked for counts.
-                            if let pending = self.pendingQuadrants, frame.rotationQuadrants != pending { return }
+                            if let pending = self.pendingQuadrants, frame.rotationQuadrants != pending {
+                                return nil
+                            }
                             self.orientationChanged(to: frame.rotationQuadrants, on: connection)
-                            return
+                            return nil
                         }
                         screenView.show(frame)
                         self.hasFrame = true
                         self.updateLiveStatus()
                         self.tools.screenChanged()
+                        return self.recorderSlot.current
+                    }
+                    if let recorder {
+                        await recorder.append(frame)
                     }
                 }
             } catch is CancellationError {

@@ -144,11 +144,13 @@ struct DeviceToolbar: View {
 }
 
 /// Record: starts and stops a recording. One view in both states (board 19, "Record
-/// transition"): while recording, the icon swaps to the red filled one by symbol replace, the
+/// transition"): while recording, the icon crossfades to the red filled one over `fade`, the
 /// elapsed time blurs in beside it (blurSwap) and the capsule widens on `Spring.toggle`; Stop
 /// does the reverse. The state changes inside that animation, so Home and Screenshot glide to
 /// their new places. Reduce Motion: the width changes at once and the content crossfades over
-/// `fade`. The time rolls per character
+/// `fade`. The two icons are separate images, each always in its own colour: a symbol replace
+/// on one image swapped the colour at once, so the leaving red icon showed ink for about
+/// 100 ms. The time rolls per character
 /// (`RollingNumber`, never `.numericText()`) and stops ticking while the window is hidden.
 struct RecordButton: View {
     let model: PaneModel
@@ -170,13 +172,11 @@ struct RecordButton: View {
             model.toggleRecording(animation: reduceMotion ? nil : Theme.Toolbar.recordingMorph)
         } label: {
             HStack(spacing: time == nil ? 0 : Theme.Toolbar.recordingGap) {
-                Image(systemName: time == nil ? "record.circle" : "record.circle.fill")
-                    .font(.system(size: Theme.Toolbar.iconSize, weight: .regular))
-                    .foregroundStyle(Color(nsColor: time == nil ? Theme.Palette.text : Theme.Palette.recording))
-                    .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
-                    .transaction(value: time == nil) { transaction in
-                        if reduceMotion { transaction.animation = Theme.Toolbar.recordingFade }
-                    }
+                ZStack {
+                    icon("record.circle", colour: Theme.Palette.text, shown: time == nil)
+                    icon("record.circle.fill", colour: Theme.Palette.recording, shown: time != nil)
+                }
+                .animation(Theme.Toolbar.recordingFade, value: time == nil)
                 if let time {
                     RollingNumber(time)
                         .font(Theme.Toolbar.timeFont)
@@ -198,6 +198,13 @@ struct RecordButton: View {
         .buttonStyle(ToolbarButtonStyle())
         .help(name)
         .accessibilityLabel(name)
+    }
+
+    private func icon(_ symbol: String, colour: NSColor, shown: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: Theme.Toolbar.iconSize, weight: .regular))
+            .foregroundStyle(Color(nsColor: colour))
+            .opacity(shown ? 1 : 0)
     }
 
     /// "0:07", "1:12", "12:00".

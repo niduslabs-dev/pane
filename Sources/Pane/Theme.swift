@@ -787,6 +787,8 @@ extension Theme {
         static let stopGracePeriod: Duration = .seconds(10)
         static let stopKillWait: Duration = .seconds(5)
         static let stopPoll: Duration = .milliseconds(200)
+        /// Stopping a recording waits this long for a busy encoder to take its closing frame.
+        static let recordingEncoderWait = FrameRecorder.EncoderWait(limit: .milliseconds(500), poll: .milliseconds(5))
         /// Starting the emulator through Pane Emulator: `open` returns in well under a second
         /// and the helper writes its PID a moment later; these only catch a stuck launch.
         static let helperLaunch = EmulatorLauncher.HelperTimings(
