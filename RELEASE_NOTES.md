@@ -7,6 +7,9 @@ them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z
 ## 1.0.1
 
 - Screenshots follow macOS's Save to setting, including Clipboard.
+- A screenshot flashes the screen and says where it went.
+- Recording slides open with the time and says where the movie went.
+- The recording time rolls smoothly and no longer adds memory as it counts.
 
 ## 1.0.0
 

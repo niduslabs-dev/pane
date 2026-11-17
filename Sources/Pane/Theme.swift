@@ -201,7 +201,21 @@ enum Theme {
         static let recordingGap = Space.xxs
         static let recordingPaddingH = Space.s
         static let timeFont = T.TypeScale.bodyMedium.font
-        static let timeRollDuration = T.Motion.Duration.numbers
+        /// Recording's enter and leave (board 19): the width on `Spring.toggle`, the time in
+        /// and out by blurSwap; Reduce Motion, the width at once and the content crossfading
+        /// over `fade`.
+        static var recordingMorph: Animation { T.Motion.Spring.toggle.animation }
+        static var recordingFade: Animation { .easeOut(duration: T.Motion.Duration.fade) }
+        /// The press shade lets go over the hover duration instead of snapping off.
+        static var pressRelease: Animation { .easeOut(duration: hoverDuration) }
+    }
+
+    /// The flash over the device screen when a screenshot lands (`captureFlash`, board 18).
+    enum CaptureFlash {
+        /// Pane's own value until `app.pane.opacity.captureFlash` is a token
+        /// (`design/adoption/pane.md`).
+        static let peakOpacity: Double = 0.5
+        static let fadeDuration = T.Motion.Duration.fade
     }
 
     /// The window's glass: behind-window blur under an ink tint in dark (`inkGlass`) and a
@@ -338,6 +352,9 @@ enum Theme {
         static let shade = T.Colour.Role.toolbarShade.nsColor
         /// Record while recording.
         static let recording = T.Colour.Role.recording.nsColor
+        /// The screenshot flash over the device screen (`captureFlash`): white in both modes,
+        /// as the device's own camera flash is.
+        static let captureFlash = NSColor.white
         static let frameBody = T.App.Pane.Colour.frameBody.nsColor
         static let frameEdge = T.App.Pane.Colour.frameEdge.nsColor
         static let frameInnerEdge = dynamic(light: 0xFFFFFF, lightAlpha: 0.08, dark: 0xFFFFFF, darkAlpha: 0.06)
@@ -462,6 +479,10 @@ extension Theme {
         static let shadowRadius: CGFloat = 8
         static let shadowY: CGFloat = 3
         static let fadeDuration = T.Motion.Duration.fade
+        /// The pill is at most the device screen less this on each side (320 pt on board 18's
+        /// 368 pt screen); a long folder name truncates in the middle. Relative, not a fixed
+        /// width, so the pill never overhangs a smaller screen.
+        static let sideInset = Space.xl
     }
 
     /// Export Recording as GIF: small and light enough to drop into a pull request.

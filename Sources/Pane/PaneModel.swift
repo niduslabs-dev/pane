@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Observation
 import PaneCore
+import SwiftUI
 import Synchronization
 import os
 
@@ -40,8 +41,16 @@ final class PaneModel {
     var titleLeadingInset = Theme.Window.fallbackTitleLeading
     /// The Window menu size in effect (ticked), or nil after a manual resize.
     private(set) var sizeMode: ScreenSizeMode?
-    /// When the running recording started, or nil when not recording.
+    /// When the running recording started, or nil when not recording. Set inside an animation
+    /// (`RecordButton.animation`), so the toolbar's other buttons glide to their new places.
     private(set) var recordingStartedAt: Date?
+    /// False while the window is hidden, minimised or covered: the recording time stops ticking.
+    var windowIsVisible = true
+    /// A screenshot is on its way from the emulator: another press is ignored and Screenshot
+    /// stays pressed until it lands.
+    var captureGate = CaptureGate()
+    /// Bumped when a screenshot lands, for the flash over the screen (`CaptureFlash`).
+    var captureFlashes = 0
     /// The AVDs on disk, for Start and "Choose another emulator".
     private(set) var avds: [AvdInfo] = []
     /// Why the last Start didn't work, shown under the Start button.
@@ -51,8 +60,9 @@ final class PaneModel {
     /// offers Stop.
     private(set) var isSlowStart = false
 
-    /// A short line over the bottom of the screen ("Copied.", "Saved GIF.", an error), or nil.
-    private(set) var notice: String?
+    /// A short line over the bottom of the screen ("Copied.", "Saved to Desktop.", an error),
+    /// or nil.
+    private(set) var notice: CaptureNotice?
     /// True while the notice's work is still running, for its spinner.
     private(set) var noticeIsBusy = false
 
@@ -527,8 +537,13 @@ final class PaneModel {
     /// Shows a short line over the bottom of the screen. With `busy` it stays (with a spinner)
     /// until the next notice; otherwise it clears itself after `hold`.
     func showNotice(_ text: String, busy: Bool = false, for hold: Duration = Theme.Notice.doneDuration) {
+        showNotice(CaptureNotice(text), busy: busy, for: hold)
+    }
+
+    /// Shows a notice whose folder name may be truncated in the middle (`CaptureNotice`).
+    func showNotice(_ line: CaptureNotice, busy: Bool = false, for hold: Duration = Theme.Notice.doneDuration) {
         noticeTask?.cancel()
-        notice = text
+        notice = line
         noticeIsBusy = busy
         guard !busy else { return }
         noticeTask = Task { [weak self] in
@@ -540,8 +555,12 @@ final class PaneModel {
 
     /// An error stays up longer so it can be read.
     func showProblem(_ text: String) {
+        showProblem(CaptureNotice(text))
+    }
+
+    func showProblem(_ line: CaptureNotice) {
         NSSound.beep()
-        showNotice(text, for: Theme.Notice.errorDuration)
+        showNotice(line, for: Theme.Notice.errorDuration)
     }
 
     // MARK: Size and layout
@@ -725,23 +744,26 @@ final class PaneModel {
 
     // MARK: Recording
 
-    func toggleRecording() {
+    /// Starts or stops a recording. The state changes inside `animation`, which the Record
+    /// button passes (`Spring.toggle`; none under Reduce Motion), so the capsule's width
+    /// and its neighbours move with it.
+    func toggleRecording(animation: Animation? = nil) {
         if recordingStartedAt != nil {
-            stopRecording()
+            stopRecording(animation: animation)
         } else {
-            startRecording()
+            startRecording(animation: animation)
         }
     }
 
     /// Records the frames already arriving into a movie in the screenshot folder. A movie is
     /// always a file, whatever macOS's recording target says (`CaptureOutcome`).
-    private func startRecording() {
+    private func startRecording(animation: Animation?) {
         guard status == .live, let size = streamRequest?.size else { return }
         let url = CaptureFileName.unusedURL(
             in: Self.captureFolder, prefix: "Pane Recording", date: Date(), fileExtension: "mov")
         do {
             recorderSlot.current = try FrameRecorder(url: url, size: size)
-            recordingStartedAt = Date()
+            withAnimation(animation) { recordingStartedAt = Date() }
             log.info("Recording to \(url.lastPathComponent, privacy: .public)")
         } catch {
             log.error("Recording failed to start: \(String(describing: error), privacy: .public)")
@@ -749,21 +771,25 @@ final class PaneModel {
         }
     }
 
-    /// Ends the recording, if any, and returns once the movie is written.
+    /// Ends the recording, if any, and returns once the movie is written. The pill then says
+    /// where it went, or that it couldn't be saved.
     @discardableResult
-    func stopRecording() -> Task<Void, Never>? {
+    func stopRecording(animation: Animation? = nil) -> Task<Void, Never>? {
         guard let recorder = recorderSlot.current else { return nil }
         recorderSlot.current = nil
-        recordingStartedAt = nil
+        withAnimation(animation) { recordingStartedAt = nil }
         let log = log
         let settings = settings
-        return Task {
+        let folder = recorder.url.deletingLastPathComponent()
+        return Task { [weak self] in
             do {
                 try await recorder.finish()
                 settings.lastRecording = recorder.url
                 log.info("Saved recording \(recorder.url.lastPathComponent, privacy: .public)")
+                self?.showNotice(.recordingSaved(to: folder))
             } catch {
                 log.error("Recording not saved: \(String(describing: error), privacy: .public)")
+                self?.showProblem(.recordingFailed)
             }
         }
     }

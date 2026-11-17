@@ -20,12 +20,13 @@ extension PaneModel {
     }
 
     /// Saves a full-size PNG of the screen to the screenshot folder, named as macOS names its
-    /// own. With Include Device Frame it is drawn inside Pane's frame.
+    /// own. With Include Device Frame it is drawn inside Pane's frame. The pill says where.
     func saveScreenshot() {
         let folder = Self.captureFolder
         captureScreenshot { [weak self] png in
             let url = try Self.writeScreenshot(png, in: folder)
             self?.log.info("Saved screenshot \(url.lastPathComponent, privacy: .public)")
+            return .saved(to: folder)
         }
     }
 
@@ -44,6 +45,7 @@ extension PaneModel {
                 workspace.open(url)
             }
             self?.log.info("Opened screenshot \(url.lastPathComponent, privacy: .public) in Preview")
+            return nil
         }
     }
 
@@ -64,23 +66,39 @@ extension PaneModel {
             pasteboard.setData(png, forType: .png)
             self?.noteOwnPasteboardWrite()
             self?.log.info("Copied screenshot")
-            self?.showNotice("Copied.")
+            return .copied
         }
     }
 
-    private func captureScreenshot(then use: @escaping @MainActor (Data) throws -> Void) {
-        guard let connection, status == .live else { return }
+    /// Takes the screenshot and hands it to `use`, which returns the pill's words (nil for
+    /// none). One at a time: a press while the frame is on its way is ignored, and Screenshot
+    /// stays pressed until it arrives. Then the screen flashes (`CaptureFlash`), the press
+    /// shade lets go, and the pill shows once the PNG is written or copied. On failure Pane
+    /// beeps and the pill says so, with no flash when no frame came.
+    private func captureScreenshot(then use: @escaping @MainActor (Data) throws -> CaptureNotice?) {
+        guard let connection, status == .live, captureGate.begin() else { return }
         let framed = settings.includesDeviceFrame
         let quadrants = quadrants
         let style = Theme.Frame.exportStyle(appearance: screenView.effectiveAppearance)
         Task { [weak self] in
+            var arrived = false
             do {
+                #if DEBUG
+                    // `-PaneScreenshotDelay <seconds>` holds the frame back, so checks can see the
+                    // in-flight state (pressed, a second press ignored).
+                    let delay = UserDefaults.standard.double(forKey: "PaneScreenshotDelay")
+                    if delay > 0 { try await Task.sleep(for: .seconds(delay)) }
+                #endif
                 let shot = try await connection.screenshotPNG()
+                arrived = true
+                self?.captureGate.finish()
+                self?.captureFlashes += 1
                 let png = framed ? try await Self.framedPNG(shot, quadrants: quadrants, style: style) : shot
-                try use(png)
+                if let line = try use(png) { self?.showNotice(line) }
             } catch {
                 self?.log.error("Screenshot failed: \(String(describing: error), privacy: .public)")
-                self?.showProblem("The screenshot didn't work.")
+                if !arrived { self?.captureGate.finish() }
+                self?.showProblem(.screenshotFailed)
             }
         }
     }

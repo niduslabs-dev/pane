@@ -102,6 +102,7 @@ struct DeviceFrameView: View {
             if model.status == .live {
                 ToolOverlay(tools: model.tools)
             }
+            CaptureFlash(model: model)
             NoticePill(model: model)
             DropLayer(drop: model.drop, screenRadius: layout.screenRadius)
         }

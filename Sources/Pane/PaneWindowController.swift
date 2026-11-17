@@ -296,6 +296,13 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
 
     func windowDidChangeScreen(_ notification: Notification) { model.displayChanged() }
 
+    /// Hidden, minimised or fully covered: the recording time stops ticking (`reduceMotion`:
+    /// decorative timers pause while the window can't be seen).
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        model.windowIsVisible = window.occlusionState.contains(.visible)
+    }
+
     func windowWillClose(_ notification: Notification) {
         rememberPosition()
         model.stopRecording()

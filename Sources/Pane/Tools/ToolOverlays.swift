@@ -517,7 +517,35 @@ struct ModePillButtonStyle: ButtonStyle {
     }
 }
 
-/// The short line over the bottom of the screen: "Copied.", "Exporting GIF…", an error.
+/// The white flash over the device screen when a screenshot lands (`captureFlash`, board 18):
+/// at `peakOpacity` the moment the frame arrives, gone over `fade` with easeOut. Reduce Motion
+/// or Dim Flashing Lights: no flash, the pill alone says it worked. Never over the toolbar or
+/// the pill, and never in the screenshot itself, which comes from the emulator.
+struct CaptureFlash: View {
+    let model: PaneModel
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+
+    var body: some View {
+        let trigger = model.captureFlashes
+        let peak =
+            MotionOptions.reduceMotion(systemReduceMotion) || MotionOptions.dimFlashingLights
+            ? 0 : Theme.CaptureFlash.peakOpacity
+        Rectangle()
+            .fill(Color(nsColor: Theme.Palette.captureFlash))
+            .keyframeAnimator(initialValue: 0.0, trigger: trigger) { content, opacity in
+                content.opacity(opacity)
+            } keyframes: { _ in
+                MoveKeyframe(peak)
+                LinearKeyframe(0, duration: Theme.CaptureFlash.fadeDuration, timingCurve: .easeOut)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The short line over the bottom of the screen: "Copied.", "Saved to Desktop.", an error.
+/// At most the screen less `sideInset` each side; a longer line (a long folder name) is cut in
+/// the middle, so the end of the name still shows.
 struct NoticePill: View {
     let model: PaneModel
 
@@ -531,10 +559,11 @@ struct NoticePill: View {
                             .controlSize(.small)
                             .colorScheme(.dark)
                     }
-                    Text(notice)
+                    Text(notice.text)
                         .font(Theme.Typeface.notice)
                         .foregroundStyle(Color(nsColor: Theme.Palette.toolText))
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
                 .padding(.horizontal, Theme.Notice.paddingH)
                 .frame(height: Theme.Notice.height)
@@ -547,6 +576,7 @@ struct NoticePill: View {
                     y: Theme.Notice.shadowY
                 )
                 .padding(.bottom, Theme.Notice.bottomInset)
+                .padding(.horizontal, Theme.Notice.sideInset)
                 .transition(.opacity)
                 .accessibilityElement(children: .combine)
             }

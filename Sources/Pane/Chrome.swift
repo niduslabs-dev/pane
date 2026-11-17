@@ -1,4 +1,5 @@
 import AppKit
+import MediaAccessibility
 import PaneCore
 import SwiftUI
 
@@ -105,8 +106,10 @@ struct DeviceToolbar: View {
                 capsule {
                     ToolbarButton(symbol: PaneSymbol.home, label: "Home") { model.pressHome() }
                         .accessibilityIdentifier(identifier("toolbar-home", live: live))
-                    ToolbarButton(symbol: .system("camera.viewfinder"), label: "Screenshot") { model.takeScreenshot() }
-                        .accessibilityIdentifier(identifier("toolbar-screenshot", live: live))
+                    ToolbarButton(
+                        symbol: .system("camera.viewfinder"), label: "Screenshot", isHeld: model.captureGate.isBusy
+                    ) { model.takeScreenshot() }
+                    .accessibilityIdentifier(identifier("toolbar-screenshot", live: live))
                     RecordButton(model: model)
                         .accessibilityIdentifier(identifier("toolbar-record", live: live))
                 }
@@ -140,54 +143,105 @@ struct DeviceToolbar: View {
     }
 }
 
-/// Record: starts and stops a recording. While recording it widens to the red icon and the
-/// elapsed time (board 16, "Recording timer"), and its name carries the time too.
+/// Record: starts and stops a recording. One view in both states (board 19, "Record
+/// transition"): while recording, the icon swaps to the red filled one by symbol replace, the
+/// elapsed time blurs in beside it (blurSwap) and the capsule widens on `Spring.toggle`; Stop
+/// does the reverse. The state changes inside that animation, so Home and Screenshot glide to
+/// their new places. Reduce Motion: the width changes at once and the content crossfades over
+/// `fade`. The time rolls per character
+/// (`RollingNumber`, never `.numericText()`) and stops ticking while the window is hidden.
 struct RecordButton: View {
     let model: PaneModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
     var body: some View {
-        if let start = model.recordingStartedAt {
-            TimelineView(.periodic(from: start, by: 1)) { context in
-                recording(seconds: max(0, Int(context.date.timeIntervalSince(start))))
-            }
-        } else {
-            ToolbarButton(symbol: .system("record.circle"), label: "Record") { model.toggleRecording() }
+        TimelineView(RecordingClock(start: model.recordingStartedAt, paused: !model.windowIsVisible)) { context in
+            button(at: context.date)
         }
     }
 
-    private func recording(seconds: Int) -> some View {
-        let time = Self.elapsed(seconds)
+    private func button(at now: Date) -> some View {
+        let reduceMotion = MotionOptions.reduceMotion(systemReduceMotion)
+        let start = model.recordingStartedAt
+        let time = start.map { Self.elapsed(max(0, Int(now.timeIntervalSince($0)))) }
+        let name = time.map { "Stop recording, \($0)" } ?? "Record"
         return Button {
-            model.toggleRecording()
+            // Reduce Motion: the width changes at once; only the content crossfades.
+            model.toggleRecording(animation: reduceMotion ? nil : Theme.Toolbar.recordingMorph)
         } label: {
-            HStack(spacing: Theme.Toolbar.recordingGap) {
-                Image(systemName: "record.circle.fill")
+            HStack(spacing: time == nil ? 0 : Theme.Toolbar.recordingGap) {
+                Image(systemName: time == nil ? "record.circle" : "record.circle.fill")
                     .font(.system(size: Theme.Toolbar.iconSize, weight: .regular))
-                    .foregroundStyle(Color(nsColor: Theme.Palette.recording))
-                Text(time)
-                    .font(Theme.Toolbar.timeFont)
-                    .monospacedDigit()
-                    .foregroundStyle(Color(nsColor: Theme.Palette.text))
-                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(seconds)))
-                    .animation(
-                        reduceMotion ? nil : .easeInOut(duration: Theme.Toolbar.timeRollDuration), value: seconds
-                    )
-                    .lineLimit(1)
-                    .fixedSize()
+                    .foregroundStyle(Color(nsColor: time == nil ? Theme.Palette.text : Theme.Palette.recording))
+                    .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+                    .transaction(value: time == nil) { transaction in
+                        if reduceMotion { transaction.animation = Theme.Toolbar.recordingFade }
+                    }
+                if let time {
+                    RollingNumber(time)
+                        .font(Theme.Toolbar.timeFont)
+                        .foregroundStyle(Color(nsColor: Theme.Palette.text))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .transition(
+                            reduceMotion
+                                ? .opacity.animation(Theme.Toolbar.recordingFade)
+                                : .statusSwap(reduceMotion: false).animation(Kit.Motion.swap))
+                }
             }
-            .padding(.horizontal, Theme.Toolbar.recordingPaddingH)
+            .padding(.horizontal, time == nil ? 0 : Theme.Toolbar.recordingPaddingH)
+            .frame(minWidth: Theme.Toolbar.buttonWidth)
             .frame(height: Theme.Toolbar.buttonHeight)
+            // A leaving time stays inside the capsule as it narrows.
+            .clipShape(Capsule())
         }
         .buttonStyle(ToolbarButtonStyle())
-        .help("Stop recording, \(time)")
-        .accessibilityLabel("Stop recording, \(time)")
+        .help(name)
+        .accessibilityLabel(name)
     }
 
     /// "0:07", "1:12", "12:00".
     static func elapsed(_ seconds: Int) -> String {
         let secondsPerMinute = 60
         return String(format: "%d:%02d", seconds / secondsPerMinute, seconds % secondsPerMinute)
+    }
+}
+
+/// Once a second on the recording's whole seconds while recording and the window can be seen;
+/// otherwise a single entry, so nothing ticks.
+struct RecordingClock: TimelineSchedule {
+    let start: Date?
+    let paused: Bool
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> UnfoldFirstSequence<Date> {
+        guard let start, !paused else { return sequence(first: startDate) { _ in nil } }
+        let tick: TimeInterval = 1
+        let first = start.addingTimeInterval((startDate.timeIntervalSince(start) / tick).rounded(.down) * tick)
+        return sequence(first: max(first, start)) { $0.addingTimeInterval(tick) }
+    }
+}
+
+/// Reduce Motion and Dim Flashing Lights as Pane reads them: the system's settings, plus the
+/// debug build's `-PaneReduceMotion YES` and `-PaneDimFlashingLights YES`, so checks see the
+/// fallbacks without changing system settings.
+enum MotionOptions {
+    static func reduceMotion(_ system: Bool) -> Bool {
+        system || debugFlag("PaneReduceMotion")
+    }
+
+    /// Accessibility › Display › Dim flashing lights (macOS 13.3 and later). AppKit and
+    /// SwiftUI don't expose it; MediaAccessibility does. Read at each flash, so a change
+    /// applies at once.
+    static var dimFlashingLights: Bool {
+        MADimFlashingLightsEnabled() || debugFlag("PaneDimFlashingLights")
+    }
+
+    private static func debugFlag(_ key: String) -> Bool {
+        #if DEBUG
+            UserDefaults.standard.bool(forKey: key)
+        #else
+            false
+        #endif
     }
 }
 
@@ -199,6 +253,9 @@ struct ToolbarButton: View {
     var tint: Color?
     var width = Theme.Toolbar.buttonWidth
     var height = Theme.Toolbar.buttonHeight
+    /// Shows pressed after the mouse is up, while its work runs (Screenshot, until the frame
+    /// arrives).
+    var isHeld = false
     let action: () -> Void
 
     var body: some View {
@@ -208,25 +265,31 @@ struct ToolbarButton: View {
                 .foregroundStyle(tint ?? Color(nsColor: Theme.Palette.text))
                 .frame(width: width, height: height)
         }
-        .buttonStyle(ToolbarButtonStyle())
+        .buttonStyle(ToolbarButtonStyle(isHeld: isHeld))
         .help(label)
         .accessibilityLabel(label)
     }
 }
 
+/// Hover and press shades (`GlassToolbar`): the press shade comes on at once and lets go
+/// over the hover duration, so a quick click reads as a press, not a blink.
 struct ToolbarButtonStyle: ButtonStyle {
+    var isHeld = false
     @Environment(\.isEnabled) private var isEnabled
     @State private var hovered = false
 
     func makeBody(configuration: Configuration) -> some View {
-        let shade =
-            configuration.isPressed ? Theme.Toolbar.pressedOpacity : (hovered ? Theme.Toolbar.hoverOpacity : 0)
+        let pressed = configuration.isPressed || isHeld
+        let shade = pressed ? Theme.Toolbar.pressedOpacity : (hovered ? Theme.Toolbar.hoverOpacity : 0)
         configuration.label
-            .background(Capsule().fill(Color(nsColor: Theme.Palette.shade).opacity(isEnabled ? shade : 0)))
+            .background(
+                Capsule().fill(Color(nsColor: Theme.Palette.shade).opacity(isEnabled ? shade : 0))
+                    .animation(.easeOut(duration: Theme.Toolbar.hoverDuration), value: hovered)
+                    .animation(pressed ? nil : Theme.Toolbar.pressRelease, value: pressed)
+            )
             .contentShape(Capsule())
             .opacity(isEnabled ? 1 : Theme.Toolbar.disabledOpacity)
             .onHover { hovered = $0 }
-            .animation(.easeOut(duration: Theme.Toolbar.hoverDuration), value: hovered)
     }
 }
 
