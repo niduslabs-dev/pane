@@ -40,6 +40,7 @@ struct TitleBar: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { model.onShowSwitcher() }
+            .accessibilityIdentifier("window-title")
             Spacer(minLength: 0)
         }
         .padding(.leading, model.titleLeadingInset - Theme.TitleButton.paddingH)
@@ -103,14 +104,20 @@ struct DeviceToolbar: View {
             HStack(spacing: Theme.Toolbar.capsuleGap) {
                 capsule {
                     ToolbarButton(symbol: PaneSymbol.home, label: "Home") { model.pressHome() }
+                        .accessibilityIdentifier("toolbar-home")
                     ToolbarButton(symbol: .system("camera.viewfinder"), label: "Screenshot") { model.saveScreenshot() }
+                        .accessibilityIdentifier("toolbar-screenshot")
                     RecordButton(model: model)
+                        .accessibilityIdentifier("toolbar-record")
                 }
                 ToolbarButton(
                     symbol: PaneSymbol.rotateLeft, label: "Rotate Left", width: Theme.Toolbar.circleSize,
                     height: Theme.Toolbar.circleSize
                 ) { model.rotate() }
+                .accessibilityIdentifier("toolbar-rotate")
                 .glassSurface(in: Circle())
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("toolbar-circle")
             }
         }
         .disabled(!live)
@@ -121,6 +128,9 @@ struct DeviceToolbar: View {
             .padding(.horizontal, Theme.Toolbar.capsulePadding)
             .frame(height: Theme.Toolbar.capsuleHeight)
             .glassSurface(in: Capsule())
+            .contentShape(.accessibility, Capsule())
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("toolbar-capsule")
     }
 }
 

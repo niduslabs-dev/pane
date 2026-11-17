@@ -568,6 +568,21 @@ final class TitlebarToolbar: NSObject, NSToolbarDelegate {
 
     @objc private func pressMore(_ sender: Any?) { onMore() }
 
+    /// Gives More's button the accessibility identifier `window-more`, so the measured check
+    /// (`design/checks/measured`) finds it. AppKit draws the item's view itself (not an
+    /// `NSButton`), so it is found by its role and name once the window is on screen.
+    static func identifyMore(in window: NSWindow) {
+        guard let frame = window.contentView?.superview else { return }
+        func visit(_ view: NSView) -> Bool {
+            if view.accessibilityRole() == .button, view.accessibilityLabel() == "More" || view.toolTip == "More" {
+                view.setAccessibilityIdentifier("window-more")
+                return true
+            }
+            return view.subviews.contains(where: visit)
+        }
+        _ = visit(frame)
+    }
+
     /// Whether a click is on More, which opens and closes its menu on its own: the system
     /// owns the button's view, so this takes the title row's right end, which More fills.
     func isOverMore(_ event: NSEvent) -> Bool {

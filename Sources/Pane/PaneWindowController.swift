@@ -58,6 +58,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         } else {
             window.orderFront(nil)
         }
+        TitlebarToolbar.identifyMore(in: window)
         model.start()
         followShownAVD()
     }
