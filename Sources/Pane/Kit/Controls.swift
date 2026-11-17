@@ -223,7 +223,7 @@ private struct NidusButtonBody: View {
             configuration.label
                 .background {
                     shape.fill(
-                        Color.primary.opacity(
+                        Kit.Colour.shade.opacity(
                             isPressed ? Kit.Button.pressShade : isHovered ? Kit.Button.hoverShade : 0))
                 }
         }
@@ -238,7 +238,7 @@ private struct NidusButtonBody: View {
         shape.fill(Kit.Colour.paper)
             .overlay {
                 shape.fill(
-                    Color.black.opacity(isPressed ? Kit.Button.pressShade : isHovered ? Kit.Button.hoverShade : 0))
+                    Kit.Colour.ink.opacity(isPressed ? Kit.Button.pressShade : isHovered ? Kit.Button.hoverShade : 0))
             }
     }
 

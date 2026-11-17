@@ -298,6 +298,10 @@ enum Kit {
         static let surface = T.Colour.Role.surfaceBaseSolid.swiftUI
         /// Secondary buttons, the select and fields.
         static let paper = T.Colour.Role.surfaceRaised.swiftUI
+        /// Ink: the hover and press shade over paper controls (`opacity.hoverShade`, `pressShade`).
+        static let ink = T.Colour.Brand.ink.swiftUI
+        /// The shade over a borderless row: ink in light, paper in dark.
+        static let shade = T.Colour.Role.toolbarShade.swiftUI
         /// The thin edge on cards and controls; the boundary colour under Increase Contrast.
         static let hairline = T.Colour.Role.hairline.swiftUI
         /// Boundaries that carry a control's state (the off switch track, fields): 3:1.

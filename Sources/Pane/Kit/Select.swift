@@ -270,7 +270,7 @@ struct NidusSelect<Value: Hashable>: View {
         .fixedSize()
         .background {
             shape.fill(Kit.Colour.paper)
-                .overlay { shape.fill(Color.black.opacity(isHovered ? Kit.Button.hoverShade : 0)) }
+                .overlay { shape.fill(Kit.Colour.ink.opacity(isHovered ? Kit.Button.hoverShade : 0)) }
         }
         .overlay { Hairline(shape: shape, width: Kit.Button.hairline) }
         .overlay {
