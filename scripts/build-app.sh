@@ -114,6 +114,12 @@ if [ -n "$SPARKLE_PUBLIC_KEY" ]; then
     <key>SUEnableSystemProfiling</key><false/>"
 fi
 
+# MallocLargeCache=0: macOS's allocator otherwise keeps freed large blocks dirty for reuse.
+# gRPC's transport gathers each streamed frame (4 to 10 MB) in a buffer that grows by
+# doubling and is freed per frame, so that cache held 300 MB to 1 GB of Pane's footprint while
+# streaming with almost nothing live (vmmap: "Malloc Large (empty)"). Undocumented libmalloc
+# switch, read at launch; LaunchServices applies it for any launch through open or Finder.
+# Measurements: ~/Work/personal/.claude/research/pane-memory.md.
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -133,6 +139,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSHumanReadableCopyright</key><string>Nidus Labs</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>LSEnvironment</key><dict><key>MallocLargeCache</key><string>0</string></dict>
     $UPDATE_KEYS
     <key>CFBundleURLTypes</key>
     <array>

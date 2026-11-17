@@ -12,7 +12,7 @@ A Swift package, no Xcode project. Swift 6, strict concurrency, macOS 15+.
 - `PaneCore` (no UI, all unit-tested):
   - `Discovery/`: running emulators from `~/Library/Caches/TemporaryItems/avd/running/pid_*.ini` (port, token, AVD) with a folder watcher; AVDs from `~/.android/avd`; the SDK's emulator binary; each AVD's `config.ini` (model, Android version, screen, density).
   - `Launcher/`: starts an AVD headless through `Process` and stops emulators by PID.
-  - `Client/`: `EmulatorConnection` (plaintext HTTP/2 gRPC with the bearer token: `streamScreenshot` in RGBA with both sides set, one long-lived `streamInputEvent`, status, rotate, PNG screenshot) and the reconnect backoff.
+  - `Client/`: `EmulatorConnection` (plaintext HTTP/2 gRPC with the bearer token: `streamScreenshot` in RGBA with both sides set, one long-lived `streamInputEvent`, status, rotate, PNG screenshot), `StreamFrame` (each streamed `Image` read straight from the wire into a pooled IOSurface `CVPixelBuffer`, BGRA, at most six out per stream, shown by the layer with no further copy) and the reconnect backoff.
   - `Geometry/`: the frame layout for any size and the four orientations, window points to device pixels, the Window menu sizes.
   - `Input/`: key mapping (W3C names, typed text) and scrolling as a touch drag (phone AVDs have no wheel device, so `WheelEvent`s are dropped).
   - `Capture/`: file names like macOS's own, the save folder (`CaptureLocation`: macOS's screenshot `location`, else the Desktop), `FrameRecorder` (H.264 `.mov` from the frames, variable frame rate), `GifExporter` (a recording as a GIF, ImageIO) and `FramedScreenshot` (Pane's frame drawn around a screenshot on a clear background).
@@ -127,6 +127,7 @@ scripts/generate-protos.sh          # regenerate Sources/PaneCore/Generated (pin
 - **The title bar takes clicks before SwiftUI content under it,** so `PaneWindow.sendEvent` hands a click on the device name to the switcher, and the model tracks the pointer over it for the hover shade.
 - **Menu bar shortcuts** (the panels show the same): Open Link ⌘L, Save Screenshot ⌘S, Copy Screenshot ⇧⌘C, Inspect Layout ⌥⌘I, Measure ⌥⌘M, Pick Colour ⌥⌘P, New Window ⌘N.
 - **One agent drives the emulator at a time** (shared device, see the workspace guide).
+- **Memory while streaming:** frames go into pooled IOSurfaces (`StreamFrame`), never a `Data` and `CGImage` per frame, and the bundle launches with `MallocLargeCache=0` (`LSEnvironment`, written by `build-app.sh`). Without it macOS keeps the gRPC transport's freed per-frame buffers dirty: 300 MB to 1.1 GB of footprint with almost nothing live. A copy started without LaunchServices (the bare binary) doesn't get it. Measurements and the checks: `~/Work/personal/.claude/research/pane-memory.md`, `.claude/checks/mem/memsoak.sh`.
 
 ## The emulator build
 
