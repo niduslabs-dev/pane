@@ -127,7 +127,7 @@ struct SurfaceBackground: View {
         let solid = reduceTransparency || contrast == .increased || DisplayOptions.reduceTransparency
         if colorScheme == .dark {
             if solid {
-                kind == .popup ? Kit.Glass.solidPanel : Kit.Glass.solidWindow
+                Kit.Glass.solid
             } else {
                 ZStack {
                     VisualEffectBackground(material: Kit.Glass.darkMaterial)

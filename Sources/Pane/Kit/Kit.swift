@@ -64,10 +64,9 @@ enum Kit {
         /// Settings' window behind its groups (Drop's own).
         static let settingsTint = Color(nsColor: NSColor(hex: 0x18171D))
         static let settingsTintOpacity: Double = 0.88
-        /// Reduce Transparency: solid ink.
-        static let solidPanel = T.Colour.Role.surfaceBaseSolid.dark.swiftUI
-        /// Drop's own solid window.
-        static let solidWindow = Color(nsColor: NSColor(hex: 0x1C1B21))
+        /// Reduce Transparency or Increase Contrast: solid ink (`surfaceBaseSolid`), the popup
+        /// and the windows alike, the same as the emulator window's.
+        static let solid = T.Colour.Role.surfaceBaseSolid.dark.swiftUI
     }
 
     /// The Updates board: the update popup and the Settings banner.
