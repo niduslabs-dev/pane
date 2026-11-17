@@ -276,6 +276,26 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         return height
     }
 
+    /// The smallest whole-point screen height, at least `floor`, whose window is `minWidth` wide
+    /// or wider. A tall, narrow device needs a taller screen than `floor` before its window is
+    /// wide enough for the title and the menus drawn inside it; a wide one never does.
+    public static func smallestScreenHeight(
+        forWindowWidth minWidth: CGFloat, spec: FrameSpec, deviceSize: PixelSize, quadrants: Int, floor: CGFloat
+    ) -> CGFloat {
+        func width(_ height: CGFloat) -> CGFloat {
+            DeviceFrameLayout(spec: spec, deviceSize: deviceSize, screenHeight: height, quadrants: quadrants)
+                .windowContentSize.width
+        }
+        guard width(floor) < minWidth else { return floor }
+        let reference = spec.referenceScreenHeight
+        let slope = (width(2 * reference) - width(reference)) / reference
+        guard slope > 0 else { return floor }
+        var height = max(floor, ((minWidth - width(floor)) / slope + floor).rounded(.up))
+        // The screen's short side is rounded to whole points, so step past any shortfall.
+        while width(height) < minWidth { height += 1 }
+        return height
+    }
+
     /// The button nearest a point (window coordinates) within `distance` of its drawn outline,
     /// measured from any side, or nil. Only this one slides out, as in the iOS Simulator.
     public func nearestButton(to point: CGPoint, within distance: CGFloat) -> FrameButton? {

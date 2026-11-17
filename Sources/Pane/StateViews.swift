@@ -66,6 +66,8 @@ struct NoEmulatorScreen: View {
                     Text("Choose another emulator")
                         .font(Theme.Typeface.link)
                         .foregroundStyle(Color(nsColor: Theme.Palette.screenLink))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 .buttonStyle(.plainRow)
                 .accessibilityAddTraits(.isButton)

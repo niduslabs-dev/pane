@@ -9,7 +9,9 @@ struct TitleBar: View {
     let model: PaneModel
 
     var body: some View {
-        HStack(spacing: Theme.Window.titleGap) {
+        // No spacing: the spacer only pushes the title left, and a gap before it would take
+        // the name's room in a narrow window.
+        HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: Theme.Window.titleLineSpacing) {
                 SwitcherButton(model: model)
                 Text(model.meta)

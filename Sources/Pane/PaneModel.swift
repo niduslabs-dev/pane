@@ -561,8 +561,18 @@ final class PaneModel {
         }
     }
 
-    /// Rebuilds the layout; the window follows unless the user is resizing it.
+    /// The smallest screen height for this device and orientation: the theme's floor, raised
+    /// until the window is wide enough for the widest panel drawn inside it (the switcher).
+    var minScreenHeight: CGFloat {
+        DeviceFrameLayout.smallestScreenHeight(
+            forWindowWidth: Theme.Window.minWidth, spec: Theme.Frame.spec, deviceSize: deviceSize,
+            quadrants: quadrants, floor: Theme.Frame.minScreenHeight)
+    }
+
+    /// Rebuilds the layout; the window follows unless the user is resizing it. A turn to
+    /// portrait can leave the screen under the minimum, so it grows back to it.
     private func relayout(resizeWindow: Bool) {
+        if screenHeight < minScreenHeight { screenHeight = minScreenHeight }
         let next = DeviceFrameLayout(
             spec: Theme.Frame.spec, deviceSize: deviceSize, screenHeight: screenHeight, quadrants: quadrants)
         guard next != layout else { return }
@@ -577,10 +587,10 @@ final class PaneModel {
         let spec = Theme.Frame.spec
         let largest = DeviceFrameLayout.screenHeight(
             fitting: available, spec: spec, deviceSize: deviceSize, quadrants: quadrants,
-            range: Theme.Frame.minScreenHeight...Theme.Frame.maxScreenHeight)
+            range: minScreenHeight...Theme.Frame.maxScreenHeight)
         return DeviceFrameLayout.screenHeight(
             fitting: contentSize, spec: spec, deviceSize: deviceSize, quadrants: quadrants,
-            range: Theme.Frame.minScreenHeight...max(Theme.Frame.minScreenHeight, largest))
+            range: minScreenHeight...max(minScreenHeight, largest))
     }
 
     /// The window content size for a screen height, at the current device and orientation.
@@ -626,7 +636,7 @@ final class PaneModel {
         guard let display = displayMetrics else { return nil }
         return ScreenSizing.longSide(
             mode, deviceSize: deviceSize, density: profile.density ?? Theme.Frame.fallbackDensity, display: display
-        ).map { max(Theme.Frame.minScreenHeight, $0.rounded()) }
+        ).map { max(minScreenHeight, $0.rounded()) }
     }
 
     func isAvailable(_ mode: ScreenSizeMode) -> Bool { longSide(for: mode) != nil }

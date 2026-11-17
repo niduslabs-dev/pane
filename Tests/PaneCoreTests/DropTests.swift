@@ -185,6 +185,7 @@ private func fixture(_ path: String) throws -> String {
         let folder = try #require(card([DraggedItem(url: URL(filePath: "/d/screenshots"), isDirectory: true)]))
         #expect(folder.isRefused)
         #expect(folder.chip == "No folders")
+        #expect(!folder.titleIsStatus)
         #expect(folder.title == "screenshots")
         #expect(folder.media == .glyph(.folder))
         // A folder next to files is left out; the files still drop.
@@ -200,6 +201,7 @@ private func fixture(_ path: String) throws -> String {
         #expect(none.header == "splito-1.4.0.apk")
         #expect(none.title == "No emulator running")
         #expect(none.chip == "Start an emulator first")
+        #expect(none.titleIsStatus)
         #expect(card([DraggedItem(url: URL(string: "https://example.com/a.apk")!)]) == nil)
         #expect(card([]) == nil)
     }

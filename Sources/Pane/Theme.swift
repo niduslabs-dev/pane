@@ -75,6 +75,8 @@ enum Theme {
         static let sideMargin = Space.l
         /// A refused drag's card sits this far under the screen's top, clear of Start.
         static let refusedTop = Space.xl
+        /// A status title ("No emulator running") wraps to at most this many lines.
+        static let statusTitleLines = 2
         static let inset = T.Size.NotificationPanel.inset
         static let radius = T.Radius.card
         static let hairline = T.Border.hairline
@@ -167,6 +169,9 @@ enum Theme {
         /// Room kept clear of the title on the right; More is a real toolbar item over it.
         static let titleRowTrailingPadding: CGFloat = 56
         static let titleLineSpacing: CGFloat = 0
+        /// The narrowest the window gets: the switcher, the widest menu drawn inside the window,
+        /// with its edge margin on both sides. A narrow device's smallest screen grows to it.
+        static let minWidth = Menu.switcherWidth + 2 * Menu.edgeMargin
         /// How far a second window opens down and right of the one in front.
         static let cascadeStep: CGFloat = 28
     }
@@ -209,7 +214,8 @@ enum Theme {
     enum Frame {
         /// The drawn screen's height; the width follows the device's aspect (1080 × 2400 → 315).
         static let screenHeight: CGFloat = 700
-        /// How small and large the window may make the screen's long side.
+        /// How small and large the window may make the screen's long side. The window's own
+        /// minimum width (`Window.minWidth`) can raise the floor for a narrow device.
         static let minScreenHeight: CGFloat = 360
         static let maxScreenHeight: CGFloat = 2400
         /// The screen height the button positions below were designed at.

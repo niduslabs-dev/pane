@@ -166,6 +166,22 @@ import Testing
         #expect(turned.windowContentSize.width <= 2000)
     }
 
+    @Test func theSmallestScreenKeepsTheWindowWideEnough() {
+        let portrait = DeviceFrameLayout.smallestScreenHeight(
+            forWindowWidth: 270, spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 0, floor: 360)
+        let width = { (height: CGFloat) in
+            DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8, screenHeight: height)
+                .windowContentSize.width
+        }
+        #expect(portrait > 360)
+        #expect(width(portrait) >= 270)
+        #expect(width(portrait - 1) < 270)
+        // Turned sideways the window is wide already, so the floor stands.
+        let landscape = DeviceFrameLayout.smallestScreenHeight(
+            forWindowWidth: 270, spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 1, floor: 360)
+        #expect(landscape == 360)
+    }
+
     @Test func landscapePutsTheButtonsOnTop() {
         let layout = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 1)
         // The body turns: 720 × 335, with room for the buttons' depth above it.

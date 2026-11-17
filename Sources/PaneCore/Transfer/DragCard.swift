@@ -62,6 +62,9 @@ public struct DragCard: Sendable, Equatable {
     /// The drop is refused: no dim, no outline, the not-allowed pointer, and the card sits at
     /// the top of the screen.
     public var isRefused: Bool
+    /// The title is a sentence about Pane ("No emulator running"), not a file or app name: it
+    /// wraps to a second line and truncates at the end, where a name truncates in the middle.
+    public var titleIsStatus = false
 
     /// What VoiceOver says when the card appears or changes: "Splito 1.4.0. Update from 1.3.2."
     public var announcement: String {
@@ -82,6 +85,7 @@ public struct DragCard: Sendable, Equatable {
             header = fileItems.count == 1 ? first.url.lastPathComponent : Self.itemCount(fileItems.count)
             media = .glyph(.refused)
             title = "No emulator running"
+            titleIsStatus = true
             chip = "Start an emulator first"
             isRefused = true
             return

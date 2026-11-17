@@ -117,7 +117,7 @@ struct DragCardView: View {
 extension DragCardView {
     fileprivate func nameAndChip(_ card: DragCard) -> some View {
         VStack(alignment: .leading, spacing: Theme.Drop.chipGap) {
-            DropTitle(title: card.title, version: card.version)
+            DropTitle(title: card.title, version: card.version, isStatus: card.titleIsStatus)
             HStack(spacing: Theme.Drop.statusGap) {
                 DropChip(text: card.chip, isWarning: card.tone == .warning)
                     .accessibilityIdentifier("drop-chip")
@@ -149,9 +149,12 @@ extension View {
 }
 
 /// "Splito 1.4.0": the name in the panel title's weight, the version regular and secondary.
+/// A name keeps one line and truncates in the middle; a status title ("No emulator running")
+/// wraps to two lines and truncates at the end (`noWrapLabel`).
 private struct DropTitle: View {
     let title: String
     let version: String?
+    var isStatus = false
 
     var body: some View {
         let name = Text(title).font(Theme.Typeface.dropTitle).foregroundStyle(Kit.Colour.bodyText)
@@ -161,8 +164,9 @@ private struct DropTitle: View {
             } ?? name
         full
             .tracking(Theme.Typeface.dropTitleTracking)
-            .lineLimit(1)
-            .truncationMode(.middle)
+            .lineLimit(isStatus ? Theme.Drop.statusTitleLines : 1)
+            .truncationMode(isStatus ? .tail : .middle)
+            .fixedSize(horizontal: false, vertical: isStatus)
     }
 }
 
