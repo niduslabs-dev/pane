@@ -951,9 +951,8 @@ final class PaneModel {
                             "Frames: \(summary.frames) in window, \(summary.framesPerSecond, format: .fixed(precision: 1)) fps, \(summary.dropped) dropped, latency mean \(summary.meanLatencyMilliseconds, format: .fixed(precision: 1)) ms max \(summary.maxLatencyMilliseconds, format: .fixed(precision: 1)) ms, \(frame.size.description, privacy: .public)"
                         )
                     }
-                    let image = FrameImage.make(frame)
-                    if let recorder = self?.recorderSlot.current, let image {
-                        await recorder.append(image, timestampMicroseconds: frame.timestampMicroseconds)
+                    if let recorder = self?.recorderSlot.current {
+                        await recorder.append(frame)
                     }
                     await MainActor.run {
                         guard let self, self.connection === connection else { return }
@@ -967,7 +966,7 @@ final class PaneModel {
                             self.orientationChanged(to: frame.rotationQuadrants, on: connection)
                             return
                         }
-                        screenView.show(image)
+                        screenView.show(frame)
                         self.hasFrame = true
                         self.updateLiveStatus()
                         self.tools.screenChanged()

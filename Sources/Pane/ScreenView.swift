@@ -2,12 +2,12 @@ import AppKit
 import PaneCore
 import SwiftUI
 
-/// The emulator's screen: a layer-backed view whose layer shows the latest frame as a `CGImage`,
+/// The emulator's screen: a layer-backed view whose layer shows the latest frame's IOSurface,
 /// clipped to the screen's rounded corners, and which reports the pointer in its own
 /// coordinates (y down).
 ///
-/// The spike draws through Core Animation, not Metal: one `CGImage` per frame set as the layer's
-/// contents. Metal with one reused texture is the plan for v1 once frame rate is measured.
+/// Core Animation reads the pooled surface directly (`StreamFrame`), so a frame is copied once,
+/// from the gRPC message into the surface, and never converted again on the main thread.
 @MainActor
 final class ScreenView: NSView {
     enum PointerPhase {
@@ -46,19 +46,20 @@ final class ScreenView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// The frame on screen now, for Pick Colour.
-    private(set) var latestImage: CGImage?
+    /// The frame on screen now, for Pick Colour. Holding it also keeps its buffer out of the
+    /// pool while the layer shows it.
+    private(set) var latestFrame: StreamFrame?
     /// Command-V through the Edit menu.
     var onPaste: (() -> Void)?
 
     @objc func paste(_ sender: Any?) { onPaste?() }
 
     /// Shows a frame, or the off screen for nil.
-    func show(_ image: CGImage?) {
-        latestImage = image
+    func show(_ frame: StreamFrame?) {
+        latestFrame = frame
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.contents = image
+        layer?.contents = frame?.surface
         CATransaction.commit()
     }
 
@@ -117,21 +118,6 @@ struct ScreenRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> ScreenView { view }
     func updateNSView(_ nsView: ScreenView, context: Context) { nsView.layer?.cornerRadius = cornerRadius }
-}
-
-/// Turns a frame's RGBA bytes into a `CGImage` without copying them again.
-enum FrameImage {
-    static func make(_ frame: ScreenFrame) -> CGImage? {
-        guard let provider = CGDataProvider(data: frame.pixels as CFData) else { return nil }
-        let bitsPerComponent = 8
-        return CGImage(
-            width: frame.size.width, height: frame.size.height, bitsPerComponent: bitsPerComponent,
-            bitsPerPixel: bitsPerComponent * ScreenFrame.bytesPerPixel,
-            bytesPerRow: frame.size.width * ScreenFrame.bytesPerPixel,
-            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
-    }
 }
 
 /// A frame button's invisible hit area. AppKit, not a SwiftUI gesture, so the first click on an

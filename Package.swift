@@ -48,7 +48,14 @@ let package = Package(
         ),
         .testTarget(
             name: "PaneCoreTests",
-            dependencies: ["PaneCore"],
+            dependencies: [
+                "PaneCore",
+                // A fake emulator on loopback, for the stream tests.
+                .product(name: "GRPCCore", package: "grpc-swift-2"),
+                .product(name: "GRPCNIOTransportHTTP2Posix", package: "grpc-swift-nio-transport"),
+                .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
+                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
+            ],
             resources: [.copy("Fixtures")]
         ),
         // The app's theme-driven layout, tested through `@testable import` of the executable target.

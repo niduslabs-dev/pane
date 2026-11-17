@@ -1,6 +1,7 @@
 import Foundation
 import GRPCCore
 import GRPCNIOTransportHTTP2Posix
+import GRPCProtobuf
 import SwiftProtobuf
 import os
 
@@ -227,23 +228,34 @@ public final class EmulatorConnection: Sendable {
         return turns == 3 ? -degreesPerQuadrant : Float(turns) * degreesPerQuadrant
     }
 
-    /// Streams RGBA frames at `size` (both sides always set; the emulator keeps the aspect and
-    /// never exceeds the device). The emulator sends a frame only when the screen changes.
-    /// Cancelling the iteration ends the RPC.
-    public func screenFrames(size: PixelSize) -> AsyncThrowingStream<ScreenFrame, any Error> {
+    /// Streams frames at `size` (both sides always set; the emulator keeps the aspect and never
+    /// exceeds the device). The emulator sends a frame only when the screen changes.
+    ///
+    /// Each stream decodes into its own `FramePixelBufferPool`, and the iteration keeps only
+    /// the newest unread frame: a consumer that falls behind (the main thread busy with a
+    /// resize) skips frames instead of queueing them. Cancelling the iteration ends the RPC,
+    /// and the pool is freed once the last of its frames is released.
+    public func screenFrames(
+        size: PixelSize, pool: FramePixelBufferPool = FramePixelBufferPool()
+    ) -> AsyncThrowingStream<StreamFrame, any Error> {
         var format = Android_Emulation_Control_ImageFormat()
         format.format = .rgba8888
         format.width = UInt32(size.width)
         format.height = UInt32(size.height)
-        let request = format
-        let controller = controller
+        let request = ClientRequest(message: format)
+        let client = client
         let options = callOptions
-        return AsyncThrowingStream { continuation in
+        return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(Self.unreadFramesKept)) { continuation in
             let task = Task {
                 do {
-                    try await controller.streamScreenshot(request, options: options) { response in
-                        for try await image in response.messages {
-                            guard let frame = Self.frame(from: image) else { continue }
+                    try await client.serverStreaming(
+                        request: request,
+                        descriptor: Android_Emulation_Control_EmulatorController.Method.streamScreenshot.descriptor,
+                        serializer: ProtobufSerializer<Android_Emulation_Control_ImageFormat>(),
+                        deserializer: StreamFrameDeserializer(pool: pool), options: options
+                    ) { response in
+                        for try await frame in response.messages {
+                            guard let frame else { continue }
                             continuation.yield(frame)
                         }
                     }
@@ -259,6 +271,9 @@ public final class EmulatorConnection: Sendable {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    /// Frames waiting for the consumer; older unread ones are dropped.
+    static let unreadFramesKept = 1
 
     /// Wraps an `Image`; nil for the empty frames an inactive display sends, or a short buffer.
     static func frame(from image: Android_Emulation_Control_Image) -> ScreenFrame? {

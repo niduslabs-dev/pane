@@ -127,7 +127,7 @@ final class ToolsModel {
             return ToolPillState(text: density == nil ? "Measure · px only" : active.title)
         case .pickColour:
             if let copied { return ToolPillState(text: "Copied \(copied)") }
-            return ToolPillState(text: host?.screenView.latestImage == nil ? "The screen is off." : active.title)
+            return ToolPillState(text: host?.screenView.latestFrame == nil ? "The screen is off." : active.title)
         }
     }
 
@@ -371,8 +371,8 @@ final class ToolsModel {
     // MARK: Colour
 
     private func updateColour() {
-        guard let point = hoverPoint, let scale, let image = host?.screenView.latestImage,
-            let grid = PixelGrid(image: image)
+        guard let point = hoverPoint, let scale, let frame = host?.screenView.latestFrame,
+            let grid = PixelGrid(size: frame.size, pixels: frame.rgbaPixels())
         else {
             colour = nil
             loupe = []

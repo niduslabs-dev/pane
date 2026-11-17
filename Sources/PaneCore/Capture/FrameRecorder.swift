@@ -60,18 +60,47 @@ public actor FrameRecorder {
     /// one was written.
     @discardableResult
     public func append(_ image: CGImage, timestampMicroseconds: UInt64) -> Bool {
+        append(timestampMicroseconds: timestampMicroseconds) { pool in
+            guard let buffer = Self.buffer(from: pool) else { return nil }
+            draw(image, into: buffer)
+            return buffer
+        }
+    }
+
+    /// Adds one streamed frame. A frame of the movie's own size goes to the encoder as it is,
+    /// with no copy; any other size is drawn aspect-fit on black.
+    @discardableResult
+    public func append(_ frame: StreamFrame) -> Bool {
+        append(timestampMicroseconds: frame.timestampMicroseconds) { pool in
+            if frame.size == size { return frame.pixelBuffer }
+            guard let buffer = Self.buffer(from: pool) else { return nil }
+            let source = frame.pixelBuffer
+            CVPixelBufferLockBaseAddress(source, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(source, .readOnly) }
+            let bitsPerComponent = 8
+            guard let base = CVPixelBufferGetBaseAddress(source),
+                let context = CGContext(
+                    data: base, width: frame.size.width, height: frame.size.height,
+                    bitsPerComponent: bitsPerComponent, bytesPerRow: CVPixelBufferGetBytesPerRow(source),
+                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
+                let image = context.makeImage()
+            else { return nil }
+            draw(image, into: buffer)
+            return buffer
+        }
+    }
+
+    private func append(timestampMicroseconds: UInt64, frame: (CVPixelBufferPool) -> CVPixelBuffer?) -> Bool {
         guard !finished, writer.status == .writing else { return false }
         if let last = lastTimestamp, timestampMicroseconds <= last { return false }
         if firstTimestamp == nil {
             firstTimestamp = timestampMicroseconds
             writer.startSession(atSourceTime: .zero)
         }
-        guard input.isReadyForMoreMediaData, let pool = adaptor.pixelBufferPool else { return false }
-        var buffer: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess, let buffer else {
+        guard input.isReadyForMoreMediaData, let pool = adaptor.pixelBufferPool, let buffer = frame(pool) else {
             return false
         }
-        draw(image, into: buffer)
         let elapsed = Int64(timestampMicroseconds - (firstTimestamp ?? timestampMicroseconds))
         guard adaptor.append(buffer, withPresentationTime: CMTime(value: elapsed, timescale: Self.timescale)) else {
             return false
@@ -79,6 +108,12 @@ public actor FrameRecorder {
         lastTimestamp = timestampMicroseconds
         framesWritten += 1
         return true
+    }
+
+    private static func buffer(from pool: CVPixelBufferPool) -> CVPixelBuffer? {
+        var buffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess else { return nil }
+        return buffer
     }
 
     /// Ends the movie. With no frames written there is no movie: the file is removed and this
