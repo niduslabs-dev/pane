@@ -345,19 +345,23 @@ struct ExportGIFSheet: View {
     private var row: some View {
         Group {
             let shape = RoundedRectangle(cornerRadius: Theme.Sheet.cardRadius, style: .continuous)
-            HStack(spacing: Theme.Sheet.buttonGap) {
+            // The name has the row's whole width, over Choose another…, so the date and time
+            // that tell recordings apart stay visible. Past two lines it is cut in the middle
+            // (`noWrapLabel`, file names).
+            VStack(alignment: .leading, spacing: Theme.Sheet.descriptionGap) {
                 Text(recording.lastPathComponent)
                     .font(Theme.Typeface.sheetBody)
                     .foregroundStyle(Color(nsColor: Theme.Palette.text))
-                    .lineLimit(1)
+                    .lineLimit(Theme.Sheet.fileNameLines)
                     .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button("Choose another\u{2026}") {
                     close()
                     chooseAnother()
                 }
                 .buttonStyle(.nidusSmall)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Sheet.rowPaddingH)
             .padding(.vertical, Theme.Sheet.rowPaddingV)
             .background(shape.fill(Color(nsColor: Theme.Palette.sheetCard)))

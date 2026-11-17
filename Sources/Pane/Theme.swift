@@ -471,6 +471,8 @@ extension Theme {
         static let bodyGap = Space.l
         static let footerGap = Space.xl
         static let buttonGap = Space.s
+        /// A file name in a sheet row wraps to at most this many lines.
+        static let fileNameLines = 2
         static let fieldHeight = T.Size.Field.height
         static let fieldRadius = T.Radius.control
         static let fieldPaddingH = T.Size.Field.paddingX
