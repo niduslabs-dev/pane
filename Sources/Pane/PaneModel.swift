@@ -145,8 +145,14 @@ final class PaneModel {
     /// What the running screen stream was asked for, so a resize only restarts it on change.
     @ObservationIgnored private var streamRequest: StreamRequest?
     @ObservationIgnored private var restartFramesTask: Task<Void, Never>?
-    /// The orientation last asked for and not yet shown by the emulator.
-    @ObservationIgnored private var pendingQuadrants: Int?
+    /// The turns asked for and not yet shown by the emulator.
+    @ObservationIgnored private var rotations = RotationRequests()
+    /// The latest turn: its call, then the fresh frames that show it.
+    @ObservationIgnored private var rotationTask: Task<Void, Never>?
+    /// Counts the screen streams started, so a frame knows whether its stream is the latest.
+    @ObservationIgnored private var streamGeneration = 0
+    /// Frames the latest screen stream has delivered, in any orientation.
+    @ObservationIgnored private var streamFrames = 0
     /// The recording the frame loop feeds, readable off the main actor.
     @ObservationIgnored nonisolated let recorderSlot = RecorderSlot()
     @ObservationIgnored let log = Logger(subsystem: "dev.niduslabs.pane", category: "model")
@@ -872,30 +878,59 @@ final class PaneModel {
 
     /// Turns the device a quarter counter-clockwise (Device Hub's "Rotate Left"). The layout
     /// follows when the first frame in the new orientation arrives.
+    ///
+    /// The emulator sends a frame only when Android redraws, and a screen that doesn't turn
+    /// (the launcher, a portrait-only app, upside down on a phone) doesn't, so that frame
+    /// could take seconds or never come. Once the call returns, the stream restarts every
+    /// time its first frame (always sent) still shows the old orientation, until a frame
+    /// shows the turn or `rotationRefreshLimit` passes. A stream whose first frame takes
+    /// longer than `rotationRefresh` is restarted anyway. Presses count from the last turn asked for, so each
+    /// turns once more; their calls go out in order, and a newer press takes over the wait.
     func rotate() {
         guard let connection, status == .live else { return }
-        let quarterTurnsInACircle = 4
-        // The emulator can take seconds to show a turn; presses meanwhile count from the last
-        // one asked for, so each press turns once more.
-        let target = ((pendingQuadrants ?? quadrants) + 1) % quarterTurnsInACircle
-        pendingQuadrants = target
+        let target = rotations.ask(from: quadrants)
         releaseAll()
-        Task { [weak self] in
+        let previous = rotationTask
+        previous?.cancel()
+        rotationTask = Task { [weak self] in
+            await previous?.value
             do {
                 try await connection.rotate(toQuadrants: target)
-                try? await Task.sleep(for: Theme.Timing.rotationSettle)
             } catch {
                 self?.log.error("Rotate failed: \(String(describing: error), privacy: .public)")
+                self?.rotations.giveUp(on: target)
+                return
             }
-            // Never shown (or failed): stop waiting for it, so any orientation is followed again.
-            if let self, self.pendingQuadrants == target { self.pendingQuadrants = nil }
+            let deadline = ContinuousClock.now + Theme.Timing.rotationRefreshLimit
+            while let self, !Task.isCancelled, self.rotations.isWaiting(for: target), self.connection === connection,
+                ContinuousClock.now < deadline
+            {
+                self.restartFrames(on: connection)
+                let restartedAt = ContinuousClock.now
+                while !Task.isCancelled, self.streamFrames == 0, self.rotations.isWaiting(for: target),
+                    ContinuousClock.now - restartedAt < Theme.Timing.rotationRefresh
+                {
+                    try? await Task.sleep(for: Theme.Timing.rotationPoll)
+                }
+            }
+            guard let self, !Task.isCancelled, self.rotations.isWaiting(for: target) else { return }
+            self.log.info("Turn to \(target) not shown; following any orientation again")
+            self.rotations.giveUp(on: target)
         }
+    }
+
+    /// Asks for frames again with the same request: a new stream's first frame comes at
+    /// once, whether or not the screen changed.
+    private func restartFrames(on connection: EmulatorConnection) {
+        restartFramesTask?.cancel()
+        framesTask?.cancel()
+        startFrames(on: connection)
     }
 
     /// A frame arrived in another orientation than the stream was asked for: turn the layout
     /// (keeping the screen's size, within the display) and ask for frames in the new shape.
     private func orientationChanged(to newQuadrants: Int, on connection: EmulatorConnection) {
-        if newQuadrants == pendingQuadrants { pendingQuadrants = nil }
+        rotations.shown(newQuadrants)
         guard newQuadrants != quadrants else { return }
         log.info(
             "Orientation \(self.quadrants) -> \(newQuadrants), size \(self.sizeMode?.rawValue ?? "manual", privacy: .public)"
@@ -908,9 +943,7 @@ final class PaneModel {
             screenHeight = min(screenHeight, screenHeight(fitting: available, available: available))
         }
         relayout(resizeWindow: true)
-        restartFramesTask?.cancel()
-        framesTask?.cancel()
-        startFrames(on: connection)
+        restartFrames(on: connection)
     }
 
     // MARK: Connection
@@ -1027,6 +1060,9 @@ final class PaneModel {
     private func startFrames(on connection: EmulatorConnection) {
         let request = currentStreamRequest()
         streamRequest = request
+        streamGeneration += 1
+        streamFrames = 0
+        let generation = streamGeneration
         let size = request.size
         let screenView = screenView
         log.info("Requesting frames at \(size.description, privacy: .public)")
@@ -1046,15 +1082,14 @@ final class PaneModel {
                     // frame after the one Start wrote first is recorded, and none twice.
                     let recorder: FrameRecorder? = await MainActor.run {
                         guard let self, self.connection === connection else { return nil }
+                        if generation == self.streamGeneration { self.streamFrames += 1 }
                         // Frames in an orientation the stream wasn't asked for are dropped, and
                         // the stream restarts in the new one (as Android Studio does).
                         if frame.rotationQuadrants != self.streamRequest?.quadrants {
                             // While a turn is under way the emulator eases the angle and can
                             // pass through another orientation (180 to -90 goes via 0); only
-                            // the one asked for counts.
-                            if let pending = self.pendingQuadrants, frame.rotationQuadrants != pending {
-                                return nil
-                            }
+                            // the ones asked for count.
+                            guard self.rotations.follows(frame.rotationQuadrants) else { return nil }
                             self.orientationChanged(to: frame.rotationQuadrants, on: connection)
                             return nil
                         }
@@ -1093,7 +1128,9 @@ final class PaneModel {
         bootTask?.cancel()
         restartFramesTask?.cancel()
         streamRequest = nil
-        pendingQuadrants = nil
+        rotationTask?.cancel()
+        rotationTask = nil
+        rotations.reset()
         connection?.shutdown()
         framesTask = nil
         connectionTask = nil

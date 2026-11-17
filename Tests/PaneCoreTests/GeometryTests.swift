@@ -241,3 +241,45 @@ import Testing
         #expect([0, 1, 2, 3, 4, -1].map(EmulatorConnection.zRotationDegrees(quadrants:)) == [0, 90, 180, -90, 0, -90])
     }
 }
+
+/// Which orientations a rotation follows while turns are waiting.
+struct RotationRequestsTests {
+    @Test func eachPressTurnsOnceMoreFromTheLastAsked() {
+        var requests = RotationRequests()
+        #expect(requests.ask(from: 0) == 1)
+        #expect(requests.ask(from: 0) == 2)
+        #expect(requests.ask(from: 0) == 3)
+        #expect(requests.ask(from: 0) == 0)
+        #expect(requests.waiting == [1, 2, 3, 0])
+    }
+
+    @Test func aLateFrameForAnEarlierPressIsStillFollowed() {
+        var requests = RotationRequests()
+        _ = requests.ask(from: 0)
+        _ = requests.ask(from: 0)
+        #expect(requests.follows(1))
+        requests.shown(1)
+        #expect(requests.waiting == [2])
+        #expect(requests.isWaiting(for: 2))
+    }
+
+    @Test func anOrientationOnTheWayIsIgnoredWhileWaiting() {
+        var requests = RotationRequests()
+        _ = requests.ask(from: 2)
+        #expect(requests.follows(3))
+        #expect(!requests.follows(0))
+        requests.shown(3)
+        #expect(requests.follows(0))
+    }
+
+    @Test func givingUpOnTheLatestFollowsAnythingAgain() {
+        var requests = RotationRequests()
+        _ = requests.ask(from: 0)
+        let latest = requests.ask(from: 0)
+        requests.giveUp(on: 1)
+        #expect(requests.isWaiting(for: latest))
+        requests.giveUp(on: latest)
+        #expect(requests.waiting.isEmpty)
+        #expect(requests.follows(0))
+    }
+}

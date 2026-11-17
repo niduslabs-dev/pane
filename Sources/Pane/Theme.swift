@@ -802,8 +802,16 @@ extension Theme {
         static let wheelLinePoints: CGFloat = 24
         /// Lift the wheel's finger once the wheel has been still this long.
         static let wheelRelease: Duration = .milliseconds(150)
-        /// How long a turn may take to show before Pane stops waiting for it.
-        static let rotationSettle: Duration = .seconds(10)
+        /// After a turn's call returns, the screen stream restarts until a frame shows the
+        /// turn: a new stream's first frame comes about 145 ms after it starts, and the
+        /// emulator flips the frames' orientation about 150 to 280 ms after the call
+        /// (`.claude/research/timer-rotate-trace.md`). A stream whose first frame hasn't come
+        /// by this is restarted anyway.
+        static let rotationRefresh: Duration = .milliseconds(300)
+        /// How often that wait checks for the new stream's first frame.
+        static let rotationPoll: Duration = .milliseconds(10)
+        /// Stop restarting, and follow any orientation again, after this long.
+        static let rotationRefreshLimit: Duration = .seconds(2)
         /// How often the Mac's clipboard is checked for a change while the window is key.
         static let clipboardPoll: Duration = .milliseconds(500)
         /// Between setting the device's clipboard and pressing paste: `setClipboard` returns
