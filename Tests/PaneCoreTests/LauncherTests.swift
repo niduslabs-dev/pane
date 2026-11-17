@@ -107,7 +107,7 @@ import Testing
         let stopped = await EmulatorLauncher.stop(
             pid: sleeper.processIdentifier, gracePeriod: .seconds(2), killWait: .seconds(1),
             pollInterval: .milliseconds(20))
-        sleeper.waitUntilExit()
+        await waitForExit(sleeper)
         #expect(stopped)
     }
 
@@ -132,7 +132,7 @@ import Testing
         for name in ["first", "second"] {
             let launched = try await EmulatorLauncher.launch(
                 executable: echo, avdName: name, outputLog: log, helper: nil)
-            launched.process?.waitUntilExit()
+            if let process = launched.process { await waitForExit(process) }
         }
         let current = try String(contentsOf: log, encoding: .utf8)
         let previous = try String(contentsOf: EmulatorLauncher.previousOutputLog(for: log), encoding: .utf8)
@@ -150,7 +150,7 @@ import Testing
         #expect(launched.isAlive)
         #expect(launched.exitStatus == nil)
         // `sleep` rejects the emulator's arguments and exits with an error.
-        launched.process?.waitUntilExit()
+        if let process = launched.process { await waitForExit(process) }
         #expect(!launched.isAlive)
         #expect(launched.exitStatus == 1)
     }
@@ -212,3 +212,12 @@ import Testing
         #expect(await EmulatorLauncher.readPID(from: file, within: brief, pollInterval: poll) == nil)
     }
 }
+
+/// Waits for `process` to end without blocking a Swift concurrency thread, as
+/// `waitUntilExit()` would: on a machine with few cores, blocked threads starve the other
+/// tests running in parallel.
+private func waitForExit(_ process: Process) async {
+    while process.isRunning { try? await Task.sleep(for: exitPollInterval) }
+}
+
+private let exitPollInterval: Duration = .milliseconds(10)

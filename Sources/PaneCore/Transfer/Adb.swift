@@ -176,7 +176,7 @@ public struct Adb: Sendable {
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
         // Read while it runs: adb's push progress can fill the pipe.
-        let reader = Task.detached { pipe.fileHandleForReading.readDataToEndOfFile() }
+        async let output = readToEnd(pipe.fileHandleForReading)
         let status: Int32 = try await withCheckedThrowingContinuation { continuation in
             process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
             do {
@@ -187,6 +187,18 @@ public struct Adb: Sendable {
                 continuation.resume(throwing: error)
             }
         }
-        return (status, await reader.value)
+        return (status, await output)
+    }
+
+    /// Reads `handle` until every writer has closed it, on a Dispatch thread. The read blocks
+    /// for as long as the tool runs, and on a Swift concurrency thread it can take the last one
+    /// the cooperative pool has (one per core): then the timeout that would stop the tool never
+    /// runs, and nothing else async in the process does either.
+    static func readToEnd(_ handle: FileHandle) async -> Data {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: handle.readDataToEndOfFile())
+            }
+        }
     }
 }

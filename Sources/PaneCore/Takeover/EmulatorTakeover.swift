@@ -51,16 +51,19 @@ public enum EmulatorTakeover {
         process.standardOutput = pipe
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
+        // Read while it runs, so a long output can't fill the pipe and stall the script.
+        async let data = Adb.readToEnd(pipe.fileHandleForReading)
         let status: Int32 = try await withCheckedThrowingContinuation { continuation in
             process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
             do {
                 try process.run()
             } catch {
                 process.terminationHandler = nil
+                try? pipe.fileHandleForWriting.close()
                 continuation.resume(throwing: error)
             }
         }
-        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let output = String(decoding: await data, as: UTF8.self)
         guard status == 0 else { throw Failure(status: status, output: output) }
         return output
     }
