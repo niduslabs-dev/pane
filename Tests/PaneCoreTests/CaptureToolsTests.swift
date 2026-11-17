@@ -33,7 +33,7 @@ private func solid(width: Int, height: Int, red: CGFloat, green: CGFloat, blue: 
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let movie = folder.appending(path: "in.mov")
-        let recorder = try FrameRecorder(url: movie, size: PixelSize(width: 160, height: 320))
+        let recorder = FrameRecorder(url: movie, size: PixelSize(width: 160, height: 320))
         let start: UInt64 = 1_000_000
         for index in 0..<6 {
             await recorder.append(

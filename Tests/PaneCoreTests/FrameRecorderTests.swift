@@ -25,7 +25,7 @@ import Testing
         let url = scratchURL()
         defer { try? FileManager.default.removeItem(at: url) }
         // An odd size is rounded down to even for H.264.
-        let recorder = try FrameRecorder(url: url, size: PixelSize(width: 161, height: 351))
+        let recorder = FrameRecorder(url: url, size: PixelSize(width: 161, height: 351))
         let start: UInt64 = 1_700_000_000_000_000
         // Uneven gaps, as a change-driven stream sends: 0, 16 ms, 50 ms, 1 s, 1.5 s.
         let offsets: [UInt64] = [0, 16_000, 50_000, 1_000_000, 1_500_000]
@@ -58,7 +58,7 @@ import Testing
 
     @Test func noFramesMeansNoMovie() async throws {
         let url = scratchURL()
-        let recorder = try FrameRecorder(url: url, size: PixelSize(width: 64, height: 64))
+        let recorder = FrameRecorder(url: url, size: PixelSize(width: 64, height: 64))
         await #expect(throws: FrameRecorder.RecorderError.notRecording) { try await recorder.finish() }
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
@@ -96,7 +96,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: url) }
         let start: UInt64 = 1_700_000_000_000_000
         let onScreen = try frame(width: 64, height: 128, gray: 200, timestamp: start - 3_000_000)
-        let recorder = try FrameRecorder(
+        let recorder = FrameRecorder(
             url: url, size: PixelSize(width: 64, height: 128), start: start, firstFrame: onScreen)
         try await recorder.finish(at: start + 5_000_000, onScreen: onScreen, wait: wait)
         #expect(await recorder.framesWritten == 2)
@@ -111,7 +111,7 @@ import Testing
         let url = scratchURL()
         defer { try? FileManager.default.removeItem(at: url) }
         let start: UInt64 = 1_700_000_000_000_000
-        let recorder = try FrameRecorder(
+        let recorder = FrameRecorder(
             url: url, size: PixelSize(width: 64, height: 128), start: start,
             firstFrame: try frame(width: 64, height: 128, gray: 220, timestamp: start - 1_000_000))
         let shown = try frame(width: 64, height: 128, gray: 20, timestamp: start + 1_000_000)
@@ -142,7 +142,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: url) }
         let start: UInt64 = 1_700_000_000_000_000
         let size = PixelSize(width: 64, height: 128)
-        let recorder = try FrameRecorder(
+        let recorder = FrameRecorder(
             url: url, size: size, start: start,
             firstFrame: try frame(width: 64, height: 128, gray: 10, timestamp: start - 1_000_000))
         #expect(await recorder.append(try frame(width: 64, height: 128, gray: 90, timestamp: start + 1_000_000)))
@@ -162,7 +162,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: url) }
         let start: UInt64 = 1_700_000_000_000_000
         let onScreen = try frame(width: 64, height: 128, gray: 50, timestamp: start - 1)
-        let recorder = try FrameRecorder(
+        let recorder = FrameRecorder(
             url: url, size: PixelSize(width: 64, height: 128), start: start, firstFrame: onScreen)
         try await recorder.finish(at: start, onScreen: onScreen, wait: wait)
         #expect(await recorder.framesWritten == 2)
@@ -173,11 +173,48 @@ import Testing
     @Test func noFrameAtAllMeansNoMovie() async throws {
         let url = scratchURL()
         let start: UInt64 = 1_700_000_000_000_000
-        let recorder = try FrameRecorder(url: url, size: PixelSize(width: 64, height: 64), start: start)
+        let recorder = FrameRecorder(url: url, size: PixelSize(width: 64, height: 64), start: start)
         await #expect(throws: FrameRecorder.RecorderError.notRecording) {
             try await recorder.finish(at: start + 1_000_000, wait: wait)
         }
         #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    /// Start can't run on the main actor's time, so Record's press only makes the recorder; the
+    /// writer starts on the actor, or on the first frame when nobody called `start()`.
+    @Test func theWriterStartsOnTheActorNotAtCreation() async throws {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let start: UInt64 = 1_700_000_000_000_000
+        let onScreen = try frame(width: 64, height: 128, gray: 50, timestamp: start - 1)
+        let recorder = FrameRecorder(
+            url: url, size: PixelSize(width: 64, height: 128), start: start, firstFrame: onScreen)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        try await recorder.start()
+        try await recorder.start()
+        #expect(await recorder.append(try frame(width: 64, height: 128, gray: 90, timestamp: start + 10_000)))
+        try await recorder.finish(at: start + 50_000, wait: wait)
+        // The frame on screen at Start, the one after it, and the last one again at Stop.
+        #expect(await recorder.framesWritten == 3)
+    }
+
+    /// A writer that can't start fails every step the same way, so Record's rollback and
+    /// Stop's "couldn't save" see the same error whichever comes first.
+    @Test func aWriterThatCantStartFailsEveryStep() async throws {
+        let missing = FileManager.default.temporaryDirectory.appending(path: "pane-missing-\(UUID().uuidString)")
+        let url = missing.appending(path: "movie.mov")
+        let start: UInt64 = 1_700_000_000_000_000
+        let onScreen = try frame(width: 64, height: 128, gray: 50, timestamp: start - 1)
+        let recorder = FrameRecorder(
+            url: url, size: PixelSize(width: 64, height: 128), start: start, firstFrame: onScreen)
+        await #expect(throws: FrameRecorder.RecorderError.self) { try await recorder.start() }
+        await #expect(throws: FrameRecorder.RecorderError.self) { try await recorder.start() }
+        #expect(!(await recorder.append(try frame(width: 64, height: 128, gray: 90, timestamp: start + 10_000))))
+        await #expect(throws: FrameRecorder.RecorderError.self) {
+            try await recorder.finish(at: start + 50_000, onScreen: onScreen, wait: wait)
+        }
+        #expect(await recorder.framesWritten == 0)
+        #expect(!FileManager.default.fileExists(atPath: missing.path))
     }
 
     @Test func aspectFitCentres() {

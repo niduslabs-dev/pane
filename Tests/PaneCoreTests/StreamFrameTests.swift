@@ -131,7 +131,7 @@ import Testing
     @Test func recordsStreamedFrames() async throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "pane-stream-\(UUID().uuidString).mov")
         defer { try? FileManager.default.removeItem(at: url) }
-        let recorder = try FrameRecorder(url: url, size: PixelSize(width: 16, height: 32))
+        let recorder = FrameRecorder(url: url, size: PixelSize(width: 16, height: 32))
         let pool = FramePixelBufferPool()
         for (index, size) in [(16, 32), (16, 32), (32, 16)].enumerated() {
             let bytes = try Self.imageMessage(

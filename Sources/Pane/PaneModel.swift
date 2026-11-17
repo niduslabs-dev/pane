@@ -806,20 +806,39 @@ final class PaneModel {
     /// Records the frames already arriving into a movie in the screenshot folder, starting with
     /// the frame on screen now, so a screen that never changes still makes a movie. A movie is
     /// always a file, whatever macOS's recording target says (`CaptureOutcome`).
+    ///
+    /// The button shows recording at once; the writer is set up off the main actor
+    /// (`FrameRecorder.start()`), since that can take 150 ms. If it can't start, the button
+    /// goes back and Pane beeps, as when it failed before the button changed. A Stop that comes
+    /// first ends it instead, through Stop's own "couldn't save" path.
     private func startRecording(animation: Animation?) {
         guard status == .live, let size = streamRequest?.size else { return }
         let now = Date()
         let url = CaptureFileName.unusedURL(
             in: Self.captureFolder, prefix: "Pane Recording", date: now, fileExtension: "mov")
-        do {
-            recorderSlot.current = try FrameRecorder(
-                url: url, size: size, start: FrameStats.microseconds(at: now), firstFrame: screenView.latestFrame)
-            withAnimation(animation) { recordingStartedAt = now }
-            log.info("Recording to \(url.lastPathComponent, privacy: .public)")
-        } catch {
-            log.error("Recording failed to start: \(String(describing: error), privacy: .public)")
-            NSSound.beep()
+        let recorder = FrameRecorder(
+            url: url, size: size, start: FrameStats.microseconds(at: now), firstFrame: screenView.latestFrame)
+        recorderSlot.current = recorder
+        withAnimation(animation) { recordingStartedAt = now }
+        log.info("Recording to \(url.lastPathComponent, privacy: .public)")
+        let log = log
+        Task { [weak self] in
+            do {
+                try await recorder.start()
+            } catch {
+                log.error("Recording failed to start: \(String(describing: error), privacy: .public)")
+                self?.recordingFailedToStart(recorder, animation: animation)
+            }
         }
+    }
+
+    /// Takes the button back out of recording after `recorder` couldn't start, unless Stop
+    /// already ended it.
+    private func recordingFailedToStart(_ recorder: FrameRecorder, animation: Animation?) {
+        guard recorderSlot.current === recorder else { return }
+        recorderSlot.current = nil
+        withAnimation(animation) { recordingStartedAt = nil }
+        NSSound.beep()
     }
 
     /// Ends the recording, if any, and returns once the movie is written. The frame on screen

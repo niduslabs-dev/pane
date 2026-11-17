@@ -11,17 +11,30 @@ import CoreVideo
 /// recording (`RecordingTimeline`). The movie's size is the one asked for, rounded down to even
 /// numbers for H.264; frames of another size (a resize or rotation mid-recording) are drawn
 /// aspect-fit on black.
+///
+/// Creating a recorder does no work: the writer is set up by `start()`, on the actor, never on
+/// the caller's thread. Setting it up lists the Mac's video encoders (`VTCopyVideoEncoderList`,
+/// about 150 ms the first time in a process, 25 ms after), which froze the window when Record
+/// was pressed. The first `append` or `finish` starts it if `start()` wasn't called, so frames
+/// and Stop keep their order whichever comes first.
 public actor FrameRecorder {
     public enum RecorderError: Error, Equatable {
         case cannotStart(String)
         case notRecording
     }
 
+    /// The writer and its input, made by `start()`.
+    private struct Session {
+        let writer: AVAssetWriter
+        let input: AVAssetWriterInput
+        let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    }
+
     public nonisolated let url: URL
-    private let writer: AVAssetWriter
-    private let input: AVAssetWriterInput
-    private let adaptor: AVAssetWriterInputPixelBufferAdaptor
     private let size: PixelSize
+    /// Nil until `start()`; `startError` says why when it couldn't start.
+    private var session: Session?
+    private var startError: RecorderError?
     private var timeline: RecordingTimeline
     /// The frame on screen at Start, written at time 0 before anything else.
     private var seed: StreamFrame?
@@ -51,28 +64,43 @@ public actor FrameRecorder {
     ///   - start: Start in the frames' clock (wall-clock microseconds). Nil makes the first
     ///     frame written Start.
     ///   - firstFrame: the frame on screen at Start, written at time 0.
-    public init(url: URL, size: PixelSize, start: UInt64? = nil, firstFrame: StreamFrame? = nil) throws {
+    public init(url: URL, size: PixelSize, start: UInt64? = nil, firstFrame: StreamFrame? = nil) {
         timeline = RecordingTimeline(origin: start)
         seed = start == nil ? nil : firstFrame
-        let even = PixelSize(width: max(2, size.width / 2 * 2), height: max(2, size.height / 2 * 2))
         self.url = url
-        self.size = even
+        self.size = PixelSize(width: max(2, size.width / 2 * 2), height: max(2, size.height / 2 * 2))
+    }
+
+    /// Sets up the writer. Runs once: later calls return at once, or throw the first call's
+    /// error again. Throws `cannotStart` when the file or the H.264 encoder can't be used.
+    public func start() throws {
+        if session != nil { return }
+        if let startError { throw startError }
         do {
-            writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+            session = try Self.makeSession(url: url, size: size)
+        } catch let error as RecorderError {
+            startError = error
+            throw error
         } catch {
-            throw RecorderError.cannotStart(String(describing: error))
+            let wrapped = RecorderError.cannotStart(String(describing: error))
+            startError = wrapped
+            throw wrapped
         }
-        input = AVAssetWriterInput(
+    }
+
+    private static func makeSession(url: URL, size: PixelSize) throws -> Session {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(
             mediaType: .video,
             outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: even.width, AVVideoHeightKey: even.height,
+                AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: size.width, AVVideoHeightKey: size.height,
             ])
         input.expectsMediaDataInRealTime = true
-        adaptor = AVAssetWriterInputPixelBufferAdaptor(
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: input,
             sourcePixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: even.width, kCVPixelBufferHeightKey as String: even.height,
+                kCVPixelBufferWidthKey as String: size.width, kCVPixelBufferHeightKey as String: size.height,
             ])
         guard writer.canAdd(input) else { throw RecorderError.cannotStart("The writer can't take H.264 video.") }
         writer.add(input)
@@ -80,6 +108,7 @@ public actor FrameRecorder {
             throw RecorderError.cannotStart(String(describing: writer.error))
         }
         writer.startSession(atSourceTime: .zero)
+        return Session(writer: writer, input: input, adaptor: adaptor)
     }
 
     /// Adds one frame stamped `timestampMicroseconds` (the emulator's clock). A frame stamped no
@@ -134,12 +163,15 @@ public actor FrameRecorder {
     private func append(
         timestampMicroseconds: UInt64, at fixedTime: Int64? = nil, frame: (CVPixelBufferPool) -> CVPixelBuffer?
     ) -> Bool {
-        guard !finished, writer.status == .writing else { return false }
-        guard input.isReadyForMoreMediaData, let pool = adaptor.pixelBufferPool, let buffer = frame(pool) else {
+        guard !finished, (try? start()) != nil, let session, session.writer.status == .writing else { return false }
+        guard session.input.isReadyForMoreMediaData, let pool = session.adaptor.pixelBufferPool,
+            let buffer = frame(pool)
+        else {
             return false
         }
         let time = fixedTime ?? timeline.time(forFrameAt: timestampMicroseconds)
-        guard adaptor.append(buffer, withPresentationTime: CMTime(value: time, timescale: Self.timescale)) else {
+        guard session.adaptor.append(buffer, withPresentationTime: CMTime(value: time, timescale: Self.timescale))
+        else {
             return false
         }
         timeline.wrote(at: time, timestamp: timestampMicroseconds)
@@ -159,10 +191,16 @@ public actor FrameRecorder {
     /// there so the movie lasts until Stop; `onScreen` is the frame showing at Stop, written
     /// instead when it is newer than the last one the recorder got. Without Stop the movie ends
     /// at its last frame. With no frames written there is no movie: the file is removed and
-    /// this throws `notRecording`.
+    /// this throws `notRecording`; when the writer couldn't start, `start()`'s error.
     public func finish(at stop: UInt64? = nil, onScreen: StreamFrame? = nil, wait: EncoderWait? = nil) async throws {
         guard !finished, !closing else { return }
         closing = true
+        do {
+            try start()
+        } catch {
+            finished = true
+            throw error
+        }
         if seed != nil {
             await waitForEncoder(wait)
             writeSeed()
@@ -171,16 +209,16 @@ public actor FrameRecorder {
             await writeClosingFrame(at: stop, onScreen: onScreen, wait: wait)
         }
         finished = true
-        guard framesWritten > 0, let lastWritten = timeline.lastWritten else {
-            writer.cancelWriting()
+        guard let session, framesWritten > 0, let lastWritten = timeline.lastWritten else {
+            session?.writer.cancelWriting()
             try? FileManager.default.removeItem(at: url)
             throw RecorderError.notRecording
         }
-        input.markAsFinished()
-        writer.endSession(atSourceTime: CMTime(value: lastWritten, timescale: Self.timescale))
-        await writer.finishWriting()
-        if writer.status != .completed {
-            throw RecorderError.cannotStart(String(describing: writer.error))
+        session.input.markAsFinished()
+        session.writer.endSession(atSourceTime: CMTime(value: lastWritten, timescale: Self.timescale))
+        await session.writer.finishWriting()
+        if session.writer.status != .completed {
+            throw RecorderError.cannotStart(String(describing: session.writer.error))
         }
     }
 
@@ -225,7 +263,7 @@ public actor FrameRecorder {
         guard let wait else { return }
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: wait.limit)
-        while !input.isReadyForMoreMediaData, clock.now < deadline {
+        while session?.input.isReadyForMoreMediaData == false, clock.now < deadline {
             try? await Task.sleep(for: wait.poll)
         }
     }
