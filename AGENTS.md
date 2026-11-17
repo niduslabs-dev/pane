@@ -73,7 +73,7 @@ Everything Pane does that is not on a board or differs from the kit (`../docs/de
 - **Destructive sheet buttons have no trash icon** (Button's destructive variant draws one): Restart emulator and Shut down emulator delete nothing, so a trash would say the wrong thing. Proposed by the kit-sync agent, 2026-11-17. Approved by Jatin, 2026-11-17.
 - **Menus, the ⓘ popover and the inspect card blur within the window** (`inkGlass` says a behind-window `.hudWindow` blur): `surfaceMenu` dark (and `tool.chip`) over a within-window `.hudWindow` blur, solid under Reduce Transparency or Increase Contrast. Why: they are drawn inside Pane's window over the device, so a behind-window blur would blur the desktop and leave the device's text sharp under them. Proposed by the review-fix agent. Approved by Jatin, 2026-11-17.
 
-- **Emulator switcher, proposed by the build agent, 2026-11-18 (waiting for Jatin):**
+- **Emulator switcher, proposed by the build agent, 2026-11-18. Approved by Jatin, 2026-11-18:**
   - The trigger's focus ring is reached by Esc from the open switcher, not by Tab (board 20 says "Tab reaches the name first"). Why: Tab in the emulator window is the device's own key (`KeyMapping`), and taking it would stop Tab reaching Android. VoiceOver presses the trigger as before.
   - Pressed and open look the same (the 12% shade): the switcher opens on mouse down, as a pop-up button does, so there is no separate pressed moment.
 - **Drag and drop, proposed by the build agent, 2026-11-17:**
