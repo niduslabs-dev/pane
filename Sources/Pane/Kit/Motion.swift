@@ -66,10 +66,14 @@ struct StatusSwap<Key: Hashable, Content: View>: View {
 /// At rest it is one `Text`, so still frames are exactly a `Text`'s. A change is measured
 /// first: for one frame, `GlyphProbe`s lay out the old and new text without drawing them,
 /// giving each character's x in the real layout (adding up per-character widths drifts,
-/// since each `Text` rounds its own width to the pixel grid). The roll then draws one
-/// `Text` per character at those positions, over a hidden `Text` of the new text that
-/// sets the size, and merges back into one `Text` once the last character settles. Font
-/// and colour come from the environment, as for `Text`.
+/// since each `Text` rounds its own width to the pixel grid). During the roll the new text
+/// is still drawn whole, as one `Text` whose `RollBaseRenderer` leaves out the changed
+/// characters and slides the unchanged ones from their old x. So an unchanged character
+/// keeps the shape it has in context: SF draws a raised colon between digits, and a lone
+/// ":" drawn on its own would sit lower. Only the changed characters are drawn one `Text`
+/// each, over it, at their measured x. A hidden `Text` of the settled text sets the size,
+/// and everything merges back into one `Text` once the last character settles. Font and
+/// colour come from the environment, as for `Text`.
 struct RollingNumber: View {
     let text: String
     /// The number the text shows, when it has one: the roll goes down when it falls, as
@@ -83,7 +87,13 @@ struct RollingNumber: View {
     @State private var pending: String?
     @State private var layouts: [String: [GlyphProbe.Cluster]] = [:]
     /// The characters on screen while rolling; nil at rest.
-    @State private var glyphs: [Glyph]?
+    @State private var glyphs: [RollGlyph]?
+    /// The text the roll is heading to, drawn whole without its changed characters; nil
+    /// at rest.
+    @State private var base: RollBase?
+    /// How much of their slide the base's unchanged characters have still to make: 1 as
+    /// the roll starts, 0 once settled.
+    @State private var baseProgress: Double = 0
     @State private var lastValue: Double?
     @State private var nextID = 0
     /// Bumped by each change, so work queued for an older one does nothing.
@@ -102,7 +112,11 @@ struct RollingNumber: View {
             .overlay(alignment: .topLeading) {
                 if let glyphs {
                     ZStack(alignment: .topLeading) {
-                        ForEach(glyphs) { RollingGlyph(glyph: $0, reduceMotion: reduceMotion) }
+                        if let base {
+                            Text(base.text).fixedSize()
+                                .textRenderer(RollBaseRenderer(base: base, progress: baseProgress))
+                        }
+                        ForEach(glyphs.filter { !$0.inBase }) { RollingGlyph(glyph: $0, reduceMotion: reduceMotion) }
                     }
                     .accessibilityHidden(true)
                 }
@@ -139,10 +153,11 @@ struct RollingNumber: View {
         }
     }
 
-    /// Once the old and new layouts are both in, places the glyphs where they start (the
-    /// old characters exactly where the single `Text` drew them, the new ones waiting out
-    /// of sight), then moves them all on the next update: a view has to be drawn in its
-    /// starting state before a change of state can animate it.
+    /// Once the old and new layouts are both in, places everything where it starts (the
+    /// new text whole with its unchanged characters at their old x, the old characters
+    /// that change exactly where the single `Text` drew them, the new ones waiting out of
+    /// sight), then moves it all on the next update: a view has to be drawn in its starting
+    /// state before a change of state can animate it.
     private func measured(_ string: String, _ clusters: [GlyphProbe.Cluster]?) {
         guard let new = pending, string == new || (glyphs == nil && string == settled),
             layouts[string] == nil
@@ -150,19 +165,26 @@ struct RollingNumber: View {
         guard let clusters else { return merge(into: new) }
         layouts[string] = clusters
         guard let target = layouts[new] else { return }
-        let from: [Glyph]
+        let from: [RollGlyph]
         if let glyphs {
-            from = glyphs.filter { $0.phase != .leaving }
+            from = RollGlyph.onScreenText(glyphs)
         } else {
             guard let start = layouts[settled] else { return }
-            from = start.map { Glyph(id: newID(), text: $0.text, x: $0.x) }
+            from = start.enumerated().map { index, cluster in
+                RollGlyph(id: newID(), text: cluster.text, x: cluster.x, index: index, inBase: true)
+            }
         }
         let falling = value.flatMap { now in lastValue.map { now < $0 } } ?? false
         lastValue = value
-        let staged = stage(from: from, to: target, falling: falling)
+        let now = ContinuousClock.now
+        let staged = RollGlyph.stage(
+            leftover: glyphs?.filter { $0.index == nil && !$0.isGone(at: now) } ?? [], from: from, to: target,
+            falling: falling, reduceMotion: reduceMotion, newID: newID)
         withTransaction(Self.still) {
             pending = nil
             glyphs = staged
+            base = RollBase(text: new, clusters: target, glyphs: staged)
+            baseProgress = 1
         }
         let mine = generation
         Task { @MainActor in
@@ -171,42 +193,11 @@ struct RollingNumber: View {
         }
     }
 
-    /// The glyphs at the start of a roll: leaving ones still on their way out, the old
-    /// characters (each kept or marked to leave), and the new ones waiting to arrive.
-    private func stage(from: [Glyph], to target: [GlyphProbe.Cluster], falling: Bool) -> [Glyph] {
-        let diff = RollDiff(from: from.map(\.text), to: target.map(\.text))
-        let rise = (falling ? -1 : 1) * Kit.Motion.rollRise
-        let stagger = reduceMotion ? 0 : Kit.Motion.rollStagger(slots: diff.slots)
-        let now = ContinuousClock.now
-        var staged = glyphs?.filter { $0.phase == .leaving && !$0.isGone(at: now) } ?? []
-        var keptOld = Set<Int>()
-        var arriving: [Glyph] = []
-        for (index, cluster) in target.enumerated() {
-            if let old = diff.kept[index], !(reduceMotion && from[old].x != cluster.x) {
-                keptOld.insert(old)
-                var glyph = from[old]
-                glyph.targetX = cluster.x
-                staged.append(glyph)
-            } else {
-                let delay = Double(diff.entering[index] ?? 0) * stagger
-                arriving.append(
-                    Glyph(id: newID(), text: cluster.text, x: cluster.x, phase: .arriving, rise: rise, delay: delay))
-            }
-        }
-        for (index, glyph) in from.enumerated() where !keptOld.contains(index) {
-            var leaving = glyph
-            leaving.phase = .toLeave
-            leaving.rise = rise
-            leaving.delay = Double(diff.leaving[index] ?? 0) * stagger
-            staged.append(leaving)
-        }
-        return staged + arriving
-    }
-
     private func roll(to new: String) {
         guard let staged = glyphs else { return }
         withAnimation(reduceMotion ? Kit.Motion.fade : Kit.Motion.numbers) {
             settled = new
+            baseProgress = 0
             glyphs = staged.map { glyph in
                 var moved = glyph
                 moved.x = glyph.targetX
@@ -236,6 +227,8 @@ struct RollingNumber: View {
             settled = new
             pending = nil
             glyphs = nil
+            base = nil
+            baseProgress = 0
             layouts = [:]
         }
     }
@@ -253,7 +246,7 @@ struct RollingNumber: View {
 }
 
 /// One character of a rolling number, at its x in the laid-out text.
-private struct Glyph: Identifiable {
+struct RollGlyph: Identifiable, Equatable {
     enum Phase {
         /// Waiting below (above, when falling) to come in.
         case arriving
@@ -268,6 +261,11 @@ private struct Glyph: Identifiable {
     var x: CGFloat
     /// Where the roll takes it.
     var targetX: CGFloat
+    /// Its cluster in the text the roll is heading to; nil once it is leaving.
+    var index: Int?
+    /// Drawn as part of the whole text (`RollBase`), not on its own: true for a character
+    /// that was in the text at rest and hasn't changed since.
+    var inBase: Bool
     var phase: Phase
     /// Signed: positive arrives from below and leaves upward.
     var rise: CGFloat
@@ -283,22 +281,124 @@ private struct Glyph: Identifiable {
         return now - leftAt > .seconds(delay + Kit.Motion.rollSettle)
     }
 
-    init(id: Int, text: String, x: CGFloat, phase: Phase = .shown, rise: CGFloat = 0, delay: Double = 0) {
+    init(
+        id: Int, text: String, x: CGFloat, index: Int?, inBase: Bool, phase: Phase = .shown, rise: CGFloat = 0,
+        delay: Double = 0
+    ) {
         self.id = id
         self.text = text
         self.x = x
         self.targetX = x
+        self.index = index
+        self.inBase = inBase
         self.phase = phase
         self.rise = rise
         self.delay = delay
     }
+
+    /// The characters of the text a roll on screen is heading to, in order: what a change
+    /// that comes mid-roll rolls from.
+    static func onScreenText(_ glyphs: [RollGlyph]) -> [RollGlyph] {
+        glyphs.filter { $0.index != nil }.sorted { ($0.index ?? 0) < ($1.index ?? 0) }
+    }
+
+    /// The glyphs at the start of a roll: leaving ones still on their way out, the old
+    /// characters (each kept or marked to leave), and the new ones waiting to arrive.
+    static func stage(
+        leftover: [RollGlyph], from: [RollGlyph], to target: [GlyphProbe.Cluster], falling: Bool,
+        reduceMotion: Bool, newID: () -> Int
+    ) -> [RollGlyph] {
+        let diff = RollDiff(from: from.map(\.text), to: target.map(\.text))
+        let rise = (falling ? -1 : 1) * Kit.Motion.rollRise
+        let stagger = reduceMotion ? 0 : Kit.Motion.rollStagger(slots: diff.slots)
+        var staged = leftover
+        var keptOld = Set<Int>()
+        var arriving: [RollGlyph] = []
+        for (index, cluster) in target.enumerated() {
+            if let old = diff.kept[index], !(reduceMotion && from[old].x != cluster.x) {
+                keptOld.insert(old)
+                var glyph = from[old]
+                glyph.targetX = cluster.x
+                glyph.index = index
+                staged.append(glyph)
+            } else {
+                let delay = Double(diff.entering[index] ?? 0) * stagger
+                arriving.append(
+                    RollGlyph(
+                        id: newID(), text: cluster.text, x: cluster.x, index: index, inBase: false, phase: .arriving,
+                        rise: rise, delay: delay))
+            }
+        }
+        for (index, glyph) in from.enumerated() where !keptOld.contains(index) {
+            var leaving = glyph
+            leaving.phase = .toLeave
+            leaving.rise = rise
+            leaving.delay = Double(diff.leaving[index] ?? 0) * stagger
+            leaving.index = nil
+            leaving.inBase = false
+            staged.append(leaving)
+        }
+        return staged + arriving
+    }
 }
 
-/// Draws a `Glyph`: the move and scale on `rollSpring`, the fade evenly over
-/// `rollFadeDuration` and the blur over the shorter `rollBlurDuration`, each after the
-/// glyph's delay. Reduce Motion: only the fade.
+/// The text a roll is heading to, as `RollBaseRenderer` draws it: only the unchanged
+/// characters, each starting `kept` points right of its place (left, when negative).
+struct RollBase: Equatable {
+    let text: String
+    /// Each cluster's UTF-16 offset in `text`.
+    let starts: [Int]
+    /// Cluster index → where it starts, from its place in the new layout.
+    let kept: [Int: CGFloat]
+
+    init(text: String, clusters: [GlyphProbe.Cluster], glyphs: [RollGlyph]) {
+        self.text = text
+        starts = GlyphProbe.starts(of: clusters)
+        var kept: [Int: CGFloat] = [:]
+        for glyph in glyphs where glyph.inBase {
+            if let index = glyph.index { kept[index] = glyph.x - glyph.targetX }
+        }
+        self.kept = kept
+    }
+}
+
+/// Draws a `RollBase` from the real layout of its whole text, so each character keeps its
+/// contextual shape, kerning and pixel placement: the changed characters are left out,
+/// and each unchanged one is drawn `progress` of the way back towards where it started.
+/// `progress` animates with the roll, as the separate characters' x did.
+struct RollBaseRenderer: TextRenderer {
+    let base: RollBase
+    var progress: Double
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        let slices = layout.flatMap { line in line.flatMap { run in Array(run) } }
+        guard let first = slices.compactMap({ $0.characterIndices.min() }).min() else { return }
+        for slice in slices {
+            guard let index = slice.characterIndices.min(),
+                let cluster = GlyphProbe.cluster(at: first.distance(to: index), starts: base.starts),
+                let shift = base.kept[cluster]
+            else { continue }
+            if shift == 0 {
+                context.draw(slice)
+            } else {
+                var moved = context
+                moved.translateBy(x: shift * progress, y: 0)
+                moved.draw(slice)
+            }
+        }
+    }
+}
+
+/// Draws a changed character of a rolling number: the move and scale on `rollSpring`, the
+/// fade evenly over `rollFadeDuration` and the blur over the shorter `rollBlurDuration`,
+/// each after the glyph's delay. Reduce Motion: only the fade.
 private struct RollingGlyph: View {
-    let glyph: Glyph
+    let glyph: RollGlyph
     let reduceMotion: Bool
 
     var body: some View {
@@ -427,5 +527,20 @@ struct GlyphProbe: TextRenderer {
             offset += character.utf16.count
         }
         return clusters
+    }
+
+    /// Each cluster's UTF-16 offset in the text it was measured from.
+    static func starts(of clusters: [Cluster]) -> [Int] {
+        var offset = 0
+        return clusters.map { cluster in
+            defer { offset += cluster.text.utf16.count }
+            return offset
+        }
+    }
+
+    /// The cluster that holds the character at UTF-16 `offset`, given `starts(of:)`.
+    static func cluster(at offset: Int, starts: [Int]) -> Int? {
+        guard offset >= 0 else { return nil }
+        return starts.lastIndex { $0 <= offset }
     }
 }
