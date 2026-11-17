@@ -8,6 +8,8 @@ import PackageDescription
 ///   in `Generated/`), coordinate mapping and frame geometry.
 /// - `Pane` (product `Pane`): the AppKit + SwiftUI app, assembled into `build/Pane.app` by
 ///   `scripts/build-app.sh`.
+/// - `PaneEmulatorHelper` (product `PaneEmulator`): the background-only "Pane Emulator" app in
+///   `Pane.app/Contents/Helpers`, which execs the emulators Pane starts.
 ///
 /// Updates come through Sparkle with Pane's own surfaces (`Sources/Pane/Updates`).
 ///
@@ -18,6 +20,9 @@ let package = Package(
     products: [
         .library(name: "PaneCore", targets: ["PaneCore"]),
         .executable(name: "Pane", targets: ["Pane"]),
+        // "Pane Emulator", bundled inside Pane.app: the emulator runs as this app, outside Pane's
+        // process coalition (`EmulatorLauncher.launch`).
+        .executable(name: "PaneEmulator", targets: ["PaneEmulatorHelper"]),
     ],
     dependencies: [
         .package(url: "https://github.com/grpc/grpc-swift-2.git", exact: "2.4.4"),
@@ -46,6 +51,8 @@ let package = Package(
             dependencies: ["PaneCore", .product(name: "Sparkle", package: "Sparkle")],
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("SwiftUI")]
         ),
+        // No dependencies: it only redirects its output and execs the emulator.
+        .executableTarget(name: "PaneEmulatorHelper"),
         .testTarget(
             name: "PaneCoreTests",
             dependencies: [

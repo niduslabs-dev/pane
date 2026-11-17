@@ -124,14 +124,15 @@ import Testing
     }
 
     /// The launcher's output lands in the log, and the launch before it is kept beside it.
-    @Test func keepsThisLaunchsOutputAndTheLastOnes() throws {
+    @Test func keepsThisLaunchsOutputAndTheLastOnes() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "pane-log-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
         let log = folder.appending(path: "Logs/emulator-test.log")
         let echo = URL(filePath: "/bin/echo")
         for name in ["first", "second"] {
-            let process = try EmulatorLauncher.launch(executable: echo, avdName: name, outputLog: log)
-            process.waitUntilExit()
+            let launched = try await EmulatorLauncher.launch(
+                executable: echo, avdName: name, outputLog: log, helper: nil)
+            launched.process?.waitUntilExit()
         }
         let current = try String(contentsOf: log, encoding: .utf8)
         let previous = try String(contentsOf: EmulatorLauncher.previousOutputLog(for: log), encoding: .utf8)
@@ -139,5 +140,75 @@ import Testing
         #expect(previous.hasPrefix("-avd first "))
         let mode = try FileManager.default.attributesOfItem(atPath: log.path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
+    }
+
+    /// Without the helper (`swift run`), the emulator is Pane's child and the PID is the child's.
+    @Test func fallsBackToAChildWithoutTheHelper() async throws {
+        let launched = try await EmulatorLauncher.launch(
+            executable: URL(filePath: "/bin/sleep"), avdName: "a", outputLog: nil, helper: nil)
+        #expect(launched.process?.processIdentifier == launched.pid)
+        #expect(launched.isAlive)
+        #expect(launched.exitStatus == nil)
+        // `sleep` rejects the emulator's arguments and exits with an error.
+        launched.process?.waitUntilExit()
+        #expect(!launched.isAlive)
+        #expect(launched.exitStatus == 1)
+    }
+
+    @Test func opensTheHelperInTheBackgroundAsANewInstance() {
+        let arguments = EmulatorLauncher.helperOpenArguments(
+            helper: URL(filePath: "/Applications/Pane.app/Contents/Helpers/Pane Emulator.app"),
+            pidFile: URL(filePath: "/tmp/x.pid"), outputLog: URL(filePath: "/logs/emulator-a.log"),
+            executable: URL(filePath: "/sdk/emulator/emulator"), arguments: ["-avd", "a", "-no-window"],
+            environment: ["ANDROID_AVD_HOME": "/avds", "ANDROID_HOME": "", "PATH": "/bin", "HOME": "/Users/x"])
+        #expect(
+            arguments == [
+                "-g", "-n", "--env", "ANDROID_AVD_HOME=/avds",
+                "/Applications/Pane.app/Contents/Helpers/Pane Emulator.app", "--args",
+                "/tmp/x.pid", "/logs/emulator-a.log", "/sdk/emulator/emulator", "-avd", "a", "-no-window",
+            ])
+    }
+
+    /// No log (it couldn't be made) is an empty argument, which the helper reads as /dev/null.
+    @Test func passesAnEmptyLogWhenThereIsNone() {
+        let arguments = EmulatorLauncher.helperOpenArguments(
+            helper: URL(filePath: "/h.app"), pidFile: URL(filePath: "/p"), outputLog: nil,
+            executable: URL(filePath: "/e"), arguments: ["-avd", "a"], environment: [:])
+        #expect(arguments == ["-g", "-n", "/h.app", "--args", "/p", "", "/e", "-avd", "a"])
+    }
+
+    @Test func findsTheHelperOnlyWhenTheBundleHasIt() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "pane-bundle-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let app = folder.appending(path: "Pane.app")
+        try FileManager.default.createDirectory(at: app.appending(path: "Contents"), withIntermediateDirectories: true)
+        let bundle = try #require(Bundle(url: app))
+        #expect(EmulatorLauncher.helperURL(in: bundle) == nil)
+        try FileManager.default.createDirectory(
+            at: app.appending(path: EmulatorLauncher.helperPath), withIntermediateDirectories: true)
+        #expect(EmulatorLauncher.helperURL(in: bundle)?.lastPathComponent == "Pane Emulator.app")
+    }
+
+    /// The PID handoff: the helper's file can turn up a moment after `open` returns.
+    @Test func readsThePIDTheHelperWritesLater() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "pane-pid-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let writer = Task {
+            try await Task.sleep(for: .milliseconds(150))
+            try "4242\n".write(to: file, atomically: true, encoding: .utf8)
+        }
+        let pid = await EmulatorLauncher.readPID(from: file, within: .seconds(5), pollInterval: .milliseconds(10))
+        try await writer.value
+        #expect(pid == 4242)
+    }
+
+    @Test func givesUpWhenNoPIDComes() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "pane-pid-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let brief: Duration = .milliseconds(100)
+        let poll: Duration = .milliseconds(10)
+        #expect(await EmulatorLauncher.readPID(from: file, within: brief, pollInterval: poll) == nil)
+        try "not a pid".write(to: file, atomically: true, encoding: .utf8)
+        #expect(await EmulatorLauncher.readPID(from: file, within: brief, pollInterval: poll) == nil)
     }
 }

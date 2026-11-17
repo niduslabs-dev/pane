@@ -10,6 +10,7 @@ them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z
 - A screenshot flashes the screen and says where it went.
 - Recording slides open with the time and says where the movie went.
 - The recording time rolls smoothly and no longer adds memory as it counts.
+- Pane no longer stays in the Dock after quitting when it started an emulator.
 
 ## 1.0.0
 

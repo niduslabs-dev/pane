@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds Pane.app into build/Pane.app: compiles the Pane product through scripts/swift.sh,
 # compiles the asset catalog (Pane's custom symbols, from scripts/make-symbols.py) with actool,
-# bundles the emulator takeover script and Sparkle.framework, writes the Info.plist and signs
+# bundles the emulator takeover script, the "Pane Emulator" helper and Sparkle.framework,
+# writes the Info.plists and signs
 # it inside out with the hardened runtime: ad hoc by default (no keychain or identity is
 # used), Developer ID in the release workflow. Not sandboxed: the App Sandbox blocks the
 # emulator's registration folder.
@@ -62,10 +63,18 @@ else
 fi
 
 scripts/swift.sh build -c "$CONFIG" --product Pane
+scripts/swift.sh build -c "$CONFIG" --product PaneEmulator
 BIN_DIR=$(scripts/swift.sh build -c "$CONFIG" --show-bin-path)
 
+# "Pane Emulator": a background-only app that execs each emulator Pane starts, so the emulator
+# runs in its own process coalition and Pane leaves the Dock when it quits
+# (EmulatorLauncher.launch). Its own bundle ID, per variant, so no two copies share one.
+HELPER="$APP/Contents/Helpers/Pane Emulator.app"
+HELPER_ID=$BUNDLE_ID.emulator
+
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks" \
+    "$HELPER/Contents/MacOS" "$HELPER/Contents/Resources"
 # SwiftPM records the deployment target as the SDK version, so AppKit would draw Pane in its
 # pre-macOS 26 compatibility look (no Liquid Glass chrome, small traffic lights). Record the
 # SDK it was really built with, as Xcode does.
@@ -98,7 +107,35 @@ ICON_KEYS=
 if [ -f Resources/AppIcon.icns ]; then
     cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
     ICON_KEYS="<key>CFBundleIconFile</key><string>AppIcon</string>"
+    cp Resources/AppIcon.icns "$HELPER/Contents/Resources/AppIcon.icns"
 fi
+
+# The helper's binary, with the same SDK version stamp as Pane's. LSBackgroundOnly: no Dock
+# icon, menu bar or windows. NSAppSleepDisabled: App Nap would otherwise be free to throttle a
+# windowless app, and after the exec that app is the emulator.
+vtool -set-build-version macos "$MIN_MACOS" "$SDK_VERSION" -replace -output "$HELPER/Contents/MacOS/PaneEmulator" "$BIN_DIR/PaneEmulator"
+cat > "$HELPER/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleExecutable</key><string>PaneEmulator</string>
+    <key>CFBundleIdentifier</key><string>$HELPER_ID</string>
+    <key>CFBundleName</key><string>Pane Emulator</string>
+    <key>CFBundleDisplayName</key><string>Pane Emulator</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+    $ICON_KEYS
+    <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
+    <key>LSBackgroundOnly</key><true/>
+    <key>NSAppSleepDisabled</key><true/>
+    <key>NSHumanReadableCopyright</key><string>Nidus Labs</string>
+</dict>
+</plist>
+PLIST
+plutil -lint "$HELPER/Contents/Info.plist" >/dev/null
 
 # Sparkle: Pane draws every surface (UpdateDriver). Checks daily without asking and
 # downloads in the background unless the user turns that off. No
@@ -161,6 +198,8 @@ SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
 sign "$SPARKLE/Versions/B/Autoupdate"
 sign "$SPARKLE/Versions/B/Updater.app"
 sign "$SPARKLE"
+# The helper links only the system's libraries, so it needs no entitlements in either build.
+sign "$HELPER"
 if [ "$SIGN_IDENTITY" = - ]; then
     # Ad hoc signatures carry no Team ID, so the hardened runtime's library validation would
     # refuse to load the embedded Sparkle. Local builds only; a Developer ID build signs both

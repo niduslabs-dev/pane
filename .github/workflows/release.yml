@@ -108,6 +108,16 @@ jobs:
           BUILD=$VERSION SIGN_IDENTITY="$IDENTITY" scripts/build-app.sh
           codesign --verify --deep --strict --verbose=2 build/Pane.app
           codesign -dv build/Pane.app 2>&1 | grep -E 'Authority=Developer ID Application|flags=.*runtime'
+          # The Pane Emulator helper (notarized with the app inside the DMG): Developer ID, the
+          # hardened runtime and the app's team, each checked on its own.
+          HELPER="build/Pane.app/Contents/Helpers/Pane Emulator.app"
+          codesign --verify --strict --verbose=2 "$HELPER"
+          HELPER_SIGN=$(codesign -dvv "$HELPER" 2>&1)
+          grep -q 'Authority=Developer ID Application' <<< "$HELPER_SIGN"
+          grep -q 'flags=.*runtime' <<< "$HELPER_SIGN"
+          APP_TEAM=$(codesign -dv build/Pane.app 2>&1 | sed -n 's/^TeamIdentifier=//p')
+          [ -n "$APP_TEAM" ]
+          grep -qx "TeamIdentifier=$APP_TEAM" <<< "$HELPER_SIGN"
 
       # The .p8 is on disk for this step only.
       - name: Pack, notarize and staple the DMG

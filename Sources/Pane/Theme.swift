@@ -787,6 +787,10 @@ extension Theme {
         static let stopGracePeriod: Duration = .seconds(10)
         static let stopKillWait: Duration = .seconds(5)
         static let stopPoll: Duration = .milliseconds(200)
+        /// Starting the emulator through Pane Emulator: `open` returns in well under a second
+        /// and the helper writes its PID a moment later; these only catch a stuck launch.
+        static let helperLaunch = EmulatorLauncher.HelperTimings(
+            openTimeout: .seconds(15), pidTimeout: .seconds(10), pidPollInterval: .milliseconds(50))
         /// Retries before the can't-connect card: 0.5, 1, 2, 4, 4 s apart.
         static let reconnect = ReconnectPolicy(maxAttempts: 5, initialDelay: .milliseconds(500), maxDelay: .seconds(4))
         /// While live, `getStatus` this often, so a stopped or wedged emulator is noticed (the

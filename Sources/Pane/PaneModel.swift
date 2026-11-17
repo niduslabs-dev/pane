@@ -127,8 +127,11 @@ final class PaneModel {
     @ObservationIgnored private var wheelReleaseTask: Task<Void, Never>?
     /// Named keys held down right now (arrows, Backspace), so focus loss can release them.
     @ObservationIgnored private var heldKeys: Set<String> = []
-    /// The emulator process this window launched.
-    @ObservationIgnored private var launchedProcess: Process?
+    /// The emulator this window launched (through the helper, or as Pane's child in a `swift run` build).
+    @ObservationIgnored private var launchedEmulator: LaunchedEmulator?
+    /// The launch waiting for its PID from the helper, so Stop pressed in that moment can still
+    /// stop it once the PID arrives.
+    @ObservationIgnored private var pendingLaunch: PendingLaunch?
     /// The emulators Pane started (any window), by the PID each registered with. Pane only
     /// ever stops these without asking.
     private static var ownedEmulatorPIDs: Set<Int32> = []
@@ -318,7 +321,7 @@ final class PaneModel {
     private func forgetLaunch() {
         startTask?.cancel()
         startTask = nil
-        launchedProcess = nil
+        launchedEmulator = nil
         launchedAVDName = nil
     }
 
@@ -342,25 +345,55 @@ final class PaneModel {
         }
         startProblem = nil
         setProfile(profile)
-        let process: Process
-        do {
-            process = try EmulatorLauncher.launch(
-                executable: executable, avdName: avdName, withoutSound: settings.startsWithoutSound,
-                outputLog: EmulatorLauncher.outputLog(avdName: avdName))
-        } catch {
-            log.error("Launch failed: \(String(describing: error), privacy: .public)")
-            startProblem = "The emulator didn't start."
-            status = .noEmulator
-            return
+        launchedAVDName = avdName
+        status = .starting
+        isSlowStart = false
+        let withoutSound = settings.startsWithoutSound
+        let ticket = PendingLaunch()
+        pendingLaunch = ticket
+        let helper = EmulatorLauncher.helperURL().map {
+            EmulatorLauncher.Helper(url: $0, timings: Theme.Timing.helperLaunch)
         }
-        log.info("Launched \(avdName, privacy: .public) as PID \(process.processIdentifier)")
-        launchedProcess = process
-        waitForStart(of: avdName, process: process)
+        if helper == nil { log.info("No Pane Emulator helper in the bundle; starting the emulator as Pane's child") }
+        startTask?.cancel()
+        startTask = Task { [weak self] in
+            let launched: LaunchedEmulator
+            do {
+                launched = try await EmulatorLauncher.launch(
+                    executable: executable, avdName: avdName, withoutSound: withoutSound,
+                    outputLog: EmulatorLauncher.outputLog(avdName: avdName), helper: helper)
+            } catch {
+                guard let self else { return }
+                if self.pendingLaunch === ticket { self.pendingLaunch = nil }
+                guard !Task.isCancelled else { return }
+                self.log.error("Launch failed: \(String(describing: error), privacy: .public)")
+                self.startProblem = "The emulator didn't start."
+                self.forgetLaunch()
+                self.status = .noEmulator
+                return
+            }
+            guard let self else { return }
+            if self.pendingLaunch === ticket { self.pendingLaunch = nil }
+            if ticket.stopPressed {
+                self.log.info(
+                    "Stopping \(avdName, privacy: .public), PID \(launched.pid): Stop was pressed while it launched")
+                _ = await EmulatorLauncher.stop(
+                    pid: launched.pid, gracePeriod: Theme.Timing.stopGracePeriod, killWait: Theme.Timing.stopKillWait,
+                    pollInterval: Theme.Timing.stopPoll)
+                return
+            }
+            // Anything else that moved on (a switch to another AVD) leaves it running, as a
+            // closed window does.
+            guard !Task.isCancelled, self.status == .starting, self.launchedAVDName == avdName else { return }
+            self.log.info("Launched \(avdName, privacy: .public) as PID \(launched.pid)")
+            self.launchedEmulator = launched
+            self.waitForStart(of: avdName, launched: launched)
+        }
     }
 
-    /// Shows `avdName` starting and attaches once it registers. `process` is the launch when
+    /// Shows `avdName` starting and attaches once it registers. `launched` is the launch when
     /// Pane started it; nil for one started elsewhere (the emulator wrapper's attach request).
-    private func waitForStart(of avdName: String, process: Process?) {
+    private func waitForStart(of avdName: String, launched: LaunchedEmulator?) {
         launchedAVDName = avdName
         status = .starting
         isSlowStart = false
@@ -374,8 +407,9 @@ final class PaneModel {
                 if clock.now - began >= Self.slowStartDelay { self.isSlowStart = true }
                 self.startWatcher()
                 self.refresh()
-                if let process, !process.isRunning, self.emulator == nil, self.status == .starting {
-                    self.log.error("Emulator exited while starting, status \(process.terminationStatus)")
+                if let launched, !launched.isAlive, self.emulator == nil, self.status == .starting {
+                    let status = launched.exitStatus.map { "status \($0)" } ?? "status unknown"
+                    self.log.error("Emulator exited while starting, \(status, privacy: .public); its log says why")
                     self.startProblem = "The emulator quit while starting."
                     self.forgetLaunch()
                     self.status = .noEmulator
@@ -405,12 +439,14 @@ final class PaneModel {
     func stopStarting() {
         guard status == .starting else { return }
         log.info("Stop pressed while starting")
-        let process = launchedProcess
+        let launched = launchedEmulator
+        pendingLaunch?.stopPressed = true
+        pendingLaunch = nil
         forgetLaunch()
         isSlowStart = false
         status = .noEmulator
-        guard let process, process.isRunning else { return }
-        let pid = process.processIdentifier
+        guard let launched, launched.isAlive else { return }
+        let pid = launched.pid
         Task {
             _ = await EmulatorLauncher.stop(
                 pid: pid, gracePeriod: Theme.Timing.stopGracePeriod, killWait: Theme.Timing.stopKillWait,
@@ -437,8 +473,8 @@ final class PaneModel {
             status = .noEmulator
             connect(to: running)
         } else {
-            launchedProcess = nil
-            waitForStart(of: avdName, process: nil)
+            launchedEmulator = nil
+            waitForStart(of: avdName, launched: nil)
         }
     }
 
@@ -876,7 +912,7 @@ final class PaneModel {
     private func connect(to emulator: RunningEmulator) {
         let wasStarting = status == .starting
         self.emulator = emulator
-        if let launched = launchedProcess?.processIdentifier, launchedAVDName == emulator.avdName,
+        if let launched = launchedEmulator?.pid, launchedAVDName == emulator.avdName,
             emulator.pid == launched || EmulatorLauncher.parentPID(of: emulator.pid) == launched
         {
             Self.ownedEmulatorPIDs.insert(emulator.pid)
@@ -1361,4 +1397,9 @@ final class RecorderSlot: Sendable {
         get { lock.withLock { $0 } }
         set { lock.withLock { $0 = newValue } }
     }
+}
+
+/// One Start's launch while it waits for the helper's PID.
+@MainActor private final class PendingLaunch {
+    var stopPressed = false
 }
