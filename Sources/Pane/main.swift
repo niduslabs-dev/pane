@@ -188,8 +188,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// `check-hover?file=…`, `check-hover-end`, `check-drop?file=…`, `check-paste`,
         /// `check-open-link?text=…` (the sheet, prefilled), `check-location?lat=…&lon=…` (the
         /// sheet, prefilled), `check-gif?file=…`, `check-switcher` (opens the title's menu),
-        /// `check-settings`, `check-update?state=…`, `check-drop-error` and `check-drop-details`
-        /// (a failed drop and its Details), `check-restart` and `check-shutdown` (their sheets),
+        /// `check-settings`, `check-update?state=…`, `check-drop-hover?on=1|0` (the pointer over the
+        /// drop card, which holds a finished card open), `check-restart` and `check-shutdown` (their sheets),
         /// `check-export-gif?file=…` (the Export GIF sheet for that recording), `check-more` (More's
         /// menu), `check-save-folder?path=…` (Save to, as the folder picker would
         /// set it) and `check-select?label=…` (opens a select's menu).
@@ -209,11 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case "check-gif": if let file = files.first { model.exportGIF(from: file) }
             case "check-switcher": controller.showSwitcher()
             case "check-settings": showSettings(nil)
-            case "check-drop-error":
-                model.checkDropError(
-                    message: value("message") ?? "Couldn't install. This file isn't an Android app.",
-                    detail: value("detail") ?? "INSTALL_PARSE_FAILED_NOT_APK")
-            case "check-drop-details": model.showTransferDetail()
+            case "check-drop-hover": model.drop.isHovered = value("on") == "1"
             case "check-restart": controller.restart()
             case "check-shutdown": controller.shutDown()
             case "check-export-gif":
@@ -414,7 +410,12 @@ final class PaneWindow: NSWindow {
     }
 
     func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        model.dropHover == nil ? [] : .copy
+        guard let drag = model.drop.drag, !drag.card.isRefused else {
+            // A refused drop (no emulator, only folders) shows macOS's not-allowed pointer.
+            if model.drop.drag != nil { NSCursor.operationNotAllowed.set() }
+            return []
+        }
+        return .copy
     }
 
     func draggingExited(_ sender: (any NSDraggingInfo)?) { _ = model.dragChanged(files: nil) }

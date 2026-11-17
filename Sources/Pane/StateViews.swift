@@ -123,69 +123,6 @@ struct ProgressScreen: View {
     }
 }
 
-/// Over the live screen while files are dragged over the window (an accent outline and what a
-/// drop would do) and while a drop runs (the `blurSwap` status line: "Installing Splito…",
-/// "Installed.", or what went wrong in a plain sentence, with adb's own reason behind Details).
-struct DropOverlay: View {
-    let model: PaneModel
-    let cornerRadius: CGFloat
-    /// Over the live screen the scrim dims the device; anywhere else it is the screen itself.
-    let isOverLiveScreen: Bool
-
-    var body: some View {
-        let hover = model.dropHover
-        let status = model.transferStatus
-        ZStack {
-            if hover != nil || status != nil {
-                Color(nsColor: Theme.Palette.screenEmpty).opacity(isOverLiveScreen ? Theme.Drop.scrimOpacity : 1)
-                if let hover {
-                    Text(hover)
-                        .font(Theme.Typeface.screenTitle)
-                        .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .strokeBorder(Color(nsColor: Theme.Palette.screenLink), lineWidth: Theme.Drop.outlineWidth)
-                } else if let status {
-                    VStack(spacing: Theme.Screen.progressGap) {
-                        if model.isTransferring {
-                            ProgressView()
-                                .controlSize(.small)
-                                .colorScheme(.dark)
-                        }
-                        StatusLine(text: status)
-                            .font(Theme.Typeface.status)
-                            .foregroundStyle(Color(nsColor: Theme.Palette.screenTitle))
-                        if let detail = model.transferDetail, !model.isTransferring {
-                            if model.showsTransferDetail {
-                                Text(detail)
-                                    .font(Theme.Typeface.statusDetail)
-                                    .foregroundStyle(Color(nsColor: Theme.Palette.screenMeta))
-                                    .multilineTextAlignment(.center)
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .padding(.top, Theme.Drop.detailsGap - Theme.Screen.progressGap)
-                                    .transition(.opacity)
-                            } else {
-                                Button("Details") { model.showTransferDetail() }
-                                    .buttonStyle(.plainRow)
-                                    .font(Theme.Typeface.link)
-                                    .foregroundStyle(Color(nsColor: Theme.Palette.screenLink))
-                                    .accessibilityHint("Shows the reason adb gave.")
-                                    .padding(.top, Theme.Drop.detailsGap - Theme.Screen.progressGap)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, Theme.Screen.horizontalPadding)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeOut(duration: Theme.Drop.fadeDuration), value: hover != nil || status != nil)
-        .animation(.easeOut(duration: Theme.Drop.fadeDuration), value: model.showsTransferDetail)
-        // Only a failure that has Details takes clicks; every other state lets them through.
-        .allowsHitTesting(model.transferDetail != nil && !model.isTransferring)
-    }
-}
-
 /// A status line that swaps in place (`blurSwap`): the old text blurs and drifts up as the new
 /// one sharpens in from below. Reduce Motion makes it a plain crossfade.
 struct StatusLine: View {

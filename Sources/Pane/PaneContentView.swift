@@ -90,9 +90,6 @@ struct DeviceFrameView: View {
 
     @ViewBuilder private var screen: some View {
         let rect = layout.screenRect
-        // Off the live screen, a drop's line takes the state screen's place instead of sitting
-        // over its text and buttons (Start, Stop, Choose another emulator).
-        let dropReplacesState = model.status != .live && (model.dropHover != nil || model.transferStatus != nil)
         ZStack {
             ScreenRepresentable(view: model.screenView, cornerRadius: layout.screenRadius)
             Group {
@@ -102,15 +99,11 @@ struct DeviceFrameView: View {
                 case .live, .failed: EmptyView()
                 }
             }
-            .opacity(dropReplacesState ? 0 : 1)
-            .allowsHitTesting(!dropReplacesState)
-            .accessibilityHidden(dropReplacesState)
-            .animation(.easeOut(duration: Theme.Drop.fadeDuration), value: dropReplacesState)
             if model.status == .live {
                 ToolOverlay(tools: model.tools)
             }
             NoticePill(model: model)
-            DropOverlay(model: model, cornerRadius: layout.screenRadius, isOverLiveScreen: model.status == .live)
+            DropLayer(drop: model.drop, screenRadius: layout.screenRadius)
         }
         .frame(width: rect.width, height: rect.height)
         .clipShape(RoundedRectangle(cornerRadius: layout.screenRadius))

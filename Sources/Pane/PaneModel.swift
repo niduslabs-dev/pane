@@ -47,19 +47,9 @@ final class PaneModel {
     /// Why the last Start didn't work, shown under the Start button.
     private(set) var startProblem: String?
 
-    /// The label while files are dragged over the window ("Install app"), or nil.
-    private(set) var dropHover: String?
-    /// The drop's status line ("Installing Splito…", "Installed.", or adb's error), or nil.
-    private(set) var transferStatus: String?
-    /// adb's own reason for a failed drop, offered behind Details; nil when there is none.
-    private(set) var transferDetail: String?
-    /// Details was pressed: the reason shows under the sentence.
-    private(set) var showsTransferDetail = false
     /// A start that hasn't answered after `Theme.Timing.slowStart`: the line says so and
     /// offers Stop.
     private(set) var isSlowStart = false
-    /// True while adb runs, for the spinner.
-    private(set) var isTransferring = false
 
     /// A short line over the bottom of the screen ("Copied.", "Saved GIF.", an error), or nil.
     private(set) var notice: String?
@@ -74,6 +64,8 @@ final class PaneModel {
     @ObservationIgnored let settings: PaneSettings
     /// Inspect Layout, Measure and Pick Colour.
     @ObservationIgnored let tools = ToolsModel()
+    /// Files dragged over and dropped on the device.
+    @ObservationIgnored let drop = DropModel()
 
     /// Share Clipboard: text moves both ways while the window is key.
     var sharesClipboard: Bool {
@@ -148,7 +140,6 @@ final class PaneModel {
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     @ObservationIgnored var exportTask: Task<Void, Never>?
 
-    @ObservationIgnored private var transferTask: Task<Void, Never>?
     @ObservationIgnored private var clipboardSync = ClipboardSync()
     @ObservationIgnored private var clipboardTask: Task<Void, Never>?
     @ObservationIgnored private var pasteboardPollTask: Task<Void, Never>?
@@ -198,6 +189,7 @@ final class PaneModel {
         }
         screenView.onKey = { [weak self] event, isDown in self?.handleKey(event, isDown: isDown) ?? false }
         screenView.onPaste = { [weak self] in self?.paste() }
+        drop.onProblem = { [weak self] text in self?.showProblem(text) }
     }
 
     /// Starts watching for emulators and attaches to the first one running.
@@ -1000,13 +992,7 @@ final class PaneModel {
         deviceTextSize = nil
         clipboardTask?.cancel()
         clipboardTask = nil
-        transferTask?.cancel()
-        transferTask = nil
-        dropHover = nil
-        transferStatus = nil
-        transferDetail = nil
-        showsTransferDetail = false
-        isTransferring = false
+        drop.reset()
         framesTask?.cancel()
         connectionTask?.cancel()
         bootTask?.cancel()
@@ -1116,6 +1102,12 @@ final class PaneModel {
             if isDown, Int(event.keyCode) == kVK_Escape { tools.deactivate() }
             return !event.modifierFlags.contains(.command)
         }
+        // The drop card's Return (open the app just installed) and Esc (dismiss).
+        if isDown, event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+            drop.handleKey(code: Int(event.keyCode))
+        {
+            return true
+        }
         guard let connection, status == .live else { return false }
         if event.modifierFlags.contains(.command) {
             let shortcut = event.modifierFlags.intersection([.command, .shift, .option, .control])
@@ -1141,92 +1133,23 @@ final class PaneModel {
 
     // MARK: Drag and drop
 
-    /// Files are being dragged over the window: shows what a drop would do. False when nothing
-    /// in the drag can be dropped now.
+    /// What the drop needs to know about this window's emulator.
+    private var dropContext: DropModel.Context {
+        let live = status == .live ? emulator : nil
+        return DropModel.Context(
+            emulatorName: live?.avdName, adb: live.flatMap(Adb.init(emulator:)), showsRefusal: status == .noEmulator)
+    }
+
+    /// Files are being dragged over the window (nil: they left). True when a drop would be
+    /// taken; the drag card shows either way.
     func dragChanged(files: [URL]?) -> Bool {
-        guard let files, status == .live, !isTransferring else {
-            dropHover = nil
-            return false
-        }
-        let plan = DropPlan(files: files)
-        dropHover = plan.isEmpty ? nil : plan.hoverLabel
-        return !plan.isEmpty
+        drop.dragChanged(files: files, context: dropContext)
     }
 
-    /// Files dropped on the window: installs the apps and copies the rest with adb, one at a
-    /// time, showing each on the status line.
+    /// Files dropped on the window: installs the apps and copies the rest (`DropModel`).
     func drop(files: [URL]) -> Bool {
-        dropHover = nil
-        guard status == .live, !isTransferring, let emulator else { return false }
-        let plan = DropPlan(files: files)
-        guard !plan.isEmpty else { return false }
-        guard let adb = Adb(emulator: emulator) else {
-            finishTransfer("adb not found.", after: Theme.Drop.errorDuration)
-            return false
-        }
-        log.info("Drop: \(plan.steps.count) file(s)")
-        isTransferring = true
-        transferTask = Task { [weak self] in
-            var result = plan.doneText
-            var hold = Theme.Drop.doneDuration
-            var detail: String?
-            for step in plan.steps {
-                guard let self, !Task.isCancelled else { return }
-                self.transferStatus = DropPlan.progressText(for: step)
-                do {
-                    try await adb.run(step)
-                } catch let failure as Adb.Failure {
-                    self.log.error("Drop failed: \(failure.message, privacy: .public)")
-                    (result, hold) = (failure.message, Theme.Drop.errorDuration)
-                    detail = failure.detail
-                    break
-                } catch {
-                    self.log.error("Drop failed: \(String(describing: error), privacy: .public)")
-                    (result, hold) = ("adb didn't run.", Theme.Drop.errorDuration)
-                    break
-                }
-            }
-            guard let self, !Task.isCancelled else { return }
-            self.isTransferring = false
-            self.finishTransfer(result, detail: detail, after: hold)
-        }
-        return true
+        drop.drop(files: files, context: dropContext)
     }
-
-    /// Shows the result, then clears the status line. `detail` is adb's reason for a failure,
-    /// kept behind Details.
-    private func finishTransfer(_ text: String, detail: String? = nil, after hold: Duration) {
-        transferStatus = text
-        transferDetail = detail
-        showsTransferDetail = false
-        clearTransfer(after: hold)
-    }
-
-    private func clearTransfer(after hold: Duration) {
-        transferTask?.cancel()
-        transferTask = Task { [weak self] in
-            try? await Task.sleep(for: hold)
-            guard let self, !Task.isCancelled, !self.isTransferring else { return }
-            self.transferStatus = nil
-            self.transferDetail = nil
-            self.showsTransferDetail = false
-            self.transferTask = nil
-        }
-    }
-
-    /// Details on a failed drop: shows adb's reason and keeps the line up longer.
-    func showTransferDetail() {
-        guard transferDetail != nil, !isTransferring else { return }
-        showsTransferDetail = true
-        clearTransfer(after: Theme.Drop.detailsDuration)
-    }
-
-    #if DEBUG
-        /// Shows a failed drop without a device (`pane://check-drop-error`).
-        func checkDropError(message: String, detail: String) {
-            finishTransfer(message, detail: detail, after: Theme.Drop.detailsDuration)
-        }
-    #endif
 
     // MARK: Clipboard
 

@@ -66,20 +66,81 @@ enum Theme {
     }
 
     /// The `blurSwap` status line (design guide 2).
-    /// Dropping files on the device: the highlight while dragging and the status line after.
+    /// Dropping files on the device (the canvas's "Option A · Card on the device screen" and
+    /// "Option A · Drag card, refined", variant 1): one card on the screen, the drag card while
+    /// files hover and the result card after the drop. The card is a notification panel's
+    /// anatomy inside the screen.
     enum Drop {
-        /// The accent outline around the screen while files are dragged over the window.
-        static let outlineWidth: CGFloat = 1.5
-        /// The scrim under the label and the status line, so both read over any app.
-        static let scrimOpacity: Double = 0.72
-        /// How long "Installed." stays; an error stays longer so it can be read.
-        static let doneDuration: Duration = .seconds(2)
-        static let errorDuration: Duration = .seconds(5)
-        /// Once Details is open the line stays this long, so adb's reason can be read.
-        static let detailsDuration: Duration = .seconds(15)
-        /// Between the sentence, the Details link and adb's reason.
-        static let detailsGap = Space.s
+        /// The card is the screen less this on each side.
+        static let sideMargin = Space.l
+        /// A refused drag's card sits this far under the screen's top, clear of Start.
+        static let refusedTop = Space.xl
+        static let inset = T.Size.NotificationPanel.inset
+        static let radius = T.Radius.card
+        static let hairline = T.Border.hairline
+        static let shadowOpacity = Double(T.Shadow.menu.colour.light.alpha)
+        /// SwiftUI's shadow radius is half the token's blur.
+        static let shadowRadius = T.Shadow.menu.blur / 2
+        static let shadowY = T.Shadow.menu.y
+        /// Between the header, the app row, the status and the buttons.
+        static let sectionGap = Space.l
+        static let media = T.Size.NotificationPanel.media
+        static let mediaGap = T.Size.NotificationPanel.mediaGap
+        /// An icon tile's corner is this share of its side.
+        static let tileRatio = T.Radius.iconTileRatio
+        /// The generic tile's glyph in a 60 slot, and in a 32 one.
+        static let tileGlyph = T.Size.Icon.rowLarge + Space.s
+        static let listGlyph = T.Size.Icon.rowLarge
+        /// The title to the chip, in the drag card.
+        static let chipGap = Space.xxs
+        /// The title to its meta line, in the result card.
+        static let metaGap = Space.xxxs
+        static let chipPaddingH = Space.s
+        static let chipPaddingV = Space.xxxs
+        /// Several items in the 60 slot: three 32 tiles stepping diagonally, each ringed in the
+        /// card's colour so they read apart.
+        static let stackTile = T.Size.Icon.list
+        /// Tiles in the stack.
+        static let stackCount = 3
+        static let stackRing = T.Border.focusRing
+        /// The dim under the card and the moss outline round the screen while a drop is
+        /// accepted: `tool.select` with a paper halo, as Inspect's outline.
+        static let outlineWidth = T.App.Pane.Size.Chip.outline + T.Border.hairline / 2
+        static let haloWidth = T.Border.hairline
+        /// The reading spinner appears only when aapt or the device takes longer than this.
+        static let spinnerDelay: Duration = .seconds(1)
+        /// aapt and the icon read, and the version lookup, each stop after this.
+        static let readTimeout: Duration = .seconds(3)
+        /// A push and an install may run this long.
+        static let transferTimeout: Duration = .seconds(600)
+        /// How often the bytes on the device are read while a file is pushed.
+        static let progressPoll: Duration = .milliseconds(250)
+        static let progressCeiling = T.Motion.progressCeiling
+        static let progressHeight = T.Size.Progress.height
+        static let progressRadius = T.Size.Progress.radius
+        static let statusGap = Space.xs
+        static let rowIcon = T.Size.Icon.row
+        static let rowGap = Space.xs
+        static let failureGap = Space.s
+        /// The warning and Details boxes.
+        static let boxPaddingH = Space.m
+        static let boxPaddingV = Space.m
+        static let detailsPaddingV = Space.s
+        static let boxRadius = T.Size.InfoCard.panelRadius
+        static let boxGap = Space.s
+        static let buttonGap = Space.s
+        /// Several files: rows 44 tall with a 32 icon.
+        static let listRowHeight = T.Size.MenuPanel.tallRowHeight
+        static let listIcon = T.Size.Icon.list
+        static let listIconGap = T.Size.Select.rowIconGap
+        static let listRowGap = Space.xxs
+        static let listHeadGap = Space.m
+        static let listActionGap = Space.s
+        /// A finished card closes itself this long after its last result (`dismissible`).
+        static let afterDone: Duration = .seconds(T.Motion.Duration.afterDone)
         static let fadeDuration = T.Motion.Duration.fade
+        /// Most apps Pane reads while dragging; a bigger drag is counted, not read.
+        static let maxReadsWhileDragging = 8
     }
 
     enum StatusSwap {
@@ -214,6 +275,22 @@ enum Theme {
         static let menuRow = T.TypeScale.body.font
         static let menuDetail = T.TypeScale.caption.font
         static let menuTag = T.TypeScale.groupLabel.font
+        /// The drop card: the header line ("dev_android36 · splito-1.4.0.apk · 61 MB") with the
+        /// emulator's name in emphasis, the app's name, its meta line, the chip and adb's line.
+        static let dropHeader = T.TypeScale.caption.font
+        static let dropHeaderStrong = Font.system(
+            size: T.TypeScale.caption.size, weight: T.TypeScale.bodyEmphasis.weight)
+        static let dropTitle = T.TypeScale.panelTitle.font
+        static let dropTitleTracking = T.TypeScale.panelTitle.tracking
+        /// The version after the name: the title's size, regular.
+        static let dropTitleVersion = Font.system(size: T.TypeScale.panelTitle.size)
+        static let dropMeta = T.TypeScale.callout.font
+        static let dropChip = Font.system(size: T.TypeScale.caption.size, weight: T.TypeScale.groupLabel.weight)
+        static let dropRowTitle = T.TypeScale.bodyEmphasis.font
+        static let dropRow = T.TypeScale.body.font
+        static let dropDetails = ThemeType(
+            size: T.TypeScale.caption.size, weight: T.TypeScale.caption.weight, family: .mono
+        ).font
     }
 
     /// Colours, light and dark (ink). Light values are the board's `light`, dark its `ink`.
@@ -613,6 +690,8 @@ extension Theme.Palette {
     static let toolChipText = T.App.Pane.Colour.toolChipText.nsColor
     static let toolChipSecondary = T.Colour.Brand.mutedOnDark.nsColor
     static let toolChipRing = T.App.Pane.Colour.toolChipEdge.nsColor
+    /// `scrim`: dims the device under the drop card while a drop is accepted or running.
+    static let dropScrim = T.Colour.Role.scrim.nsColor
     /// Menu panels (`surfaceMenu`): white in light, raised ink in dark over a blur, solid under
     /// Increase Contrast.
     static let menuPanel = T.Colour.Role.surfaceMenu.nsColor
