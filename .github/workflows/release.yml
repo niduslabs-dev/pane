@@ -103,7 +103,7 @@ jobs:
 
       # A release never ships code that fails its own checks. When CI passed on this code
       # (this commit, or one under it that differs only in docs), its checks stand; a CI run
-      # still going is waited for. Otherwise the next steps run them here. All before any
+      # still going is not waited for. Otherwise the next steps run them here. All before any
       # secret is touched.
       - name: Did CI pass on this code?
         id: ci
