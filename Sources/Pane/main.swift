@@ -556,7 +556,11 @@ final class TitlebarToolbar: NSObject, NSToolbarDelegate {
     ) -> NSToolbarItem? {
         guard itemIdentifier == Self.more else { return nil }
         let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-        item.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More")
+        // Drawn in the toolbar's ink (`textPrimary`), as the device toolbar's icons are, not
+        // as a template: AppKit dims a template glyph in an inactive window to 2.2:1 on the
+        // pill, even under Increase Contrast.
+        item.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [Theme.Palette.text]))
         item.label = "More"
         item.toolTip = "More"
         // Bordered gives the system's glass pill, as Device Hub's More has.
