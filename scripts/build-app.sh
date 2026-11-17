@@ -23,6 +23,12 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# The design tokens are a committed copy; warn (never fail) when the assets repo next to this
+# one has moved on. CI has no assets repo, so it skips this.
+if [ -d ../assets/dist/tokens ]; then
+    scripts/sync-tokens.sh --check || echo "warning: building with stale design tokens" >&2
+fi
+
 CONFIG=release
 [ "${1:-}" = "--debug" ] && CONFIG=debug
 # A debug build is a separate app to macOS (own bundle ID and name), so it never meets a
