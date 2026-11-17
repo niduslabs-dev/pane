@@ -282,6 +282,7 @@ private struct NidusSwitchBody: View {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.labelsVisibility) private var labelsVisibility
+    @Environment(\.colorSchemeContrast) private var contrast
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -321,8 +322,9 @@ private struct NidusSwitchBody: View {
         let shape = Capsule()
         return shape.fill(configuration.isOn ? Kit.Colour.accent : Kit.Colour.switchOff)
             .overlay {
+                // The off track's edge is for Increase Contrast only (the Switch contract).
                 shape.strokeBorder(Kit.Colour.controlBoundary, lineWidth: Kit.Control.switchBorder)
-                    .opacity(configuration.isOn ? 0 : 1)
+                    .opacity(!configuration.isOn && contrast == .increased ? 1 : 0)
             }
             .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                 Circle().fill(Color.white)
