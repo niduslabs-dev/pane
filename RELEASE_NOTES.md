@@ -4,6 +4,10 @@ The release workflow takes the section for the version it builds: its "- " lines
 GitHub release and the update feed, and the first three show in Pane's update surface. Keep
 them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z`.
 
+## 1.0.1
+
+- Screenshots follow macOS's Save to setting, including Clipboard.
+
 ## 1.0.0
 
 - Your Android emulator in a clean window, inside a device frame.

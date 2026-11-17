@@ -7,16 +7,54 @@ import UniformTypeIdentifiers
 extension PaneModel {
     // MARK: Screenshots
 
+    /// The toolbar's Screenshot button: a file, the clipboard or Preview, as Save to and macOS's
+    /// own Save to say (`CaptureOutcome`).
+    func takeScreenshot() {
+        let outcome = CaptureOutcome.resolve(
+            .screenshotButton, destination: settings.captureDestination, targets: Self.captureTargets)
+        switch outcome {
+        case .file: saveScreenshot()
+        case .clipboard: copyScreenshot()
+        case .preview: previewScreenshot()
+        }
+    }
+
     /// Saves a full-size PNG of the screen to the screenshot folder, named as macOS names its
     /// own. With Include Device Frame it is drawn inside Pane's frame.
     func saveScreenshot() {
         let folder = Self.captureFolder
         captureScreenshot { [weak self] png in
-            let url = CaptureFileName.unusedURL(in: folder, prefix: "Pane", date: Date(), fileExtension: "png")
-            try png.write(to: url, options: .withoutOverwriting)
+            let url = try Self.writeScreenshot(png, in: folder)
             self?.log.info("Saved screenshot \(url.lastPathComponent, privacy: .public)")
         }
     }
+
+    /// Writes the PNG to a temporary folder and opens it in Preview, as macOS's Preview target
+    /// does. Preview comes forward; Pane's windows stay where they are.
+    private func previewScreenshot() {
+        let folder = FileManager.default.temporaryDirectory.appending(
+            path: Self.previewFolderName, directoryHint: .isDirectory)
+        captureScreenshot { [weak self] png in
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = try Self.writeScreenshot(png, in: folder)
+            let workspace = NSWorkspace.shared
+            if let preview = workspace.urlForApplication(withBundleIdentifier: Self.previewBundleID) {
+                workspace.open([url], withApplicationAt: preview, configuration: NSWorkspace.OpenConfiguration())
+            } else {
+                workspace.open(url)
+            }
+            self?.log.info("Opened screenshot \(url.lastPathComponent, privacy: .public) in Preview")
+        }
+    }
+
+    private static func writeScreenshot(_ png: Data, in folder: URL) throws -> URL {
+        let url = CaptureFileName.unusedURL(in: folder, prefix: "Pane", date: Date(), fileExtension: "png")
+        try png.write(to: url, options: .withoutOverwriting)
+        return url
+    }
+
+    private static let previewBundleID = "com.apple.Preview"
+    private static let previewFolderName = "Pane Screenshots"
 
     /// Puts a full-size PNG of the screen on the Mac's clipboard.
     func copyScreenshot() {

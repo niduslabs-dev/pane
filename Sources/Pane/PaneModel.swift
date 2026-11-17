@@ -733,7 +733,8 @@ final class PaneModel {
         }
     }
 
-    /// Records the frames already arriving into a movie in the screenshot folder.
+    /// Records the frames already arriving into a movie in the screenshot folder. A movie is
+    /// always a file, whatever macOS's recording target says (`CaptureOutcome`).
     private func startRecording() {
         guard status == .live, let size = streamRequest?.size else { return }
         let url = CaptureFileName.unusedURL(
@@ -785,6 +786,18 @@ final class PaneModel {
             let configured = CaptureLocation.configuredLocation()
         #endif
         return CaptureLocation.folder(for: PaneSettings.shared.captureDestination, configured: configured)
+    }
+
+    /// macOS's Save to (`target` keys), read at each capture. Debug builds take
+    /// `-PaneScreenCaptureTarget <value>`, which stands in for every target key so checks never
+    /// read or change the real setting.
+    static var captureTargets: SystemCaptureTargets {
+        #if DEBUG
+            if let target = UserDefaults.standard.string(forKey: "PaneScreenCaptureTarget") {
+                return SystemCaptureTargets(target: target)
+            }
+        #endif
+        return SystemCaptureTargets.current()
     }
 
     // MARK: Rotation

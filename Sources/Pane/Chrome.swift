@@ -105,7 +105,7 @@ struct DeviceToolbar: View {
                 capsule {
                     ToolbarButton(symbol: PaneSymbol.home, label: "Home") { model.pressHome() }
                         .accessibilityIdentifier(identifier("toolbar-home", live: live))
-                    ToolbarButton(symbol: .system("camera.viewfinder"), label: "Screenshot") { model.saveScreenshot() }
+                    ToolbarButton(symbol: .system("camera.viewfinder"), label: "Screenshot") { model.takeScreenshot() }
                         .accessibilityIdentifier(identifier("toolbar-screenshot", live: live))
                     RecordButton(model: model)
                         .accessibilityIdentifier(identifier("toolbar-record", live: live))

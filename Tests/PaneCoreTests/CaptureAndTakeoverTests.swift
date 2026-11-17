@@ -106,3 +106,56 @@ import Testing
         #expect(EmulatorTakeover.isInstalled(home: home))
     }
 }
+
+@Suite struct CaptureOutcomeTests {
+    private func outcome(
+        _ action: CaptureAction = .screenshotButton, _ destination: CaptureDestination = .system,
+        target: String? = nil, screenshot: String? = nil, recording: String? = nil
+    ) -> CaptureOutcome {
+        CaptureOutcome.resolve(
+            action, destination: destination,
+            targets: SystemCaptureTargets(target: target, screenshot: screenshot, screenRecording: recording))
+    }
+
+    @Test func theScreenshotButtonFollowsEveryTargetValue() {
+        #expect(outcome(screenshot: "file") == .file)
+        #expect(outcome(screenshot: "clipboard") == .clipboard)
+        #expect(outcome(screenshot: "preview") == .preview)
+        // Not supported yet: a file, not a half-made message.
+        #expect(outcome(screenshot: "mail") == .file)
+        #expect(outcome(screenshot: "messages") == .file)
+        #expect(outcome(screenshot: " Clipboard ") == .clipboard)
+    }
+
+    @Test func screenshotsFallBackToTargetThenFile() {
+        #expect(outcome(target: "clipboard") == .clipboard)
+        #expect(outcome(target: "clipboard", screenshot: "file") == .file)
+        #expect(outcome(target: "preview", screenshot: "nonsense") == .preview)
+        #expect(outcome(target: "nonsense") == .file)
+        #expect(outcome() == .file)
+        // The recording key never steers screenshots.
+        #expect(outcome(recording: "clipboard") == .file)
+    }
+
+    @Test func anExplicitSaveToAlwaysWritesAFile() {
+        for destination in [CaptureDestination.desktop, .folder("/Users/someone/Pane")] {
+            #expect(outcome(.screenshotButton, destination, target: "clipboard", screenshot: "clipboard") == .file)
+            #expect(outcome(.screenshotButton, destination, screenshot: "preview") == .file)
+        }
+    }
+
+    @Test func saveAlwaysWritesAndCopyAlwaysCopies() {
+        for destination in [CaptureDestination.system, .desktop, .folder("/x")] {
+            #expect(outcome(.saveScreenshot, destination, target: "clipboard", screenshot: "clipboard") == .file)
+            #expect(outcome(.copyScreenshot, destination, target: "file", screenshot: "file") == .clipboard)
+        }
+    }
+
+    @Test func recordingsAlwaysWriteAFile() {
+        #expect(outcome(.recording, recording: "file") == .file)
+        #expect(outcome(.recording, recording: "clipboard") == .file)
+        #expect(outcome(.recording, target: "clipboard") == .file)
+        #expect(outcome(.recording, target: "preview", recording: "preview") == .file)
+        #expect(outcome(.recording, .desktop, recording: "clipboard") == .file)
+    }
+}

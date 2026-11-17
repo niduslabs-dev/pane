@@ -6,9 +6,12 @@ import Foundation
 /// Screenshot app's Options). Pane follows it, and falls back to the Desktop when it is unset,
 /// missing or not writable, as macOS itself does.
 public enum CaptureLocation {
+    /// macOS's screenshot preferences domain.
+    public static let domain = "com.apple.screencapture"
+
     /// `location` from `com.apple.screencapture`, or nil when unset. Read only, never written.
     public static func configuredLocation() -> String? {
-        CFPreferencesCopyAppValue("location" as CFString, "com.apple.screencapture" as CFString) as? String
+        CFPreferencesCopyAppValue("location" as CFString, domain as CFString) as? String
     }
 
     /// The folder for a configured `location` (a leading `~` is the home folder), or the Desktop.
