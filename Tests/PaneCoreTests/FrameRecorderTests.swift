@@ -75,18 +75,17 @@ import Testing
             timestampMicroseconds: timestamp, rotationQuadrants: 0)
     }
 
+    /// The movie's length and how many video frames it holds, counted from the track's sample
+    /// table with a sample cursor. Never `AVAssetReader`: its `copyNextSampleBuffer` blocks a
+    /// Swift concurrency thread, and on GitHub's 3-core runners three of these tests in parallel
+    /// held every one of them and the suite stalled.
     private func movie(_ url: URL) async throws -> (seconds: Double, samples: Int) {
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration)
         let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
-        reader.add(output)
-        reader.startReading()
-        var samples = 0
-        while let sample = output.copyNextSampleBuffer() {
-            if CMSampleBufferGetNumSamples(sample) > 0 { samples += 1 }
-        }
+        let cursor = try #require(track.makeSampleCursorAtFirstSampleInDecodeOrder())
+        var samples = 1
+        while cursor.stepInDecodeOrder(byCount: 1) == 1 { samples += 1 }
         return (duration.seconds, samples)
     }
 
