@@ -1,0 +1,40 @@
+Packages:
+  Package [dev.niduslabs.splito] (4732c5):
+    appId=10223
+    pkg=Package{926d41a dev.niduslabs.splito}
+    codePath=/data/app/~~lGhs7Vhb-G6zPj4V683uvg==/dev.niduslabs.splito-8wnIjI7vMZgEF7YsDBEgBQ==
+    resourcePath=/data/app/~~lGhs7Vhb-G6zPj4V683uvg==/dev.niduslabs.splito-8wnIjI7vMZgEF7YsDBEgBQ==
+    legacyNativeLibraryDir=/data/app/~~lGhs7Vhb-G6zPj4V683uvg==/dev.niduslabs.splito-8wnIjI7vMZgEF7YsDBEgBQ==/lib
+    extractNativeLibs=false
+    primaryCpuAbi=arm64-v8a
+    secondaryCpuAbi=null
+    cpuAbiOverride=null
+    versionCode=1203008 minSdk=24 targetSdk=36
+    minExtensionVersions=[]
+    versionName=0.12.3+8
+    hiddenApiEnforcementPolicy=2
+    usesNonSdkApi=false
+    splits=[base]
+    apkSigningVersion=2
+    flags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP KILL_AFTER_RESTORE ]
+    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE HAS_DOMAIN_URLS PARTIALLY_DIRECT_BOOT_AWARE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    forceQueryable=false
+    pageSizeCompat=0
+    queriesPackages=[host.exp.exponent]
+    queriesIntents=[Intent { act=android.intent.action.VIEW cat=[android.intent.category.BROWSABLE] dat=https:/... }, Intent { act=android.intent.action.OPEN_DOCUMENT_TREE }, Intent { act=android.intent.action.VIEW dat=content://*/... typ=*/* }, Intent { act=android.intent.action.SEND cat=[android.intent.category.DEFAULT] dat=content://*/... typ=application/octet-stream }, Intent { act=android.intent.action.SEND cat=[android.intent.category.DEFAULT] dat=content://*/... typ=text/x-vcard }, Intent { act=android.intent.action.SEND cat=[android.intent.category.DEFAULT] dat=content://*/... typ=text/vcard }, Intent { act=android.intent.action.EDIT }, Intent { act=android.intent.action.INSERT }, Intent { act=android.media.action.IMAGE_CAPTURE }, Intent { act=android.media.action.ACTION_VIDEO_CAPTURE }, Intent { act=androidx.camera.extensions.action.VENDOR_ACTION }, Intent { act=android.intent.action.GET_CONTENT cat=[android.intent.category.OPENABLE] dat=content://*/... typ=*/* }]
+    scannedAsStoppedSystemApp=false
+    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+    usesOptionalLibraries:
+      androidx.camera.extensions.impl
+      androidx.window.extensions
+      androidx.window.sidecar
+    usesLibraryFiles:
+      /system_ext/framework/androidx.window.extensions.jar
+      /system_ext/framework/androidx.window.sidecar.jar
+    timeStamp=2026-10-31 20:35:42
+    lastUpdateTime=2026-10-31 20:35:42
+    installerPackageName=null
+    installerPackageUid=-1
+    initiatingPackageName=com.android.shell
+    originatingPackageName=null
+    packageSource=1

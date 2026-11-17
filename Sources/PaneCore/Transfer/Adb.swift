@@ -38,59 +38,9 @@ public struct Adb: Sendable {
         }
     }
 
-    public func arguments(for step: DropPlan.Step) -> [String] {
-        switch step {
-        case .install(let url): ["-s", serial, "install", "-r", url.path(percentEncoded: false)]
-        case .copy(let url, _): ["-s", serial, "push", url.path(percentEncoded: false), DropPlan.devicePath(for: url)]
-        }
-    }
-
-    /// Asks the media store to index a pushed file, so the gallery shows it. `adb shell` joins
-    /// its arguments into one command line for the device's shell, so the path is quoted for it.
-    public func mediaScanArguments(devicePath: String) -> [String] {
-        [
-            "-s", serial, "shell",
-            "content call --uri content://media --method scan_file --arg \(Self.deviceShellQuoted(devicePath))",
-        ]
-    }
-
     /// Single-quotes a string for the device's shell.
     public static func deviceShellQuoted(_ text: String) -> String {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    /// Runs one step (and the media scan after a media copy). Throws `Failure` with adb's
-    /// reason in one line.
-    public func run(_ step: DropPlan.Step) async throws {
-        let result = try await Self.run(executable, arguments(for: step))
-        // `adb install` can print "Failure [...]" yet exit 0 on old versions; check both.
-        if result.status != 0 || result.output.contains("Failure [") {
-            let reason = Self.reason(from: result.output)
-            throw Failure(message: Self.plainError(for: step, reason: reason), detail: reason.isEmpty ? nil : reason)
-        }
-        if case .copy(let url, true) = step {
-            // Best effort: the file is on the device either way.
-            _ = try? await Self.run(executable, mediaScanArguments(devicePath: DropPlan.devicePath(for: url)))
-        }
-    }
-
-    /// What went wrong in words anyone can read. adb's own reason stays behind Details.
-    public static func plainError(for step: DropPlan.Step, reason: String) -> String {
-        guard case .install = step else { return "Couldn't copy this file." }
-        let cause: String? =
-            if reason.hasPrefix("INSTALL_PARSE_FAILED") || reason.hasPrefix("INSTALL_FAILED_INVALID_APK") {
-                "This file isn't an Android app."
-            } else {
-                switch reason {
-                case "INSTALL_FAILED_OLDER_SDK": "It needs a newer Android."
-                case "INSTALL_FAILED_INSUFFICIENT_STORAGE": "The device is out of space."
-                case "INSTALL_FAILED_NO_MATCHING_ABIS": "It isn't built for this device."
-                case "INSTALL_FAILED_UPDATE_INCOMPATIBLE", "INSTALL_FAILED_VERSION_DOWNGRADE":
-                    "Another version is already on the device."
-                default: nil
-                }
-            }
-        return cause.map { "Couldn't install. \($0)" } ?? "Couldn't install this app."
     }
 
     /// adb's reason, cut to one short line: the code inside "Failure [...]" for an install
@@ -117,6 +67,32 @@ public struct Adb: Sendable {
 
     static let maxReasonLength = 48
 
+    /// adb's whole failure for Details: everything inside "Failure [...]" for an install, else
+    /// adb's last line without its "adb: error:" lead, cut at `maxDetailLength`. Nil when adb
+    /// printed nothing.
+    public static func detail(from output: String) -> String? {
+        let lines = output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        var detail: String
+        if let failure = lines.last(where: { $0.contains("Failure [") }),
+            let open = failure.range(of: "Failure ["), let close = failure.lastIndex(of: "]"),
+            open.upperBound <= close
+        {
+            detail = String(failure[open.upperBound..<close])
+        } else if let last = lines.last(where: { !$0.isEmpty }) {
+            detail = last
+            for lead in ["adb: error: ", "adb: ", "error: "] where detail.hasPrefix(lead) {
+                detail = String(detail.dropFirst(lead.count))
+            }
+        } else {
+            return nil
+        }
+        detail = detail.replacingOccurrences(of: "\u{2014}", with: "-")
+        if detail.count > maxDetailLength { detail = detail.prefix(maxDetailLength - 1) + "…" }
+        return detail
+    }
+
+    static let maxDetailLength = 300
+
     /// What one adb call printed (standard output and error together) and its exit status.
     public struct Output: Sendable, Equatable {
         public var status: Int32
@@ -136,14 +112,26 @@ public struct Adb: Sendable {
     /// `Failure`. Remember that `adb shell` joins its arguments for the device's own shell:
     /// quote anything user-typed with `deviceShellQuoted`.
     public func run(_ arguments: [String], timeout: Duration = Adb.defaultTimeout) async throws -> Output {
-        let executable = executable
-        let all = targeted(arguments)
-        return try await withThrowingTaskGroup(of: Output?.self) { group in
+        do {
+            let result = try await Self.runProcess(executable, targeted(arguments), timeout: timeout)
+            return Output(status: result.status, text: String(decoding: result.data, as: UTF8.self))
+        } catch is ProcessTimeout {
+            throw Failure(message: "adb took too long.")
+        }
+    }
+
+    /// A tool call that ran past its timeout and was stopped.
+    public struct ProcessTimeout: Error, Equatable {}
+
+    /// Runs any local tool (aapt2, unzip) with `arguments` exactly as given, never through a
+    /// shell, and returns its exit status and everything it printed (standard output and error
+    /// together). Throws `ProcessTimeout` after stopping a call still running at `timeout`.
+    public static func runProcess(
+        _ executable: URL, _ arguments: [String], timeout: Duration
+    ) async throws -> (status: Int32, data: Data) {
+        try await withThrowingTaskGroup(of: (status: Int32, data: Data)?.self) { group in
             let process = Process()
-            group.addTask {
-                let result = try await Self.run(executable, all, process: process)
-                return Output(status: result.status, text: result.output)
-            }
+            group.addTask { try await Self.run(executable, arguments, process: process) }
             group.addTask {
                 try await Task.sleep(for: timeout)
                 return nil
@@ -151,7 +139,7 @@ public struct Adb: Sendable {
             defer { group.cancelAll() }
             guard let first = try await group.next(), let output = first else {
                 if process.isRunning { process.terminate() }
-                throw Failure(message: "adb took too long.")
+                throw ProcessTimeout()
             }
             return output
         }
@@ -175,7 +163,7 @@ public struct Adb: Sendable {
 
     private static func run(
         _ executable: URL, _ arguments: [String], process: Process = Process()
-    ) async throws -> (status: Int32, output: String) {
+    ) async throws -> (status: Int32, data: Data) {
         process.executableURL = executable
         process.arguments = arguments
         let pipe = Pipe()
@@ -194,6 +182,6 @@ public struct Adb: Sendable {
                 continuation.resume(throwing: error)
             }
         }
-        return (status, String(decoding: await reader.value, as: UTF8.self))
+        return (status, await reader.value)
     }
 }

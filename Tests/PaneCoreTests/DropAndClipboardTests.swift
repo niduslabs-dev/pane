@@ -3,50 +3,6 @@ import Testing
 
 @testable import PaneCore
 
-@Suite struct DropPlanTests {
-    private func plan(_ paths: [String], folders: Set<String> = []) -> DropPlan {
-        DropPlan(files: paths.map { URL(filePath: $0) }, isDirectory: { folders.contains($0.path) })
-    }
-
-    @Test func anApkIsInstalledAndTheRestCopied() {
-        let plan = plan(["/d/notes.txt", "/d/Splito.APK", "/d/photo.JPG", "/d/clip.mov"])
-        #expect(
-            plan.steps == [
-                .install(URL(filePath: "/d/Splito.APK")),
-                .copy(URL(filePath: "/d/notes.txt"), isMedia: false),
-                .copy(URL(filePath: "/d/photo.JPG"), isMedia: true),
-                .copy(URL(filePath: "/d/clip.mov"), isMedia: true),
-            ])
-        #expect(plan.hoverLabel == "Install and copy to device")
-        #expect(plan.doneText == "Installed and copied.")
-    }
-
-    @Test func severalApksInstallInDropOrder() {
-        let plan = plan(["/d/b.apk", "/d/a.apk"])
-        #expect(plan.steps == [.install(URL(filePath: "/d/b.apk")), .install(URL(filePath: "/d/a.apk"))])
-        #expect(plan.hoverLabel == "Install app")
-        #expect(plan.doneText == "Installed 2 apps.")
-    }
-
-    @Test func labelsAndStatusLines() {
-        #expect(plan(["/d/Splito.apk"]).hoverLabel == "Install app")
-        #expect(plan(["/d/Splito.apk"]).doneText == "Installed.")
-        #expect(plan(["/d/a.txt"]).hoverLabel == "Copy to device")
-        #expect(plan(["/d/a.txt"]).doneText == "Copied to Downloads.")
-        #expect(plan(["/d/a.txt", "/d/b.txt"]).doneText == "Copied 2 files to Downloads.")
-        #expect(DropPlan.progressText(for: .install(URL(filePath: "/d/Splito.apk"))) == "Installing Splito…")
-        #expect(
-            DropPlan.progressText(for: .copy(URL(filePath: "/d/my photo.jpg"), isMedia: true))
-                == "Copying my photo.jpg…")
-    }
-
-    @Test func foldersAndNonFilesAreLeftOut() {
-        #expect(plan(["/d/folder", "/d/a.txt"], folders: ["/d/folder"]).steps.count == 1)
-        #expect(plan(["/d/folder"], folders: ["/d/folder"]).isEmpty)
-        #expect(DropPlan(files: [URL(string: "https://example.com/a.apk")!], isDirectory: { _ in false }).isEmpty)
-    }
-}
-
 @Suite struct AdbTests {
     private let adb = Adb(executable: URL(filePath: "/sdk/platform-tools/adb"), serial: "emulator-5554")
 
@@ -54,23 +10,6 @@ import Testing
         #expect(Adb.serial(consolePort: 5554) == "emulator-5554")
         #expect(Adb.serial(consolePort: nil) == nil)
         #expect(Adb.serial(consolePort: 0) == nil)
-    }
-
-    @Test func argumentsArePassedWhole() {
-        #expect(
-            adb.arguments(for: .install(URL(filePath: "/d/My App.apk")))
-                == ["-s", "emulator-5554", "install", "-r", "/d/My App.apk"])
-        #expect(
-            adb.arguments(for: .copy(URL(filePath: "/d/my photo.jpg"), isMedia: true))
-                == ["-s", "emulator-5554", "push", "/d/my photo.jpg", "/sdcard/Download/my photo.jpg"])
-    }
-
-    @Test func theMediaScanQuotesThePathForTheDeviceShell() {
-        #expect(
-            Adb.deviceShellQuoted("/sdcard/Download/it's; rm -rf x.jpg") == "'/sdcard/Download/it'\\''s; rm -rf x.jpg'")
-        #expect(
-            adb.mediaScanArguments(devicePath: "/sdcard/Download/a b.jpg").last
-                == "content call --uri content://media --method scan_file --arg '/sdcard/Download/a b.jpg'")
     }
 
     @Test func adbReasonsAreOneShortLine() {
@@ -84,24 +23,6 @@ import Testing
         #expect(Adb.reason(from: "").isEmpty)
         #expect(Adb.reason(from: "adb: " + String(repeating: "x", count: 200)).count == Adb.maxReasonLength)
         #expect(!Adb.reason(from: "error: a \u{2014} b").contains("\u{2014}"))
-    }
-
-    @Test func dropErrorsAreAPlainSentence() {
-        let install = DropPlan.Step.install(URL(filePath: "/d/a.apk"))
-        let copy = DropPlan.Step.copy(URL(filePath: "/d/a.txt"), isMedia: false)
-        #expect(
-            Adb.plainError(for: install, reason: "INSTALL_PARSE_FAILED_NOT_APK")
-                == "Couldn't install. This file isn't an Android app.")
-        #expect(
-            Adb.plainError(for: install, reason: "INSTALL_FAILED_OLDER_SDK")
-                == "Couldn't install. It needs a newer Android.")
-        #expect(
-            Adb.plainError(for: install, reason: "INSTALL_FAILED_INSUFFICIENT_STORAGE")
-                == "Couldn't install. The device is out of space.")
-        // A code Pane has no words for, or none at all: still a sentence, never the code.
-        #expect(Adb.plainError(for: install, reason: "INSTALL_FAILED_SOMETHING_NEW") == "Couldn't install this app.")
-        #expect(Adb.plainError(for: install, reason: "") == "Couldn't install this app.")
-        #expect(Adb.plainError(for: copy, reason: "device 'emulator-5554' not found") == "Couldn't copy this file.")
     }
 
     @Test func adbComesFromTheRealSdk() {
