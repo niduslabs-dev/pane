@@ -2,17 +2,24 @@ import AppKit
 import PaneCore
 import SwiftUI
 
+private typealias T = ThemeTokens
+
 /// Every size, colour and type style Pane draws with, named after `docs/mac-app-design.md` and the
-/// approved board on the Pane design canvas (frame geometry and colours from its `renderVals`).
-/// Views never hold raw numbers.
+/// approved board on the Pane design canvas. Shared values read `ThemeTokens` (the studio's
+/// generated tokens, `scripts/sync-tokens.sh`); change one in `assets/tokens.json`, never here.
+/// The numbers still written out are Pane's own, with no token yet (`design/adoption/pane.md`,
+/// group C). Views never hold raw numbers.
 enum Theme {
-    /// The studio spacing scale (design guide 1.1); only the steps Pane uses.
+    /// The studio spacing scale (design guide 1.1).
     enum Space {
-        static let xxs: CGFloat = 4
-        static let s: CGFloat = 8
-        static let m: CGFloat = 12
-        static let xl: CGFloat = 24
-        static let xxl: CGFloat = 32
+        static let xxxs = T.Space.xxxs
+        static let xxs = T.Space.xxs
+        static let xs = T.Space.xs
+        static let s = T.Space.s
+        static let m = T.Space.m
+        static let l = T.Space.l
+        static let xl = T.Space.xl
+        static let xxl = T.Space.xxl
     }
 
     /// What the screen shows when there is no live picture: no emulator (canvas option A),
@@ -37,9 +44,9 @@ enum Theme {
 
     /// The can't-connect card, which takes the frame's place (canvas error state).
     enum ErrorCard {
-        static let radius: CGFloat = 14
-        static let hairline: CGFloat = 0.5
-        static let hairlineIncreasedContrast: CGFloat = 1
+        static let radius = T.Radius.card
+        static let hairline = T.Border.hairline
+        static let hairlineIncreasedContrast = T.Border.hairlineIncreasedContrast
         static let horizontalPadding = Space.xxl
         static let gap = Space.m
         static let glyphSize: CGFloat = 40
@@ -49,10 +56,10 @@ enum Theme {
 
     /// Capsule actions (design guide, Controls).
     enum Capsule {
-        static let height: CGFloat = 30
+        static let height = T.Size.Button.height
         /// Start on the screen is a little wider than a standard capsule, as on the board.
         static let startPadding: CGFloat = 20
-        static let standardPadding: CGFloat = 16
+        static let standardPadding = T.Size.Button.paddingX
         static let disabledOpacity = Opacity.disabled
     }
 
@@ -74,12 +81,12 @@ enum Theme {
     }
 
     enum StatusSwap {
-        static let blur: CGFloat = 6
-        static let offsetY: CGFloat = 5
-        static let springResponse: Double = 0.4
-        static let springDamping: Double = 0.9
+        static let blur = T.Motion.Distance.swapBlur
+        static let offsetY = T.Motion.Distance.swapOffset
+        static let springResponse = T.Motion.Spring.swap.response
+        static let springDamping = T.Motion.Spring.swap.dampingFraction
         /// Reduce Motion's plain crossfade.
-        static let fadeDuration: Double = 0.2
+        static let fadeDuration = T.Motion.Duration.fade
     }
 
     /// The window around the device, with the title row and toolbar measured from Apple's Device
@@ -87,11 +94,11 @@ enum Theme {
     /// toolbar's band.
     enum Window {
         /// The title row: traffic lights, the device name and meta left-aligned, then More.
-        static let titleRowHeight: CGFloat = 52
+        static let titleRowHeight = T.App.Pane.Size.TitleRow.height
         /// Left and right inset around the frame (design token `space.xl`).
         static let contentInset = Space.xl
         /// From the end of the system's traffic lights to the title (Device Hub: 80 → 108).
-        static let titleGap: CGFloat = 28
+        static let titleGap = T.App.Pane.Size.TitleRow.titleLeading
         /// Used until the window reports where its traffic lights end.
         static let fallbackTitleLeading: CGFloat = 108
         /// Room kept clear of the title on the right; More is a real toolbar item over it.
@@ -105,22 +112,22 @@ enum Theme {
     /// Screenshot and Record, and a glass circle with Rotate, centred in their band.
     enum Toolbar {
         /// From the frame's bottom to the window's bottom.
-        static let bandHeight: CGFloat = 54
-        static let capsuleHeight: CGFloat = 36
+        static let bandHeight = T.Size.GlassToolbar.band
+        static let capsuleHeight = T.Size.GlassToolbar.capsule
         static let capsulePadding = Space.xxs
         static let capsuleGap = Space.s
-        static let buttonWidth: CGFloat = 32
-        static let buttonHeight: CGFloat = 28
-        static let buttonSpacing: CGFloat = 2
+        static let buttonWidth = T.Size.GlassToolbar.buttonWidth
+        static let buttonHeight = T.Size.GlassToolbar.buttonHeight
+        static let buttonSpacing = Space.xxxs
         /// The rotate circle's diameter.
-        static let circleSize: CGFloat = 36
-        static let iconSize: CGFloat = 15
-        static let hairline: CGFloat = 0.5
+        static let circleSize = T.Size.GlassToolbar.circle
+        static let iconSize = T.Size.GlassToolbar.icon
+        static let hairline = T.Border.hairline
         static let disabledOpacity = Opacity.disabled
-        /// Hover and press shades over a button (design guide Controls: +4%, +8%).
-        static let hoverOpacity: Double = 0.06
-        static let pressedOpacity: Double = 0.12
-        static let hoverDuration: Double = 0.12
+        /// Hover and press shades over a button.
+        static let hoverOpacity = T.Opacity.toolbarHover
+        static let pressedOpacity = T.Opacity.toolbarPressed
+        static let hoverDuration = T.Motion.Duration.hover
     }
 
     /// The window's glass: behind-window blur under an ink tint in dark (`inkGlass`) and a
@@ -129,10 +136,10 @@ enum Theme {
         static let darkMaterial = NSVisualEffectView.Material.hudWindow
         static let lightMaterial = NSVisualEffectView.Material.underWindowBackground
         // Secondary text keeps 5.6:1 with pure white behind (#3C3B41).
-        static let darkTintOpacity: CGFloat = 0.86
+        static let darkTintOpacity = CGFloat(T.Opacity.glassTint)
         // Secondary text (#64636C) keeps 4.5:1 even with pure black behind the glass (#E3E3E5,
-        // 4.6:1). At 92% it measured 4.496:1, a hair under.
-        static let lightTintOpacity: CGFloat = 0.93
+        // 4.6:1). At 92% it measured 4.496:1, a hair under (`GlassTests`).
+        static let lightTintOpacity = T.App.Pane.Colour.glassLight.light.alpha
     }
 
     /// The device frame we draw: body, bezel, screen corners, punch hole and side buttons.
@@ -144,10 +151,10 @@ enum Theme {
         static let maxScreenHeight: CGFloat = 2400
         /// The screen height the button positions below were designed at.
         static let referenceScreenHeight: CGFloat = 700
-        static let bezel: CGFloat = 10
-        static let bodyRadius: CGFloat = 46
-        static let screenRadius: CGFloat = 36
-        static let punchHoleDiameter: CGFloat = 11
+        static let bezel = T.App.Pane.Size.Frame.bezel
+        static let bodyRadius = T.App.Pane.Size.Frame.bodyRadius
+        static let screenRadius = T.App.Pane.Size.Frame.screenRadius
+        static let punchHoleDiameter = T.App.Pane.Size.Frame.punchHole
         static let punchHoleTop: CGFloat = 12
         static let punchHoleRingWidth: CGFloat = 1.5
         /// The body's outer hairline, then a body-coloured gap, then a faint inner ring.
@@ -155,19 +162,19 @@ enum Theme {
         static let innerEdgeInset: CGFloat = 3
         static let innerEdgeWidth: CGFloat = 0.5
         /// How far a button stands proud of the body at rest (the layout's depth).
-        static let buttonDepth: CGFloat = 3
+        static let buttonDepth = T.App.Pane.Size.Frame.buttonDepth
         /// Out when the pointer comes near, as the iOS Simulator's buttons slide out.
-        static let buttonDepthNear: CGFloat = 7
+        static let buttonDepthNear = T.App.Pane.Size.Frame.buttonDepthNear
         /// Pushed in while the mouse is down.
-        static let buttonDepthPressed: CGFloat = 1
+        static let buttonDepthPressed = T.App.Pane.Size.Frame.buttonDepthPressed
         /// How close the pointer must come to a button's outline to slide it out.
-        static let buttonProximity: CGFloat = 24
-        static let buttonSpringResponse: Double = 0.25
-        static let buttonSpringDamping: Double = 0.85
+        static let buttonProximity = T.App.Pane.Size.Frame.buttonProximity
+        static let buttonSpringResponse = T.App.Pane.Motion.Spring.frameButton.response
+        static let buttonSpringDamping = T.App.Pane.Motion.Spring.frameButton.dampingFraction
         /// The faint light outline every button has.
         static let buttonEdgeWidth: CGFloat = 0.75
         static let buttonCornerRadius: CGFloat = 2
-        static let buttonHitDepth: CGFloat = 14
+        static let buttonHitDepth = T.App.Pane.Size.Frame.buttonHitDepth
         static let buttonHitOutset: CGFloat = 4
         static let buttons = [
             FrameButtonSpec(button: .power, top: 150, length: 56),
@@ -189,32 +196,32 @@ enum Theme {
 
     /// Type styles (design guide 1.2).
     enum Typeface {
-        static let windowTitle = Font.system(size: 13, weight: .semibold)
-        static let meta = Font.system(size: 11)
-        static let screenTitle = Font.system(size: 15, weight: .semibold)
-        static let screenMeta = Font.system(size: 12)
-        static let capsule = Font.system(size: 13, weight: .semibold)
-        static let link = Font.system(size: 12)
+        /// The device name in the title row (not the type scale's 22 pt `windowTitle`).
+        static let titleRowName = T.TypeScale.bodyEmphasis.font
+        static let meta = T.TypeScale.caption.font
+        static let screenTitle = T.TypeScale.sectionTitle.font
+        static let screenMeta = T.TypeScale.callout.font
+        static let capsule = T.TypeScale.bodyEmphasis.font
+        static let link = T.TypeScale.callout.font
         /// The secondary capsule on the dark screen, and adb's reason behind Details.
-        static let screenSecondary = Font.system(size: 13, weight: .medium)
+        static let screenSecondary = T.TypeScale.bodyMedium.font
         static let statusDetail = Font.system(size: 11, design: .monospaced)
         static let cardTitle = Font.system(size: 15)
-        static let cardBody = Font.system(size: 12)
-        static let status = Font.system(size: 12)
-        static let menuRow = Font.system(size: 13)
-        static let menuDetail = Font.system(size: 11)
-        static let menuTag = Font.system(size: 11, weight: .medium)
+        static let cardBody = T.TypeScale.callout.font
+        static let status = T.TypeScale.callout.font
+        static let menuRow = T.TypeScale.body.font
+        static let menuDetail = T.TypeScale.caption.font
+        static let menuTag = T.TypeScale.groupLabel.font
     }
 
     /// Colours, light and dark (ink). Light values are the board's `light`, dark its `ink`.
     enum Palette {
         /// Window background, title bar included (`titleBarMatchesContent`). Dark mode draws it
         /// as ink glass (`Glass`) unless transparency is reduced or contrast increased.
-        static let surface = dynamic(light: 0xF4F4F6, dark: 0x1C1B22)
-        /// `textPrimary` and `textSecondary`, with the token's Increase Contrast values.
-        static let text = dynamic(light: 0x17161C, dark: 0xF4F4F6, contrastLight: 0x000000, contrastDark: 0xFFFFFF)
-        static let textSecondary = dynamic(
-            light: 0x64636C, dark: 0xB9B8C2, contrastLight: 0x3E3D45, contrastDark: 0xDCDBE3)
+        static let surface = dynamic(
+            T.App.Pane.Colour.glassLight.light.opaque, dark: T.Colour.Role.glassTint.dark)
+        static let text = T.Colour.Role.textPrimary.nsColor
+        static let textSecondary = T.Colour.Role.textSecondary.nsColor
         /// The error card (`surfaceCard`): paper recessed in light, ink raised in dark.
         static let card = dynamic(light: 0xECECEF, dark: 0x24232B)
         /// `hairline`: `controlBoundary` under Increase Contrast.
@@ -222,43 +229,43 @@ enum Theme {
             light: 0x17161C, lightAlpha: 0.12, dark: 0xF4F4F6, darkAlpha: 0.14, contrastLight: 0x5E5D66,
             contrastLightAlpha: 1, contrastDark: 0xA09FA8, contrastDarkAlpha: 1)
         /// `actionPrimary`: moss with white text, darker under Increase Contrast.
-        static let actionPrimary = dynamic(
-            light: 0x4F7A4A, dark: 0x4F7A4A, contrastLight: 0x3B5D38, contrastDark: 0x4F7A4A)
+        static let actionPrimary = T.Colour.Role.actionPrimary.nsColor
         static let actionPrimaryPressed = dynamic(light: 0x466E41, dark: 0x5A8A54)
-        static let onAction = NSColor(hex: 0xFFFFFF)
+        static let onAction = T.Colour.Role.onAction.nsColor
         /// Text on the always-dark off screen.
-        static let screenTitle = NSColor(hex: 0xF4F4F6)
-        static let screenMeta = dynamic(
-            light: 0xB9B8C2, dark: 0xB9B8C2, contrastLight: 0xDCDBE3, contrastDark: 0xDCDBE3)
+        static let screenTitle = T.Colour.Brand.paper.nsColor
+        static let screenMeta = T.Colour.Role.textSecondary.alwaysDark.nsColor
         /// `link` on the dark screen: moss for dark surfaces.
         static let screenLink = dynamic(
             light: 0x8DBB82, dark: 0x8DBB82, contrastLight: 0xB2D8A8, contrastDark: 0xB2D8A8)
-        static let icon = dynamic(
-            light: 0x3E3D45, dark: 0xD6D5DD, contrastLight: 0x17161C, contrastDark: 0xF4F4F6)
-        /// The toolbar capsules and More button when transparency is reduced (`surfaceRaised`).
-        static let pill = dynamic(light: 0xFFFFFF, dark: 0x2C2B33)
+        static let icon = T.Colour.Role.toolbarIcon.nsColor
+        /// The toolbar capsules and More button when transparency is reduced.
+        static let pill = T.Colour.Role.surfacePill.nsColor
         /// Hover and press shades on toolbar buttons: ink in light, paper in dark.
-        static let shade = dynamic(light: 0x17161C, dark: 0xF4F4F6)
+        static let shade = T.Colour.Role.toolbarShade.nsColor
         /// Record while recording.
-        static let recording = dynamic(
-            light: 0xD93A2B, dark: 0xFF5A4B, contrastLight: 0xB0281B, contrastDark: 0xFF7A6E)
-        static let frameBody = dynamic(light: 0x1F1E25, dark: 0x0E0E12)
-        static let frameEdge = dynamic(light: 0x17161C, lightAlpha: 0.55, dark: 0xF4F4F6, darkAlpha: 0.22)
+        static let recording = T.Colour.Role.recording.nsColor
+        static let frameBody = T.App.Pane.Colour.frameBody.nsColor
+        static let frameEdge = T.App.Pane.Colour.frameEdge.nsColor
         static let frameInnerEdge = dynamic(light: 0xFFFFFF, lightAlpha: 0.08, dark: 0xFFFFFF, darkAlpha: 0.06)
-        static let frameButton = dynamic(light: 0x2B2A32, dark: 0x3A3943)
+        static let frameButton = T.App.Pane.Colour.frameButton.nsColor
         /// A button near the pointer or pressed: slightly lighter.
-        static let frameButtonNear = dynamic(light: 0x3A3943, dark: 0x4A4953)
-        static let frameButtonEdge = dynamic(
-            light: 0xFFFFFF, lightAlpha: 0.22, dark: 0xFFFFFF, darkAlpha: 0.26, contrastLight: 0xFFFFFF,
-            contrastLightAlpha: 0.5, contrastDark: 0xFFFFFF, contrastDarkAlpha: 0.55)
+        static let frameButtonNear = T.App.Pane.Colour.frameButtonNear.nsColor
+        static let frameButtonEdge = T.App.Pane.Colour.frameButtonEdge.nsColor
         static let punchHole = NSColor(hex: 0x0B0B0E)
         static let punchHoleRing = NSColor(hex: 0x1E1E24)
-        /// The screen before the first frame and in the no-emulator state.
-        static let screenOff = NSColor(hex: 0x000000)
-        static let screenEmpty = NSColor(hex: 0x111116)
+        /// Behind the live picture before its first frame.
+        static let screenOff = T.App.Pane.Colour.screenOff.nsColor
+        /// The screen with nothing on it: no emulator, starting, booting.
+        static let screenEmpty = T.App.Pane.Colour.screenEmpty.nsColor
         /// The secondary capsule on the always-dark screen (Show Emulators in Finder, Stop).
         static let screenSecondary = NSColor(hex: 0x2C2B33, alpha: 0.9)
         static let screenSecondaryEdge = NSColor(hex: 0xF4F4F6, alpha: 0.12)
+
+        /// One fixed value in light and another in dark, the same under Increase Contrast.
+        static func dynamic(_ light: ThemeColour.RGBA, dark: ThemeColour.RGBA) -> NSColor {
+            ThemeColour(light: light, dark: dark, lightContrast: light, darkContrast: dark).nsColor
+        }
 
         /// A colour for light and dark, with optional Increase Contrast variants (which default
         /// to the normal ones).
@@ -355,7 +362,7 @@ extension Theme {
         static let paddingH = Space.m
         static let height: CGFloat = 28
         static let gap = Space.s
-        static let hairline: CGFloat = 0.5
+        static let hairline = T.Border.hairline
         static let shadowOpacity: Double = 0.3
         static let shadowRadius: CGFloat = 8
         static let shadowY: CGFloat = 3
@@ -372,24 +379,25 @@ extension Theme {
         static let width: CGFloat = 355
         static let inset = Space.xl
         static let descriptionGap = Space.s
-        static let bodyGap: CGFloat = 16
+        static let bodyGap = Space.l
         static let footerGap = Space.xl
         static let buttonGap = Space.s
-        static let fieldHeight: CGFloat = 28
-        static let fieldRadius: CGFloat = 8
-        static let fieldPaddingH: CGFloat = 11
-        static let fieldLabelGap: CGFloat = 6
-        static let fieldBorder: CGFloat = 1
-        static let fieldHalo: CGFloat = 3
+        static let fieldHeight = T.Size.Field.height
+        static let fieldRadius = T.Radius.control
+        static let fieldPaddingH = T.Size.Field.paddingX
+        static let fieldLabelGap = Space.xs
+        static let fieldBorder = T.Border.control
+        static let fieldHalo = T.Border.openRing
         static let busyOpacity = Opacity.disabled
         static let recentLabelInset = Space.xxs
         static let cardInset = Space.xxs
-        static let cardRadius: CGFloat = 14
+        static let cardRadius = T.Radius.card
+        /// Off the scale: a recent link's row is 9 + 14 + 9, so two fit the board's card.
         static let rowPaddingV: CGFloat = 9
-        static let hairline: CGFloat = 0.5
-        static let rowRadius: CGFloat = 7
+        static let hairline = T.Border.hairline
+        static let rowRadius = T.Radius.menuRow
         static let rowPaddingH = Space.m
-        static let listGap: CGFloat = 2
+        static let listGap = Space.xxxs
         static let problemGap = Space.s
         /// Two fields side by side (latitude and longitude).
         static let fieldPairGap = Space.m
@@ -400,7 +408,7 @@ extension Theme {
         static let width: CGFloat = 280
         static let paddingH: CGFloat = 14
         static let paddingV = Space.m
-        static let radius: CGFloat = 10
+        static let radius = T.Radius.menu
         /// Under the card it explains, and in from the card's left edge.
         static let gap = Kit.Space.xs
         static let leading: CGFloat = 150
@@ -418,39 +426,40 @@ extension Theme {
     /// `opacity.disabled`: a control that can't be used now stays in place at this opacity,
     /// applied once (`PlainRowButtonStyle`).
     enum Opacity {
-        static let disabled: CGFloat = 0.45
+        static let disabled = CGFloat(T.Opacity.disabled)
     }
 
     /// Pane's own menu panel (boards 7 and 13, kit board 16): More, the emulator switcher and
     /// the emulators menu. Never an `NSMenu`, so the highlight is moss.
     enum Menu {
-        static let width: CGFloat = 232
+        static let width = T.Size.MenuPanel.width
         static let switcherWidth: CGFloat = 262
         static let submenuWidth: CGFloat = 150
         static let switcherSubmenuWidth: CGFloat = 242
-        static let inset: CGFloat = 6
-        static let radius: CGFloat = 10
-        static let rowSpacing: CGFloat = 2
-        static let rowHeight: CGFloat = 32
+        static let inset = Space.xs
+        static let radius = T.Radius.menu
+        static let rowSpacing = Space.xxxs
+        static let rowHeight = T.Size.Select.rowHeight
         /// A row with a second line (an emulator: name over model and Android version).
-        static let tallRowHeight: CGFloat = 44
-        static let rowRadius: CGFloat = 7
-        static let rowPaddingH: CGFloat = 10
-        static let rowGap: CGFloat = 10
+        static let tallRowHeight = T.Size.MenuPanel.tallRowHeight
+        static let rowRadius = T.Radius.menuRow
+        static let rowPaddingH = T.Size.Select.rowPaddingX
+        static let rowGap = T.Size.Select.rowIconGap
         static let lineSpacing: CGFloat = 1
-        static let checkSlot: CGFloat = 14
+        static let checkSlot = T.Size.Select.checkSlot
         static let checkSize: CGFloat = 11
-        static let chevronSize: CGFloat = 9
-        static let headerHeight: CGFloat = 22
-        static let headerBottomPadding: CGFloat = 2
-        static let dividerHeight: CGFloat = 0.5
+        static let chevronSize = T.Size.Select.chevron
+        static let headerHeight = T.Size.MenuPanel.headerHeight
+        static let headerBottomPadding = Space.xxxs
+        static let dividerHeight = T.Border.hairline
         static let dividerMarginV = Space.xxs
-        static let hairline: CGFloat = 0.5
+        static let hairline = T.Border.hairline
         static let tagPaddingH = Space.s
-        static let tagPaddingV: CGFloat = 2
-        static let shadowOpacity: Double = 0.22
-        static let shadowRadius: CGFloat = 14
-        static let shadowY: CGFloat = 10
+        static let tagPaddingV = Space.xxxs
+        static let shadowOpacity = Double(T.Shadow.menu.colour.light.alpha)
+        /// SwiftUI's shadow radius is half the token's blur.
+        static let shadowRadius = T.Shadow.menu.blur / 2
+        static let shadowY = T.Shadow.menu.y
         /// More's menu opens this far under the title row's button, right edges this far in.
         static let moreTop: CGFloat = 48
         static let moreTrailing = Space.s
@@ -469,25 +478,25 @@ extension Theme {
     enum TitleButton {
         static let paddingH: CGFloat = 9
         static let paddingV = Space.xxs
-        static let radius: CGFloat = 8
-        static let hoverOpacity: Double = 0.06
-        static let chevronGap: CGFloat = 6
+        static let radius = T.Radius.control
+        static let hoverOpacity = T.Opacity.toolbarHover
+        static let chevronGap = Space.xs
         static let chevronSize: CGFloat = 8
     }
 
     /// The pill that takes the toolbar's place while a tool is on (boards 9 to 11): the tool's
     /// icon and name, or its state, and Done.
     enum ModePill {
-        static let height: CGFloat = 36
-        static let minWidth: CGFloat = 216
+        static let height = T.Size.ModePill.height
+        static let minWidth = T.Size.ModePill.minWidth
         static let paddingLeading = Space.m
         static let paddingTrailing = Space.xxs
         static let gap = Space.s
-        static let iconSize: CGFloat = 13
-        static let buttonHeight: CGFloat = 28
-        static let buttonPaddingH: CGFloat = 14
-        static let hairline: CGFloat = 0.5
-        static let buttonHairline: CGFloat = 1
+        static let iconSize = T.Size.ModePill.icon
+        static let buttonHeight = T.Size.Button.smallHeight
+        static let buttonPaddingH = T.Size.Button.smallPaddingX
+        static let hairline = T.Border.hairline
+        static let buttonHairline = T.Border.control
         static let shadowOpacity: Double = 0.10
         static let shadowRadius: CGFloat = 1.5
         static let shadowY: CGFloat = 1
@@ -497,24 +506,26 @@ extension Theme {
     /// to 11). Their colours are fixed, not per mode, because they sit on the device's screen.
     enum Tools {
         /// The outline around the inspected view, the measured line and the snap guides.
-        static let outlineWidth: CGFloat = 1.5
-        static let outlineRadius: CGFloat = 6
+        static let outlineWidth = T.App.Pane.Size.Chip.outline
+        static let outlineRadius = T.Radius.sm
         /// The paper halo on each side of an outline or line, so it holds up on any app.
         static let haloWidth: CGFloat = 1
         static let guideDash: [CGFloat] = [4, 3]
         /// Chips: a size on an outline, a distance on a guide, a length on a line, a hex.
-        static let chipHeight: CGFloat = 20
-        /// Chip text: 11 medium with fixed-width digits, so a changing number doesn't jitter.
-        @MainActor static let chipFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        static let chipPaddingH: CGFloat = 7
-        static let chipRadius: CGFloat = 6
-        static let chipGap: CGFloat = 6
-        static let chipRing: CGFloat = 0.5
+        static let chipHeight = T.App.Pane.Size.Chip.height
+        /// Chip text: `groupLabel` (11 medium) with fixed-width digits, so a changing number
+        /// doesn't jitter.
+        @MainActor static let chipFont = NSFont.monospacedDigitSystemFont(
+            ofSize: T.TypeScale.groupLabel.size, weight: .medium)
+        static let chipPaddingH = T.App.Pane.Size.Chip.paddingX
+        static let chipRadius = T.Radius.sm
+        static let chipGap = Space.xs
+        static let chipRing = T.Border.hairline
         /// The pinned view's details card.
         static let cardWidth: CGFloat = 250
         static let cardPaddingH = Space.m
         static let cardPaddingV: CGFloat = 10
-        static let cardRadius: CGFloat = 10
+        static let cardRadius = T.Radius.menu
         static let cardRowGap: CGFloat = 5
         static let cardColumnGap: CGFloat = 10
         static let cardKeyWidth: CGFloat = 52
@@ -560,64 +571,60 @@ extension Theme {
 }
 
 extension Theme.Typeface {
-    static let sheetTitle = Font.system(size: 15, weight: .semibold)
-    static let sheetBody = Font.system(size: 13)
-    static let sheetLabel = Font.system(size: 11, weight: .medium)
+    static let sheetTitle = T.TypeScale.sectionTitle.font
+    static let sheetBody = T.TypeScale.body.font
+    static let sheetLabel = T.TypeScale.groupLabel.font
     @MainActor static let toolChip = Font(Theme.Tools.chipFont)
-    static let toolCard = Font.system(size: 11).monospacedDigit()
+    static let toolCard = T.TypeScale.caption.font.monospacedDigit()
     static let modePill = Font.system(size: 12, weight: .medium)
-    static let modePillButton = Font.system(size: 12)
-    static let menuShortcut = Font.system(size: 12)
-    static let menuHeader = Font.system(size: 11, weight: .medium)
-    static let sheetRecent = Font.system(size: 12)
-    /// A recent link on Open link (board 8): links are code, so the mono face.
-    static let sheetRecentLink = Font.system(size: 12, design: .monospaced)
-    static let sheetSecondary = Font.system(size: 13, weight: .medium)
+    static let modePillButton = T.TypeScale.callout.font
+    static let menuShortcut = T.TypeScale.callout.font
+    static let menuHeader = T.TypeScale.groupLabel.font
+    static let sheetRecent = T.TypeScale.callout.font
+    /// A recent link on Open link (board 8): links are code, so `callout` in the mono face.
+    static let sheetRecentLink = ThemeType(
+        size: T.TypeScale.callout.size, weight: T.TypeScale.callout.weight, family: .mono
+    ).font
+    static let sheetSecondary = T.TypeScale.bodyMedium.font
     static let notice = Font.system(size: 12, weight: .medium)
 }
 
 extension Theme.Palette {
     /// `tool.select`: outlines, the measured line and the loupe's chosen pixel. Moss, the same
     /// in both modes (4.2:1 on a light device screen, 3.7:1 on a dark one).
-    static let toolSelect = NSColor(hex: 0x4F7A4A)
+    static let toolSelect = T.App.Pane.Colour.toolSelect.nsColor
     /// `tool.guide`: distances and snap guides. Amber, always dashed.
-    static let toolGuide = NSColor(hex: 0xB25E00)
+    static let toolGuide = T.App.Pane.Colour.toolGuide.nsColor
     /// `tool.halo`: paper on each side of an outline or line.
-    static let toolHalo = NSColor(hex: 0xF4F4F6, alpha: 0.9)
+    static let toolHalo = T.App.Pane.Colour.toolHalo.nsColor
     /// `tool.fill`: the inspected view's wash.
-    static let toolFill = NSColor(hex: 0x4F7A4A, alpha: 0.16)
+    static let toolFill = T.App.Pane.Colour.toolFill.nsColor
     /// `tool.chip`: chips, the details card and the loupe's outer ring. Ink with paper text in
     /// both modes, because they sit on the device, not on Pane.
-    static let toolChip = NSColor(hex: 0x17161C, alpha: 0.92)
+    static let toolChip = T.App.Pane.Colour.toolChip.nsColor
     /// `tool.chip` where no blur is drawn under the inspect card.
-    static let toolChipSolid = NSColor(hex: 0x17161C)
-    static let toolChipText = NSColor(hex: 0xF4F4F6)
-    static let toolChipSecondary = NSColor(hex: 0xB9B8C2)
-    static let toolChipRing = NSColor(hex: 0xF4F4F6, alpha: 0.30)
+    static let toolChipSolid = T.App.Pane.Colour.toolChip.opaque.nsColor
+    static let toolChipText = T.App.Pane.Colour.toolChipText.nsColor
+    static let toolChipSecondary = T.Colour.Brand.mutedOnDark.nsColor
+    static let toolChipRing = T.App.Pane.Colour.toolChipEdge.nsColor
     /// Menu panels (`surfaceMenu`): white in light, raised ink in dark over a blur, solid under
     /// Increase Contrast.
-    static let menuPanel = dynamic(
-        light: 0xFFFFFF, dark: 0x24232B, darkAlpha: 0.96, contrastDark: 0x24232B, contrastDarkAlpha: 1)
+    static let menuPanel = T.Colour.Role.surfaceMenu.nsColor
     /// `surfaceMenu` where no blur is drawn (Reduce Transparency, Increase Contrast).
-    static let menuPanelSolid = dynamic(light: 0xFFFFFF, dark: 0x24232B)
+    static let menuPanelSolid = T.Colour.Role.surfaceMenu.opaque.nsColor
     /// `hairline`, and `controlBoundary` under Increase Contrast.
-    static let menuPanelHairline = dynamic(
-        light: 0x17161C, lightAlpha: 0.12, dark: 0xF4F4F6, darkAlpha: 0.12, contrastLight: 0x5E5D66,
-        contrastLightAlpha: 1, contrastDark: 0xA09FA8, contrastDarkAlpha: 1)
-    /// The row under the pointer or the keys (`highlight`): moss 10% in light, light moss 16%
-    /// in dark, doubled under Increase Contrast.
-    static let menuHighlight = dynamic(
-        light: 0x4F7A4A, lightAlpha: 0.10, dark: 0x8DBB82, darkAlpha: 0.16, contrastLightAlpha: 0.2,
-        contrastDarkAlpha: 0.3)
+    static let menuPanelHairline = T.Colour.Role.hairline.nsColor
+    /// The row under the pointer or the keys (`highlight`).
+    static let menuHighlight = T.Colour.Role.highlight.nsColor
     /// A menu's tick: the link moss of each mode.
     static let menuCheck = dynamic(light: 0x466E41, dark: 0x8DBB82)
     /// The mode pill: `surfaceRaised` with its Done button on paper or raised ink.
-    static let modePill = dynamic(light: 0xFFFFFF, dark: 0x2C2B33)
+    static let modePill = T.Colour.Role.surfacePill.nsColor
     static let modePillButton = dynamic(light: 0xF4F4F6, dark: 0x2C2B33, darkAlpha: 0.9)
     /// The short notice line over the screen (always dark, over any app).
-    static let toolSurface = NSColor(hex: 0x17161C, alpha: 0.92)
-    static let toolHairline = NSColor(hex: 0xF4F4F6, alpha: 0.30)
-    static let toolText = NSColor(hex: 0xF4F4F6)
+    static let toolSurface = T.App.Pane.Colour.toolChip.nsColor
+    static let toolHairline = T.App.Pane.Colour.toolChipEdge.nsColor
+    static let toolText = T.App.Pane.Colour.toolChipText.nsColor
     /// Sheet surfaces (design guide roles): the sheet itself, fields on it, secondary buttons.
     static let sheetSurface = dynamic(light: 0xFFFFFF, dark: 0x24232B)
     static let fieldSurface = dynamic(light: 0xFFFFFF, dark: 0x2C2B33, darkAlpha: 0.9)

@@ -61,7 +61,7 @@ struct SwitcherButton: View {
         } label: {
             HStack(spacing: Theme.TitleButton.chevronGap) {
                 Text(model.title)
-                    .font(Theme.Typeface.windowTitle)
+                    .font(Theme.Typeface.titleRowName)
                     .foregroundStyle(Color(nsColor: Theme.Palette.text))
                     .lineLimit(1)
                     .truncationMode(.tail)
