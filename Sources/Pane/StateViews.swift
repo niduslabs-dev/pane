@@ -280,7 +280,7 @@ struct ErrorCard: View {
         SheetPresenter.confirm(
             on: window, message: "Restart \(model.title)?",
             detail: "Pane didn't start this emulator. Restarting it closes any apps running on it.",
-            action: "Restart Emulator"
+            action: "Restart emulator"
         ) { model.restartEmulator() }
     }
 }

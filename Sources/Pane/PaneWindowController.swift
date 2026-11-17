@@ -179,7 +179,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         SheetPresenter.confirm(
             on: window, message: "Restart \(model.title)?",
             detail: "Pane didn't start this emulator. Restarting it closes any apps running on it.",
-            action: "Restart Emulator"
+            action: "Restart emulator"
         ) { [weak self] in self?.model.restartEmulator() }
     }
 
@@ -192,7 +192,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         SheetPresenter.confirm(
             on: window, message: "Shut down \(model.title)?",
             detail: "Pane didn't start this emulator. Shutting it down closes any apps running on it.",
-            action: "Shut Down Emulator"
+            action: "Shut down emulator"
         ) { [weak self] in self?.model.shutDownEmulator() }
     }
 

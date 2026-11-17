@@ -257,10 +257,12 @@ struct LocationSheet: View {
     }
 }
 
-/// A confirmation (design guide, Sheet / Confirmation): content-sized, Cancel and one moss
-/// action that says what happens. Esc always cancels. For a destructive action
-/// (`confirmDestructive`) Return cancels too, and the action takes a click, or Space once Tab
-/// has reached it; otherwise Return runs the action. `content` is the Sheet's optional body.
+/// A confirmation (design guide, Sheet / Confirmation): content-sized, Cancel and one action
+/// that says what happens. Esc always cancels. For a destructive action (`confirmDestructive`,
+/// Button's destructive variant) the safe choice leads: Cancel is the moss primary, rightmost
+/// and the default (Return), and the action is a secondary capsule that takes a click, or
+/// Space once Tab has reached it. Otherwise the action is the moss primary and Return runs it.
+/// `content` is the Sheet's optional body.
 struct ConfirmSheet<Content: View>: View {
     let title: String
     let detail: String
@@ -286,11 +288,11 @@ struct ConfirmSheet<Content: View>: View {
             HStack(spacing: Theme.Sheet.buttonGap) {
                 Spacer(minLength: 0)
                 if isDestructive {
-                    Button("Cancel", action: onCancel)
-                        .buttonStyle(.nidusSecondary)
-                        .keyboardShortcut(.defaultAction)
                     Button(action, action: onConfirm)
+                        .buttonStyle(.nidusSecondary)
+                    Button("Cancel", action: onCancel)
                         .buttonStyle(.nidusPrimary)
+                        .keyboardShortcut(.defaultAction)
                 } else {
                     Button("Cancel", action: onCancel)
                         .buttonStyle(.nidusSecondary)
