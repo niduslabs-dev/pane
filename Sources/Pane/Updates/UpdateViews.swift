@@ -63,7 +63,7 @@ struct UpdatePopupView: View {
                     Button("Download") { model.perform(.download) }.buttonStyle(.nidusPrimary)
                         .keyboardShortcut(.defaultAction)
                 } else {
-                    Button("Restart to Update") { model.perform(.restart) }.buttonStyle(.nidusPrimary)
+                    Button("Restart to update") { model.perform(.restart) }.buttonStyle(.nidusPrimary)
                         .keyboardShortcut(.defaultAction)
                         .disabled(!model.isReady)
                 }
@@ -147,7 +147,7 @@ struct UpdateBanner: View {
                     .foregroundStyle(Kit.Colour.secondaryText)
             }
             Spacer(minLength: 0)
-            Button("Restart to Update") { model.perform(.restart) }
+            Button("Restart to update") { model.perform(.restart) }
                 .buttonStyle(NidusButtonStyle(kind: .primary, size: .small))
         }
         .padding(.horizontal, Kit.Row.horizontalPadding)

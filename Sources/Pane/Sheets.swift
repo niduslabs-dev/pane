@@ -237,7 +237,7 @@ struct LocationSheet: View {
     var body: some View {
         SheetScaffold(
             title: "Set location", description: "The device reports this place until you choose Default.",
-            primaryTitle: "Set Location", primaryDisabled: location == nil, onCancel: close, onPrimary: set
+            primaryTitle: "Set location", primaryDisabled: location == nil, onCancel: close, onPrimary: set
         ) {
             HStack(alignment: .top, spacing: Theme.Sheet.fieldPairGap) {
                 SheetField(label: "Latitude", placeholder: "12.9716", text: $latitude, onSubmit: set)
@@ -322,7 +322,7 @@ extension ConfirmSheet where Content == EmptyView {
 }
 
 /// Export Recording as GIF… when there is a last recording: a confirmation whose body is one
-/// row naming the recording, with Choose Another… to pick any movie instead. Export is the
+/// row naming the recording, with Choose another… to pick any movie instead. Export is the
 /// primary and Return runs it; Esc cancels.
 struct ExportGIFSheet: View {
     let recording: URL
@@ -352,7 +352,7 @@ struct ExportGIFSheet: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button("Choose Another\u{2026}") {
+                Button("Choose another\u{2026}") {
                     close()
                     chooseAnother()
                 }

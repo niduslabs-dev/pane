@@ -345,7 +345,7 @@ enum Theme {
         static let screenOff = T.App.Pane.Colour.screenOff.nsColor
         /// The screen with nothing on it: no emulator, starting, booting.
         static let screenEmpty = T.App.Pane.Colour.screenEmpty.nsColor
-        /// The secondary capsule on the always-dark screen (Show Emulators in Finder, Stop).
+        /// The secondary capsule on the always-dark screen (Show emulators in Finder, Stop).
         static let screenSecondary = T.Colour.Role.actionSecondary.alwaysDark.nsColor
         static let screenSecondaryEdge = T.Colour.Role.hairline.alwaysDark.nsColor
         /// The press shade on the always-dark screen's capsules.

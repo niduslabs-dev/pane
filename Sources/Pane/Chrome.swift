@@ -111,7 +111,7 @@ struct DeviceToolbar: View {
                         .accessibilityIdentifier(identifier("toolbar-record", live: live))
                 }
                 ToolbarButton(
-                    symbol: PaneSymbol.rotateLeft, label: "Rotate Left", width: Theme.Toolbar.circleSize,
+                    symbol: PaneSymbol.rotateLeft, label: "Rotate left", width: Theme.Toolbar.circleSize,
                     height: Theme.Toolbar.circleSize
                 ) { model.rotate() }
                 .accessibilityIdentifier(identifier("toolbar-rotate", live: live))

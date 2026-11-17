@@ -214,7 +214,7 @@ private struct TakeoverInfoPopover: View {
     }
 }
 
-/// "Version 1.0" with Check for Updates. The caption carries the check's result in place:
+/// "Version 1.0" with Check for updates. The caption carries the check's result in place:
 /// "Checking…" with a spinner, "Up to date · checked just now", "Downloading 1.1…", or
 /// "Couldn't check. Try again later." in the error colour.
 private struct VersionRow: View {
@@ -241,7 +241,7 @@ private struct VersionRow: View {
             }
             .accessibilityElement(children: .combine)
             Spacer(minLength: 0)
-            Button("Check for Updates") { updates.perform(.check) }.buttonStyle(.nidusSmall)
+            Button("Check for updates") { updates.perform(.check) }.buttonStyle(.nidusSmall)
                 .disabled(!updates.canCheck)
                 .accessibilityIdentifier("settings-check-updates")
         }

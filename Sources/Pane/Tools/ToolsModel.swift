@@ -43,7 +43,7 @@ struct ToolPillState: Equatable {
         var title: String {
             switch self {
             case .done: "Done"
-            case .tryAgain: "Try Again"
+            case .tryAgain: "Try again"
             }
         }
     }
@@ -131,7 +131,7 @@ final class ToolsModel {
         }
     }
 
-    /// The pill's button: Done finishes the tool, Try Again reads the layout once more.
+    /// The pill's button: Done finishes the tool, Try again reads the layout once more.
     func runPillAction() {
         guard let pill else { return }
         switch pill.action {

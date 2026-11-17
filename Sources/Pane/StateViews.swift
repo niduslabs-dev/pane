@@ -27,7 +27,7 @@ struct NoEmulatorScreen: View {
             Text("Create one in Android Studio's Device Manager.")
                 .font(Theme.Typeface.screenMeta)
                 .foregroundStyle(Color(nsColor: Theme.Palette.screenMeta))
-            Button("Show Emulators in Finder") { model.onCommand(.showEmulatorsInFinder) }
+            Button("Show emulators in Finder") { model.onCommand(.showEmulatorsInFinder) }
                 .buttonStyle(ScreenSecondaryCapsuleStyle())
                 .padding(.top, Theme.Screen.actionGap)
         }
