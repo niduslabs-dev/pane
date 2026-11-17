@@ -76,6 +76,9 @@ Everything Pane does that is not on a board or differs from the kit (`../docs/de
 - **Emulator switcher, proposed by the build agent, 2026-11-18. Approved by Jatin, 2026-11-18:**
   - The trigger's focus ring is reached by Esc from the open switcher, not by Tab (board 20 says "Tab reaches the name first"). Why: Tab in the emulator window is the device's own key (`KeyMapping`), and taking it would stop Tab reaching Android. VoiceOver presses the trigger as before.
   - Pressed and open look the same (the 12% shade): the switcher opens on mouse down, as a pop-up button does, so there is no separate pressed moment.
+- **Capture feedback (boards 18 and 19), built 2026-11-18. Approved by Jatin, 2026-11-18:**
+  - The screenshot flash is white (`Theme.CaptureFlash.colour`), not `brand.paper` (`#F4F4F6`) as board 18 says. Why: it stands for the device's own camera flash, so it stays white in both modes, as `captureFlash.yaml` says.
+  - Record's icon crossfades between two images, each in its own colour, over `fade` (board 19 says a symbol replace). Why: a symbol replace on one image recoloured it at once, so Stop showed the red icon in ink for about 100 ms.
 - **Drag and drop, proposed by the build agent, 2026-11-17:**
   - The drag chip says "Reinstall" when the device has the same version (the plan's copy list has none for it). Approved by Jatin, 2026-11-17.
   - Several items are titled by the first name and a count ("Splito and 2 more"); the board's "2 apps and 1 file" repeated the chip "2 apps, 1 file". The refined board is regenerated to match. Approved by Jatin, 2026-11-17.

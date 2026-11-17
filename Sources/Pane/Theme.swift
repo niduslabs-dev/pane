@@ -216,6 +216,11 @@ enum Theme {
         /// (`design/adoption/pane.md`).
         static let peakOpacity: Double = 0.5
         static let fadeDuration = T.Motion.Duration.fade
+        /// White in both modes, as the device's own camera flash is (`captureFlash.yaml`, params
+        /// colour). Pane's own value until `app.pane.color.captureFlash` is a token
+        /// (`design/adoption/pane.md`). Board 18 drew `brand.paper`; white was approved with the
+        /// build (`AGENTS.md`, Design deviations).
+        static let colour = ThemeColour(fixed: .init(0xFFFFFF))
     }
 
     /// The window's glass: behind-window blur under an ink tint in dark (`inkGlass`) and a
@@ -352,9 +357,8 @@ enum Theme {
         static let shade = T.Colour.Role.toolbarShade.nsColor
         /// Record while recording.
         static let recording = T.Colour.Role.recording.nsColor
-        /// The screenshot flash over the device screen (`captureFlash`): white in both modes,
-        /// as the device's own camera flash is.
-        static let captureFlash = NSColor.white
+        /// The screenshot flash over the device screen: `CaptureFlash.colour`.
+        static let captureFlash = CaptureFlash.colour.nsColor
         static let frameBody = T.App.Pane.Colour.frameBody.nsColor
         static let frameEdge = T.App.Pane.Colour.frameEdge.nsColor
         static let frameInnerEdge = dynamic(light: 0xFFFFFF, lightAlpha: 0.08, dark: 0xFFFFFF, darkAlpha: 0.06)
