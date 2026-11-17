@@ -1,0 +1,79 @@
+# Lint, build and test Pane, then assemble Pane.app (ad hoc signed), on every push to main and
+# every pull request. Needs no secrets, so pull requests from forks run it as they are.
+#
+# The SwiftPM cache (.build: checkouts, artifacts, and the debug and release builds of gRPC,
+# Protobuf and Sparkle) is saved by main runs only; pull requests restore it. The release
+# workflow restores main's copy read-only, and skips its own tests when this workflow passed
+# on the tagged code (.github/scripts/ci-passed.sh).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    # Docs-only pushes skip CI. Keep in step with IGNORED in .github/scripts/ci-passed.sh.
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The toolchain goes into the cache key: a build from another Xcode or Swift is never
+      # restored. SwiftPM builds with one job per core by default; the count is logged.
+      - name: Select Xcode 27
+        id: xcode
+        run: |
+          XCODE=$(printf '%s\n' /Applications/Xcode_27*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          swift --version
+          echo "cores: $(sysctl -n hw.ncpu), workspace: $GITHUB_WORKSPACE"
+          XCODE_BUILD=$(xcodebuild -version | awk '/Build version/{print $3}')
+          SWIFT=$(swift --version 2>&1 | sed -n 's/.*swiftlang-\([^ ]*\).*/\1/p')
+          echo "toolchain=xcode$XCODE_BUILD-swift$SWIFT" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the SwiftPM cache
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.toolchain }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.toolchain }}-
+
+      - name: Lint
+        run: .github/scripts/test.sh lint
+
+      - name: Build
+        run: .github/scripts/test.sh build
+
+      - name: Test
+        run: .github/scripts/test.sh test
+
+      - name: Assemble Pane.app
+        run: |
+          scripts/build-app.sh
+          codesign --verify --deep --strict --verbose=2 build/Pane.app
+          codesign --verify --strict --verbose=2 "build/Pane.app/Contents/Helpers/Pane Emulator.app"
+
+      # After a passing run on main only, and only when the key is new (an exact hit is
+      # already stored). Pull requests never write a cache that main or a release could read.
+      - name: Save the SwiftPM cache
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ steps.cache.outputs.cache-primary-key }}

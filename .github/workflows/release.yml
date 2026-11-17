@@ -5,8 +5,15 @@
 #
 # Runs on a pushed tag vX.Y.Z (notes: that version's section in RELEASE_NOTES.md, else the
 # tag's message), or by hand with a version (tags the current commit). Never on pull
-# requests. The secrets belong to the `release` environment, which is also where required
-# reviewers go (Settings › Environments › release); no other job can read them.
+# requests. The secrets belong to the `release` environment (tags v* only), which is also
+# where required reviewers go (Settings › Environments › release); no other job can read them.
+#
+# Dry run (by hand, dry_run ticked): everything up to the DMG, ad hoc signed and not
+# notarized, then stops. It takes no environment, so it reads no secret, waits for no
+# reviewer and publishes nothing; safe to run any time, from any branch.
+#
+# Two jobs: `build` (macOS: checks, build, sign, notarize, read-only token) hands the DMG and
+# appcast to `publish` (Linux), the only job that can write to the repo.
 name: Release
 
 on:
@@ -18,25 +25,36 @@ on:
         description: Version to release, without the v (0.9.0)
         required: true
         type: string
+      dry_run:
+        description: "Dry run: build and pack ad hoc, no secrets, nothing published"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# One release at a time, never cancelled. A dry run gets a group of its own: a run waiting
+# in the release group is replaced by the next one, so a dry run there could cancel a release.
 concurrency:
-  group: release
+  group: ${{ inputs.dry_run && format('release-dry-run-{0}', github.run_id) || 'release' }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  build:
     # GitHub-hosted, as Drop: a fresh machine for every release, and never the studio's
     # self-hosted Macs, which a public repo must not reach.
     runs-on: xcode-27
     timeout-minutes: 60
-    environment: release
+    # No environment for a dry run: it can't read the secrets or wait for a reviewer.
+    environment: ${{ !inputs.dry_run && 'release' || '' }}
     permissions:
-      contents: write
+      contents: read
+      actions: read # ci-passed.sh reads CI's runs
     env:
+      DRY_RUN: ${{ inputs.dry_run == true }}
       IDENTITY: "Developer ID Application: Jatin Kumar (2M54BB9U46)"
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,13 +62,19 @@ jobs:
           fetch-depth: 0
 
       - name: Select Xcode 27
+        id: xcode
         run: |
           XCODE=$(printf '%s\n' /Applications/Xcode_27*.app | sort -V | tail -1)
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
           swift --version
+          echo "cores: $(sysctl -n hw.ncpu), workspace: $GITHUB_WORKSPACE"
+          XCODE_BUILD=$(xcodebuild -version | awk '/Build version/{print $3}')
+          SWIFT=$(swift --version 2>&1 | sed -n 's/.*swiftlang-\([^ ]*\).*/\1/p')
+          echo "toolchain=xcode$XCODE_BUILD-swift$SWIFT" >> "$GITHUB_OUTPUT"
 
       - name: Version and notes
+        id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
@@ -58,7 +82,9 @@ jobs:
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Version must be X.Y.Z, got '$VERSION'"; exit 1
           fi
-          NOTES=$RUNNER_TEMP/notes.md
+          OUT=$RUNNER_TEMP/out
+          mkdir -p "$OUT"
+          NOTES=$OUT/notes.md
           # The "## X.Y.Z" section of RELEASE_NOTES.md, up to the next heading.
           awk -v v="$VERSION" '/^## /{on = ($2 == v); next} on' RELEASE_NOTES.md > "$NOTES"
           if ! grep -q '[^[:space:]]' "$NOTES" && git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
@@ -69,19 +95,45 @@ jobs:
           fi
           {
             echo "VERSION=$VERSION"
+            echo "OUT=$OUT"
             echo "NOTES=$NOTES"
-            echo "DMG=$RUNNER_TEMP/Pane-$VERSION.dmg"
+            echo "DMG=$OUT/Pane-$VERSION.dmg"
           } >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      # Before any secret is touched: a release never ships code that fails its own checks.
-      - name: Lint and test
+      # A release never ships code that fails its own checks. When CI passed on this code
+      # (this commit, or one under it that differs only in docs), its checks stand; a CI run
+      # still going is waited for. Otherwise the next steps run them here. All before any
+      # secret is touched.
+      - name: Did CI pass on this code?
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          scripts/format.sh --lint
-          scripts/swift.sh test
+          if .github/scripts/ci-passed.sh "$GITHUB_SHA"; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Main's cache (CI saves it), read-only: a release never writes one. A miss is a clean
+      # build. The key holds the toolchain and Package.resolved, and build-app.sh rebuilds
+      # Pane's own code and signs a fresh bundle, so nothing stale reaches the DMG.
+      - name: Restore the SwiftPM cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.toolchain }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.toolchain }}-
+
+      - name: Lint and test (CI didn't pass on this code)
+        if: steps.ci.outputs.passed != 'true'
+        run: .github/scripts/test.sh
 
       # A throwaway keychain with a random password, first in the search list for this job
       # only; the cleanup step deletes it whatever happens.
       - name: Import the Developer ID certificate
+        if: env.DRY_RUN != 'true'
         env:
           DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
           DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
@@ -104,9 +156,13 @@ jobs:
 
       - name: Build and sign Pane.app
         run: |
+          if [ "$DRY_RUN" = true ]; then SIGN=-; else SIGN=$IDENTITY; fi
           # VERSION is already in the environment (Version and notes).
-          BUILD=$VERSION SIGN_IDENTITY="$IDENTITY" scripts/build-app.sh
+          BUILD=$VERSION SIGN_IDENTITY="$SIGN" scripts/build-app.sh
           codesign --verify --deep --strict --verbose=2 build/Pane.app
+          HELPER="build/Pane.app/Contents/Helpers/Pane Emulator.app"
+          codesign --verify --strict --verbose=2 "$HELPER"
+          [ "$DRY_RUN" = true ] && exit 0
           # Developer ID and the hardened runtime, each checked on its own (-dvv: -dv prints no
           # Authority lines, so one grep for either would pass on the runtime flag alone).
           APP_SIGN=$(codesign -dvv build/Pane.app 2>&1)
@@ -114,8 +170,6 @@ jobs:
           grep -q 'flags=.*runtime' <<< "$APP_SIGN"
           # The Pane Emulator helper (notarized with the app inside the DMG): Developer ID, the
           # hardened runtime and the app's team, each checked on its own.
-          HELPER="build/Pane.app/Contents/Helpers/Pane Emulator.app"
-          codesign --verify --strict --verbose=2 "$HELPER"
           HELPER_SIGN=$(codesign -dvv "$HELPER" 2>&1)
           grep -q 'Authority=Developer ID Application' <<< "$HELPER_SIGN"
           grep -q 'flags=.*runtime' <<< "$HELPER_SIGN"
@@ -123,8 +177,16 @@ jobs:
           [ -n "$APP_TEAM" ]
           grep -qx "TeamIdentifier=$APP_TEAM" <<< "$HELPER_SIGN"
 
+      - name: Pack the DMG (dry run, not signed or notarized)
+        if: env.DRY_RUN == 'true'
+        run: |
+          scripts/package-dmg.sh "$VERSION"
+          hdiutil verify "$DMG"
+          ls -l "$DMG"
+
       # The .p8 is on disk for this step only.
       - name: Pack, notarize and staple the DMG
+        if: env.DRY_RUN != 'true'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -136,29 +198,36 @@ jobs:
           SIGN_IDENTITY="$IDENTITY" NOTARY_KEY="$KEY" NOTARY_KEY_ID="$ASC_KEY_ID" NOTARY_ISSUER_ID="$ASC_ISSUER_ID" \
             scripts/package-dmg.sh "$VERSION"
 
-      # The private key goes to sign_update on stdin (`--ed-key-file -`), never to disk.
+      # The private key goes to sign_update on stdin (`--ed-key-file -`), never to disk. A dry
+      # run writes the appcast with a placeholder signature, to check it still renders.
       - name: Sign for Sparkle and write the appcast
         env:
-          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ env.DRY_RUN != 'true' && secrets.SPARKLE_ED_PRIVATE_KEY || '' }}
         run: |
-          SIGN_UPDATE=.build/artifacts/sparkle/Sparkle/bin/sign_update
-          SIGNATURE=$(printf '%s\n' "$SPARKLE_ED_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$DMG")
-          printf '%s\n' "$SPARKLE_ED_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - --verify "$DMG" "$SIGNATURE"
-          scripts/appcast.sh "$VERSION" "$VERSION" "$DMG" "$SIGNATURE" "$NOTES" > "$RUNNER_TEMP/appcast.xml"
-          xmllint --noout "$RUNNER_TEMP/appcast.xml"
-          cat "$RUNNER_TEMP/appcast.xml"
+          if [ "$DRY_RUN" = true ]; then
+            SIGNATURE=dry-run-not-signed
+          else
+            SIGN_UPDATE=.build/artifacts/sparkle/Sparkle/bin/sign_update
+            SIGNATURE=$(printf '%s\n' "$SPARKLE_ED_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$DMG")
+            printf '%s\n' "$SPARKLE_ED_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - --verify "$DMG" "$SIGNATURE"
+          fi
+          scripts/appcast.sh "$VERSION" "$VERSION" "$DMG" "$SIGNATURE" "$NOTES" > "$OUT/appcast.xml"
+          xmllint --noout "$OUT/appcast.xml"
+          cat "$OUT/appcast.xml"
 
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TARGET=()
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then TARGET=(--target "$GITHUB_SHA"); fi
-          # A copy under a fixed name, so the website can link to
-          # releases/latest/download/Pane.dmg. Sparkle's feed uses the versioned one.
-          cp "$DMG" "$RUNNER_TEMP/Pane.dmg"
-          gh release create "v$VERSION" "${TARGET[@]}" --title "Pane $VERSION" --notes-file "$NOTES" --latest \
-            "$DMG" "$RUNNER_TEMP/Pane.dmg" "$RUNNER_TEMP/appcast.xml"
+      # A copy under a fixed name, so the website can link to
+      # releases/latest/download/Pane.dmg. Sparkle's feed uses the versioned one.
+      - name: Hand the release to the publish job
+        if: env.DRY_RUN != 'true'
+        run: cp "$DMG" "$OUT/Pane.dmg"
+
+      - if: env.DRY_RUN != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Clean up signing material
         if: always()
@@ -166,3 +235,26 @@ jobs:
           if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
           security list-keychains -d user -s login.keychain-db
           rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/asc-key.p8"
+
+  publish:
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: out
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          TARGET=()
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then TARGET=(--target "$GITHUB_SHA"); fi
+          gh release create "v$VERSION" "${TARGET[@]}" -R "$GITHUB_REPOSITORY" --title "Pane $VERSION" \
+            --notes-file out/notes.md --latest "out/Pane-$VERSION.dmg" out/Pane.dmg out/appcast.xml
