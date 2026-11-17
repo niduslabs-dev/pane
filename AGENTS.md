@@ -70,14 +70,14 @@ Everything Pane does that is not on a board or differs from the kit (`../docs/de
 - **Destructive sheet buttons have no trash icon** (Button's destructive variant draws one): Restart emulator and Shut down emulator delete nothing, so a trash would say the wrong thing. Proposed by the kit-sync agent, 2026-11-17. Approved by Jatin, 2026-11-17.
 - **Menus, the ⓘ popover and the inspect card blur within the window** (`inkGlass` says a behind-window `.hudWindow` blur): `surfaceMenu` dark (and `tool.chip`) over a within-window `.hudWindow` blur, solid under Reduce Transparency or Increase Contrast. Why: they are drawn inside Pane's window over the device, so a behind-window blur would blur the desktop and leave the device's text sharp under them. Proposed by the review-fix agent. Approved by Jatin, 2026-11-17.
 
-- **Drag and drop, proposed by the build agent, 2026-11-17 (waiting for Jatin):**
-  - The drag chip says "Reinstall" when the device has the same version (the plan's copy list has none for it).
-  - Several items are titled by the first name and a count ("Splito and 2 more"); the board's "2 apps and 1 file" repeated the chip "2 apps, 1 file". The refined board is regenerated to match.
-  - After the drop the version chip keeps the drag's words (New, Update from 1.3.2, Older than 1.5.0, Reinstall); option A drew "Replaces 1.2.0" and "Downgrade from 1.3.0".
-  - A list row with Open or Show shows the tick alone, without "Installed" or "Copied", so the name keeps its room at 315 pt.
-  - The reading spinner shows beside the chip after 1 s (the plan's rule; no board draws it).
-  - A drop while another runs is refused; booting, connecting and can't-connect windows refuse a drag with no card (the board's "Start an emulator first" would be wrong there).
-  - A narrow window drops the drag card's icon before the chip would be cut.
+- **Drag and drop, proposed by the build agent, 2026-11-17:**
+  - The drag chip says "Reinstall" when the device has the same version (the plan's copy list has none for it). Approved by Jatin, 2026-11-17.
+  - Several items are titled by the first name and a count ("Splito and 2 more"); the board's "2 apps and 1 file" repeated the chip "2 apps, 1 file". The refined board is regenerated to match. Approved by Jatin, 2026-11-17.
+  - After the drop the version chip keeps the drag's words (New, Update from 1.3.2, Older than 1.5.0, Reinstall); option A drew "Replaces 1.2.0" and "Downgrade from 1.3.0". Approved by Jatin, 2026-11-17.
+  - A list row with Open or Show shows the tick alone, without "Installed" or "Copied", so the name keeps its room at 315 pt. Approved by Jatin, 2026-11-17.
+  - The reading spinner shows beside the chip after 1 s (the plan's rule; no board draws it). Waiting for Jatin.
+  - A drop while another runs is refused; booting, connecting and can't-connect windows refuse a drag with no card (the board's "Start an emulator first" would be wrong there). Approved by Jatin, 2026-11-17.
+  - A narrow window drops the drag card's icon before the chip would be cut. Waiting for Jatin.
 
 Not deviations, for the next review: the Save to select's fill is paper (`#F4F4F6`, `surfaceRaised` in `tokens.kit.json`; settled by Jatin 2026-11-17, board 14 to follow), and its menu (tick on the right, soft open ring, width = max(select, content), no divider) follows the Select contract. The switcher's Open in new window submenu is on board 13 (the "Open in new window" figure), placed under its row as drawn there.
 
