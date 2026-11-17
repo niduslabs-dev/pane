@@ -106,6 +106,7 @@ struct DeviceFrameView: View {
             DropLayer(drop: model.drop, screenRadius: layout.screenRadius)
         }
         .frame(width: rect.width, height: rect.height)
+        .coordinateSpace(.named(DropLayer.space))
         .clipShape(RoundedRectangle(cornerRadius: layout.screenRadius))
         .offset(x: rect.minX, y: rect.minY)
     }

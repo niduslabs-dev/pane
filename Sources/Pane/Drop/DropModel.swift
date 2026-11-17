@@ -64,6 +64,18 @@ final class DropModel {
     @ObservationIgnored private var cacheSerial: String?
     @ObservationIgnored private lazy var aapt2 = AndroidSDK.aapt2Executable()
 
+    /// Where the no-emulator screen's text starts and where a refused card ends, in the screen's
+    /// coordinates, measured by the views. When the card would reach the text (a short window),
+    /// the text steps aside for the drag, so the card never covers Start.
+    var stateContentTop: CGFloat?
+    var refusedCardBottom: CGFloat?
+    var stateStepsAside: Bool {
+        guard drag?.card.isRefused == true, let top = stateContentTop, let bottom = refusedCardBottom else {
+            return false
+        }
+        return bottom + Theme.Drop.sideMargin > top
+    }
+
     /// The card is on the screen.
     var showsCard: Bool { drag != nil || (job != nil && !isHidden) }
     /// The screen dims under the card and the moss outline shows: a drop that will be taken, or

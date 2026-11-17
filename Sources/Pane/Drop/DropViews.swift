@@ -9,6 +9,8 @@ import SwiftUI
 struct DropLayer: View {
     let drop: DropModel
     let screenRadius: CGFloat
+    /// The screen's coordinate space, where the card and the no-emulator text are measured.
+    static let space = "drop-screen"
 
     var body: some View {
         let dims = drop.dimsScreen
@@ -36,6 +38,11 @@ struct DropLayer: View {
                     .padding(.horizontal, Theme.Drop.sideMargin)
                     .padding(.top, refused ? Theme.Drop.refusedTop : Theme.Drop.sideMargin)
                     .padding(.bottom, Theme.Drop.sideMargin)
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.frame(in: .named(Self.space)).maxY - Theme.Drop.sideMargin
+                    } action: { bottom in
+                        drop.refusedCardBottom = refused ? bottom : nil
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: refused ? .top : .center)
                     .transition(.opacity)
             }
@@ -91,26 +98,53 @@ struct DragCardView: View {
                 + Text(" · \(card.header)").font(Theme.Typeface.dropHeader).foregroundStyle(Kit.Colour.secondaryText))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            HStack(spacing: Theme.Drop.mediaGap) {
-                DropMedia(media: card.media, size: Theme.Drop.media, icon: icons.first, stackIcons: icons)
-                VStack(alignment: .leading, spacing: Theme.Drop.chipGap) {
-                    DropTitle(title: card.title, version: card.version)
-                    HStack(spacing: Theme.Drop.statusGap) {
-                        DropChip(text: card.chip, isWarning: card.tone == .warning)
-                            .accessibilityIdentifier("drop-chip")
-                        if drag.showsSpinner {
-                            ProgressView()
-                                .controlSize(.small)
-                                .accessibilityLabel("Reading the app")
-                        }
-                    }
+            // A narrow window drops the icon before the chip would be cut.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.Drop.mediaGap) {
+                    DropMedia(media: card.media, size: Theme.Drop.media, icon: icons.first, stackIcons: icons)
+                    nameAndChip(card)
                 }
+                nameAndChip(card)
             }
         }
         .modifier(DropCardSurface())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(card.announcement)
         .accessibilityIdentifier("drop-drag-card")
+    }
+}
+
+extension DragCardView {
+    fileprivate func nameAndChip(_ card: DragCard) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Drop.chipGap) {
+            DropTitle(title: card.title, version: card.version)
+            HStack(spacing: Theme.Drop.statusGap) {
+                DropChip(text: card.chip, isWarning: card.tone == .warning)
+                    .accessibilityIdentifier("drop-chip")
+                if drag.showsSpinner {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Reading the app")
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    /// Reports where the no-emulator screen's text starts, so a refused drag's card can tell
+    /// whether it would reach it (`DropModel.stateStepsAside`).
+    func dropStateContent(_ drop: DropModel) -> some View {
+        let stepsAside = drop.stateStepsAside
+        return
+            onGeometryChange(for: CGFloat.self) {
+                $0.frame(in: .named(DropLayer.space)).minY
+            } action: {
+                drop.stateContentTop = $0
+            }
+            .opacity(stepsAside ? 0 : 1)
+            .accessibilityHidden(stepsAside)
+            .animation(.easeOut(duration: Theme.Drop.fadeDuration), value: stepsAside)
     }
 }
 

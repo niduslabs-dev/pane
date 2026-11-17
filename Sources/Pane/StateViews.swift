@@ -32,6 +32,7 @@ struct NoEmulatorScreen: View {
                 .padding(.top, Theme.Screen.actionGap)
         }
         .multilineTextAlignment(.center)
+        .dropStateContent(model.drop)
         .padding(.horizontal, Theme.Screen.horizontalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: Theme.Palette.screenEmpty))
@@ -80,6 +81,7 @@ struct NoEmulatorScreen: View {
             }
         }
         .multilineTextAlignment(.center)
+        .dropStateContent(model.drop)
         .padding(.horizontal, Theme.Screen.horizontalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: Theme.Palette.screenEmpty))
