@@ -56,26 +56,52 @@ public struct LabelPlacement {
         return frame
     }
 
-    /// Places for a distance chip along a guide from `from` to `to`: beside its middle first
-    /// (under a level guide, right of an upright one), then the other side, then nearer each
-    /// end on both sides, then the same again one and two chips further out, for a short guide
-    /// crowded by the outline and the size chip.
-    public static func guideCandidates(from: CGPoint, to: CGPoint, chip: CGSize, gap: CGFloat) -> [CGPoint] {
-        let horizontal = abs(to.x - from.x) >= abs(to.y - from.y)
-        let side = horizontal ? chip.height / 2 + gap : chip.width / 2 + gap
-        let step = horizontal ? chip.height + gap : chip.width + gap
-        var points: [CGPoint] = []
-        for distance in [side, side + step, side + 2 * step] {
-            for fraction in [0.5, 0.25, 0.75] {
-                let point = CGPoint(x: from.x + (to.x - from.x) * fraction, y: from.y + (to.y - from.y) * fraction)
-                for sign in [1.0, -1.0] {
-                    points.append(
-                        horizontal
-                            ? CGPoint(x: point.x, y: point.y + sign * distance)
-                            : CGPoint(x: point.x + sign * distance, y: point.y))
+    /// Places a distance chip on its guide from `from` to `to`: beside the line at `gap` (under a
+    /// level guide, right of an upright one), sliding only along the guide, from its middle
+    /// toward each end, so it is always clear which distance a number belongs to. Each of
+    /// `sizes` is tried in turn (the full label first, then shorter forms); a chip that fits
+    /// nowhere along its guide clear of what is taken is not placed, and the caller hides it
+    /// rather than move it off its guide. Returns the index of the size used and the frame.
+    public mutating func placeOnGuide(from: CGPoint, to: CGPoint, sizes: [CGSize], gap: CGFloat)
+        -> (size: Int, frame: CGRect)?
+    {
+        for (index, size) in sizes.enumerated() {
+            for centre in Self.guidePositions(from: from, to: to, chip: size, gap: gap) {
+                let frame = clamped(
+                    CGRect(origin: CGPoint(x: centre.x - size.width / 2, y: centre.y - size.height / 2), size: size))
+                if overlapArea(of: frame) == 0 {
+                    taken.append(frame)
+                    return (index, frame)
                 }
             }
         }
-        return points
+        return nil
+    }
+
+    /// A chip's centres on a guide: beside it at `gap`, at the guide's middle first, then a `gap`
+    /// at a time toward each end, alternating, until the chip's edge reaches the end. On a guide
+    /// shorter than the chip (a small inset beside the outline) the chip overhangs the end away
+    /// from the view, still on the line and still touching its guide.
+    public static func guidePositions(from: CGPoint, to: CGPoint, chip: CGSize, gap: CGFloat) -> [CGPoint] {
+        let horizontal = abs(to.x - from.x) >= abs(to.y - from.y)
+        let start = horizontal ? min(from.x, to.x) : min(from.y, to.y)
+        let end = horizontal ? max(from.x, to.x) : max(from.y, to.y)
+        let line = horizontal ? from.y : from.x
+        let extent = horizontal ? chip.width : chip.height
+        let side = line + (horizontal ? chip.height / 2 : chip.width / 2) + gap
+        let middle = (start + end) / 2
+        let reach = (end - start + extent) / 2
+        var offsets: [CGFloat] = [0]
+        if gap > 0 {
+            var step = gap
+            while step < reach {
+                offsets += [step, -step]
+                step += gap
+            }
+            if reach > 0 { offsets += [reach, -reach] }
+        }
+        return offsets.map { offset in
+            horizontal ? CGPoint(x: middle + offset, y: side) : CGPoint(x: side, y: middle + offset)
+        }
     }
 }

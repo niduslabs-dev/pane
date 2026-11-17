@@ -83,7 +83,7 @@ struct ToolLine: View {
 /// Inspect layout: the view under the pointer outlined with its size in a chip. A click pins
 /// it: amber dashed guides show the distance to its parent's edges, and a card lists its type,
 /// frame, pixel size and id. The card and the distance chips are placed so none covers
-/// another, the outline or the size chip (`LabelPlacement`).
+/// another, the outline or the size chip (`LabelPlacement`); a distance chip stays on its guide.
 struct InspectOverlay: View {
     let tools: ToolsModel
 
@@ -112,7 +112,9 @@ struct InspectOverlay: View {
                     if let pinned {
                         ForEach(pinned.guides.indices, id: \.self) { index in
                             let guide = pinned.guides[index]
-                            ToolChip(text: guide.text).position(x: guide.chip.midX, y: guide.chip.midY)
+                            if let text = guide.text, let chip = guide.chip {
+                                ToolChip(text: text).position(x: chip.midX, y: chip.midY)
+                            }
                         }
                         InspectCard(node: view.node, density: tools.density)
                             .frame(width: pinned.card.width)
@@ -127,8 +129,9 @@ struct InspectOverlay: View {
     private struct Guide {
         let from: CGPoint
         let to: CGPoint
-        let text: String
-        let chip: CGRect
+        /// Nil when the chip fits nowhere on its guide: the guide shows without its number.
+        let text: String?
+        let chip: CGRect?
     }
 
     private struct PinnedLayout {
@@ -136,9 +139,9 @@ struct InspectOverlay: View {
         let card: CGRect
     }
 
-    /// Each distance chip beside its guide first (they belong to the geometry), then the card
-    /// where it is clear of them: under the outline, else above it, else at the screen's bottom
-    /// or top.
+    /// Each distance chip on its guide first (they belong to the geometry; a chip slides only
+    /// along its guide, and is hidden when it fits nowhere there), then the card where it is
+    /// clear of them: under the outline, else above it, else at the screen's bottom or top.
     private func layout(
         pinned view: InspectedView, rect: CGRect, sizeChip: CGRect, scale: ScreenScale, in size: CGSize
     ) -> PinnedLayout {
@@ -158,13 +161,13 @@ struct InspectOverlay: View {
             (inside.bottom, CGPoint(x: rect.midX, y: rect.maxY), CGPoint(x: rect.midX, y: outer.maxY)),
         ]
         let guides = sides.filter { $0.0 > 0 }.map { length, from, to in
-            let text = tools.density.map { "\($0.wholeDp(length))" } ?? "\(Int(length.rounded())) px"
-            let chipSize = ToolChipMetrics.size(of: text)
-            let chip = placement.place(
-                size: chipSize,
-                candidates: LabelPlacement.guideCandidates(from: from, to: to, chip: chipSize, gap: Theme.Tools.chipGap)
-            )
-            return Guide(from: from, to: to, text: text, chip: chip)
+            // In dp the number is already short; "123 px" can drop its unit.
+            let texts =
+                tools.density.map { ["\($0.wholeDp(length))"] }
+                ?? ["\(Int(length.rounded())) px", "\(Int(length.rounded()))"]
+            let placed = placement.placeOnGuide(
+                from: from, to: to, sizes: texts.map(ToolChipMetrics.size(of:)), gap: Theme.Tools.chipGap)
+            return Guide(from: from, to: to, text: placed.map { texts[$0.size] }, chip: placed?.frame)
         }
         let rows = CGFloat(InspectCard.rowCount(for: view.node))
         let cardSize = CGSize(

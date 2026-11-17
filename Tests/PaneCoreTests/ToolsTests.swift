@@ -488,12 +488,9 @@ private func fixtureDump() throws -> String {
     @Test func laterLabelsAvoidEarlierOnes() {
         var placement = LabelPlacement(bounds: screen, spacing: 6, avoiding: [])
         let card = placement.place(size: CGSize(width: 250, height: 100), candidates: [CGPoint(x: 200, y: 400)])
-        let chip = placement.place(
-            size: CGSize(width: 30, height: 20),
-            candidates: LabelPlacement.guideCandidates(
-                from: CGPoint(x: 200, y: 300), to: CGPoint(x: 200, y: 420), chip: CGSize(width: 30, height: 20), gap: 6)
-        )
-        #expect(!chip.insetBy(dx: -6, dy: -6).intersects(card))
+        let chip = placement.placeOnGuide(
+            from: CGPoint(x: 200, y: 300), to: CGPoint(x: 200, y: 420), sizes: [CGSize(width: 30, height: 20)], gap: 6)
+        #expect(chip == nil || !chip!.frame.insetBy(dx: -6, dy: -6).intersects(card))
     }
 
     @Test func staysInsideTheScreen() {
@@ -509,10 +506,72 @@ private func fixtureDump() throws -> String {
         #expect(frame.size == CGSize(width: 10, height: 10))
     }
 
-    @Test func levelGuidesPutTheirChipUnderTheLineFirst() {
-        let points = LabelPlacement.guideCandidates(
-            from: CGPoint(x: 0, y: 100), to: CGPoint(x: 100, y: 100), chip: CGSize(width: 30, height: 20), gap: 6)
-        #expect(points.first == CGPoint(x: 50, y: 116))
-        #expect(points[1] == CGPoint(x: 50, y: 84))
+    @Test func levelGuideChipSitsUnderTheLineAtItsMiddle() {
+        var placement = LabelPlacement(bounds: screen, spacing: 6, avoiding: [])
+        let placed = placement.placeOnGuide(
+            from: CGPoint(x: 0, y: 100), to: CGPoint(x: 100, y: 100), sizes: [CGSize(width: 30, height: 20)], gap: 6)
+        #expect(placed?.size == 0)
+        #expect(placed?.frame == CGRect(x: 35, y: 106, width: 30, height: 20))
+    }
+
+    @Test func uprightGuideChipSitsRightOfTheLineAtItsMiddle() {
+        var placement = LabelPlacement(bounds: screen, spacing: 6, avoiding: [])
+        let placed = placement.placeOnGuide(
+            from: CGPoint(x: 100, y: 0), to: CGPoint(x: 100, y: 200), sizes: [CGSize(width: 30, height: 20)], gap: 6)
+        #expect(placed?.frame == CGRect(x: 106, y: 90, width: 30, height: 20))
+    }
+
+    /// A chip crowded at the middle moves along its guide, never across it or away from it.
+    @Test func crowdedChipSlidesAlongItsGuideOnly() throws {
+        let blocker = CGRect(x: 80, y: 100, width: 40, height: 40)
+        var placement = LabelPlacement(bounds: screen, spacing: 6, avoiding: [blocker])
+        let from = CGPoint(x: 0, y: 100)
+        let to = CGPoint(x: 200, y: 100)
+        let result = placement.placeOnGuide(from: from, to: to, sizes: [CGSize(width: 30, height: 20)], gap: 6)
+        let placed = try #require(result)
+        #expect(placed.frame.midY == 116)
+        #expect(placed.frame.minX >= from.x && placed.frame.maxX <= to.x)
+        #expect(!placed.frame.insetBy(dx: -6, dy: -6).intersects(blocker))
+    }
+
+    @Test func positionsStayBesideTheGuideAndTouchIt() {
+        let chip = CGSize(width: 30, height: 20)
+        let points = LabelPlacement.guidePositions(
+            from: CGPoint(x: 50, y: 300), to: CGPoint(x: 50, y: 100), chip: chip, gap: 6)
+        #expect(points.first == CGPoint(x: 71, y: 200))
+        #expect(points.allSatisfy { $0.x == 71 && $0.y + 10 >= 100 && $0.y - 10 <= 300 })
+        #expect(points.count > 1)
+    }
+
+    /// A 12 pt guide beside the outline: the chip overhangs the guide's outer end rather than
+    /// leave the line or cover the outline.
+    @Test func aShortGuideChipOverhangsItsOuterEnd() {
+        let outline = CGRect(x: 60, y: 80, width: 40, height: 40)
+        var placement = LabelPlacement(bounds: screen, spacing: 6, avoiding: [outline])
+        let placed = placement.placeOnGuide(
+            from: CGPoint(x: 48, y: 100), to: CGPoint(x: 60, y: 100), sizes: [CGSize(width: 24, height: 20)], gap: 6)
+        #expect(placed?.frame.midY == 116)
+        #expect(placed.map { $0.frame.maxX >= 48 && $0.frame.maxX <= 54 } == true)
+    }
+
+    @Test func aShorterLabelIsUsedWhenTheFullOneDoesNotFit() {
+        // The guide's side is clear only for 50 pt in its middle.
+        let left = CGRect(x: 0, y: 100, width: 75, height: 40)
+        let right = CGRect(x: 125, y: 100, width: 275, height: 40)
+        var placement = LabelPlacement(bounds: screen, spacing: 0, avoiding: [left, right])
+        let placed = placement.placeOnGuide(
+            from: CGPoint(x: 0, y: 100), to: CGPoint(x: 200, y: 100),
+            sizes: [CGSize(width: 60, height: 20), CGSize(width: 40, height: 20)], gap: 6)
+        #expect(placed?.size == 1)
+        #expect(placed?.frame.midX == 100)
+    }
+
+    @Test func aChipThatFitsNowhereOnItsGuideIsHiddenNotMoved() {
+        let blocker = CGRect(x: 0, y: 90, width: 200, height: 60)
+        var placement = LabelPlacement(bounds: screen, spacing: 6, avoiding: [blocker])
+        let placed = placement.placeOnGuide(
+            from: CGPoint(x: 0, y: 100), to: CGPoint(x: 200, y: 100), sizes: [CGSize(width: 30, height: 20)], gap: 6)
+        #expect(placed == nil)
+        #expect(placement.taken == [blocker])
     }
 }
