@@ -246,23 +246,55 @@ extension SettingsRow where Info == EmptyView {
 }
 
 /// A switch as a whole SettingsRow: the row toggles on click, Space toggles it when
-/// focused, and VoiceOver reads it as one switch.
+/// focused, and VoiceOver reads it as one switch named by the title, with the caption as its
+/// hint. The switch is drawn on its own (`.labelsHidden()`), so its accessibility frame is
+/// the switch's 34 × 20, not the row.
 struct SwitchRow: View {
     let title: String
     var caption: String?
     @Binding var isOn: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Toggle(isOn: $isOn) {
-            Text(title).font(Kit.Font.body).foregroundStyle(Kit.Colour.bodyText)
-            if let caption {
-                Text(caption).font(Kit.Font.caption).foregroundStyle(Kit.Colour.secondaryText).lineLimit(1)
+        HStack(spacing: Kit.Control.switchLabelSpacing) {
+            // The label side takes the clicks the switch doesn't, so the whole row toggles. It
+            // is a button outside the switch (not a gesture on the row, which would make SwiftUI
+            // give the switch's accessibility element the row's frame), hidden from VoiceOver
+            // and Tab, which reach the switch.
+            Button(action: toggle) {
+                VStack(alignment: .leading, spacing: Kit.Control.captionSpacing) {
+                    Text(title).font(Kit.Font.body).foregroundStyle(Kit.Colour.bodyText)
+                    if let caption {
+                        Text(caption).font(Kit.Font.caption).foregroundStyle(Kit.Colour.secondaryText).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .opacity(isEnabled ? 1 : Kit.Control.disabledOpacity)
             }
+            .buttonStyle(RowLabelButtonStyle())
+            .focusable(false)
+            .accessibilityHidden(true)
+            Toggle(title, isOn: $isOn)
+                .toggleStyle(.nidusSwitch)
+                .labelsHidden()
+                .accessibilityLabel(title)
+                .accessibilityHint(caption ?? "")
         }
-        .toggleStyle(.nidusSwitch)
         .padding(.horizontal, Kit.Row.horizontalPadding)
         .padding(.vertical, Kit.Row.verticalPadding)
     }
+
+    private func toggle() {
+        guard isEnabled else { return }
+        withAnimation(reduceMotion ? nil : Kit.Motion.toggle) { isOn.toggle() }
+    }
+}
+
+/// A row's label as a button: drawn as it is, no press shade and no dimming of its own.
+private struct RowLabelButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { configuration.label }
 }
 
 /// The bottom row: an optional link on the left, buttons on the right. When long labels

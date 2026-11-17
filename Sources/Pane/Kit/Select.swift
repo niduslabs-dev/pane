@@ -275,10 +275,15 @@ struct NidusSelect<Value: Hashable>: View {
         }
         .overlay { Hairline(shape: shape, width: Kit.Button.hairline) }
         .overlay {
-            shape.inset(by: -Kit.Select.openRing / 2)
-                .stroke(Kit.Colour.focusRing.opacity(openRingOpacity), lineWidth: Kit.Select.openRing)
-                .opacity(menu.isOpen ? 1 : 0)
-                .allowsHitTesting(false)
+            // Only in the tree while the menu is open, like `FocusRing`, so the select's
+            // accessibility frame stays the select's own.
+            if menu.isOpen {
+                shape.inset(by: -Kit.Select.openRing / 2)
+                    .stroke(Kit.Colour.focusRing.opacity(openRingOpacity), lineWidth: Kit.Select.openRing)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+            }
         }
         .background(AnchorView(anchor: anchor))
         .contentShape(shape)

@@ -144,9 +144,9 @@ struct SettingsView: View {
             Spacer(minLength: 0)
             // The label is the text on the left, so the ⓘ stays its own button; the switch
             // carries the name for VoiceOver.
-            Toggle(isOn: Binding(get: { takeover.isOn }, set: { takeover.set($0) })) { EmptyView() }
+            Toggle("Show all emulators in Pane", isOn: Binding(get: { takeover.isOn }, set: { takeover.set($0) }))
                 .toggleStyle(.nidusSwitch)
-                .fixedSize()
+                .labelsHidden()
                 .disabled(takeover.state == .changing)
                 .accessibilityLabel("Show all emulators in Pane")
                 .accessibilityIdentifier("settings-takeover-switch")
