@@ -11,6 +11,8 @@ them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z
 - Recording slides open with the time and says where the movie went.
 - The recording time rolls smoothly and no longer adds memory as it counts.
 - Pane no longer stays in the Dock after quitting when it started an emulator.
+- Recording a screen that doesn't change now saves a movie as long as the recording.
+- Stopping a recording no longer flashes a dark dot on the Record button.
 
 ## 1.0.0
 
