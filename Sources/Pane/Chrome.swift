@@ -104,23 +104,29 @@ struct DeviceToolbar: View {
             HStack(spacing: Theme.Toolbar.capsuleGap) {
                 capsule {
                     ToolbarButton(symbol: PaneSymbol.home, label: "Home") { model.pressHome() }
-                        .accessibilityIdentifier("toolbar-home")
+                        .accessibilityIdentifier(identifier("toolbar-home", live: live))
                     ToolbarButton(symbol: .system("camera.viewfinder"), label: "Screenshot") { model.saveScreenshot() }
-                        .accessibilityIdentifier("toolbar-screenshot")
+                        .accessibilityIdentifier(identifier("toolbar-screenshot", live: live))
                     RecordButton(model: model)
-                        .accessibilityIdentifier("toolbar-record")
+                        .accessibilityIdentifier(identifier("toolbar-record", live: live))
                 }
                 ToolbarButton(
                     symbol: PaneSymbol.rotateLeft, label: "Rotate Left", width: Theme.Toolbar.circleSize,
                     height: Theme.Toolbar.circleSize
                 ) { model.rotate() }
-                .accessibilityIdentifier("toolbar-rotate")
+                .accessibilityIdentifier(identifier("toolbar-rotate", live: live))
                 .glassSurface(in: Circle())
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("toolbar-circle")
             }
         }
         .disabled(!live)
+    }
+
+    /// A button's identifier for the measured check, with "-disabled" while there is nothing
+    /// to act on: dimmed icons are exempt from the contrast minimum the enabled ones meet.
+    private func identifier(_ name: String, live: Bool) -> String {
+        live ? name : name + "-disabled"
     }
 
     private func capsule(@ViewBuilder _ content: () -> some View) -> some View {
