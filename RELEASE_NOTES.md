@@ -13,6 +13,7 @@ them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z
 - Pane no longer stays in the Dock after quitting when it started an emulator.
 - Recording a screen that doesn't change now saves a movie as long as the recording.
 - Stopping a recording no longer flashes a dark dot on the Record button.
+- The emulator switcher shows each emulator's device and status, and looks like a control.
 - The recording time's colon no longer jumps as the seconds roll.
 - Rotating shows the new orientation at once, also on the home screen.
 

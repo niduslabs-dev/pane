@@ -116,23 +116,111 @@ import Testing
             menu.contentHeight == 5 * Theme.Menu.rowHeight + divider + 5 * Theme.Menu.rowSpacing + 2 * Theme.Menu.inset)
     }
 
-    @Test func switcherRowsFollowTheBoard() {
-        let entries = SwitcherEntry.entries(
-            avds: [
+    private func entries(_ names: [String], running: [String], current: String?, elsewhere: Set<String> = [])
+        -> [SwitcherEntry]
+    {
+        SwitcherEntry.entries(
+            avds: names.map {
                 AvdInfo(
-                    name: "dev_android36", directory: URL(filePath: "/a"),
+                    name: $0, directory: URL(filePath: "/" + $0),
                     profile: DeviceProfile(modelName: "Pixel 8", androidVersion: "Android 16"))
-            ], running: ["dev_android36"], current: "dev_android36", shownElsewhere: [])
+            }, running: running, current: current, shownElsewhere: elsewhere)
+    }
+
+    private func switcher(_ entries: [SwitcherEntry]) -> PaneMenu {
         let items = DeviceMenu.switcherPanelItems(entries: entries)
+        return PaneMenu(
+            label: "Emulators", anchor: .title, items: items, width: 262, submenuWidth: 242,
+            highlighted: DeviceMenu.switcherInitialRow(items))
+    }
+
+    @Test func switcherRowsFollowBoard20() {
+        let items = DeviceMenu.switcherPanelItems(
+            entries: entries(["dev_android36", "pixel9_api35"], running: ["dev_android36"], current: "dev_android36"))
         #expect(
             items.map(\.title) == [
-                "Show in this window", "dev_android36", "", "Open in new window", "Show emulators in Finder",
+                "Show in this window", "dev_android36", "pixel9_api35", "", "Show emulators in Finder",
             ])
-        #expect(items[1].isChecked == true)
-        #expect(items[1].tag == "Running")
-        #expect(items[1].detail == "Pixel 8 · Android 16")
-        // With one emulator, Open in new window is dimmed in place.
-        #expect(!items[3].isEnabled)
-        #expect(items[3].submenu == nil)
+        // This window's row: ticked, the selected fill, no button, no Running tag.
+        #expect(items[1].isChecked == true && items[1].isSelected && items[1].rowButton == nil && items[1].tag == nil)
+        #expect(items[1].glyph == RowGlyph(kind: .phone, state: .running))
+        #expect(items[1].detail == "Pixel 8" && items[1].detailTrail == " · Android 16")
+        // Another emulator: the button replaces the old submenu.
+        #expect(items[2].glyph == RowGlyph(kind: .phone, state: .stopped))
+        #expect(
+            items[2].rowButton
+                == RowButton(
+                    title: "Open in new window", accessibilityLabel: "Open pixel9_api35 in new window",
+                    command: .openInNewWindow("pixel9_api35")))
+        #expect(items.allSatisfy { $0.submenu == nil })
+    }
+
+    @Test func switcherWithNoEmulators() {
+        let items = DeviceMenu.switcherPanelItems(entries: [])
+        #expect(items.map(\.title) == ["Show in this window", "No emulators set up.", "", "Show emulators in Finder"])
+        #expect(!items[1].isEnabled)
+        #expect(switcher([]).highlighted == nil)
+    }
+
+    @Test func switcherOpensOnThisWindowsRowInEveryState() {
+        // One emulator, and one that is starting: still this window's row.
+        #expect(switcher(entries(["dev_android36"], running: [], current: "dev_android36")).highlighted == 1)
+        let starting = SwitcherEntry.entries(
+            avds: [
+                AvdInfo(name: "a", directory: URL(filePath: "/a")), AvdInfo(name: "b", directory: URL(filePath: "/b")),
+            ],
+            running: ["b"], starting: ["b"], current: "b", shownElsewhere: [])
+        #expect(switcher(starting).highlighted == 2)
+    }
+
+    @Test func switcherKeys() {
+        let menu = switcher(
+            entries(
+                ["dev_android36", "pixel9_api35", "tablet_api36"], running: ["dev_android36"], current: "dev_android36",
+                elsewhere: ["tablet_api36"]))
+        #expect(menu.highlighted == 1)
+        // Right does nothing on this window's row (no button).
+        #expect(menu.handleKey(code: kVK_RightArrow, characters: nil) == .handled)
+        #expect(!menu.isButtonFocused)
+        // Command-Return on a row without a button does nothing.
+        #expect(menu.handleKey(code: kVK_Return, characters: nil, command: true) == .handled)
+        #expect(menu.handleKey(code: kVK_DownArrow, characters: nil) == .handled)
+        #expect(menu.highlighted == 2)
+        #expect(menu.handleKey(code: kVK_RightArrow, characters: nil) == .handled)
+        #expect(menu.isButtonFocused)
+        // Left goes back to the row; Esc does too, and only a second Esc closes.
+        #expect(menu.handleKey(code: kVK_LeftArrow, characters: nil) == .handled)
+        #expect(!menu.isButtonFocused)
+        _ = menu.handleKey(code: kVK_RightArrow, characters: nil)
+        #expect(menu.handleKey(code: kVK_Escape, characters: nil) == .handled)
+        #expect(!menu.isButtonFocused)
+        // Return or Space on the button opens a new window; on the row it shows it here.
+        _ = menu.handleKey(code: kVK_RightArrow, characters: nil)
+        #expect(menu.handleKey(code: kVK_Space, characters: " ") == .choose(.openInNewWindow("pixel9_api35")))
+        menu.isButtonFocused = false
+        #expect(menu.handleKey(code: kVK_Return, characters: nil) == .choose(.showHere("pixel9_api35")))
+        #expect(
+            menu.handleKey(code: kVK_Return, characters: nil, command: true)
+                == .choose(.openInNewWindow("pixel9_api35")))
+        // Down from the button moves the highlight and leaves the button.
+        _ = menu.handleKey(code: kVK_RightArrow, characters: nil)
+        #expect(menu.handleKey(code: kVK_DownArrow, characters: nil) == .handled)
+        #expect(menu.highlighted == 3 && !menu.isButtonFocused)
+        // The row shown in another window has no button.
+        #expect(menu.handleKey(code: kVK_RightArrow, characters: nil) == .handled)
+        #expect(!menu.isButtonFocused)
+        // Tab has no stops inside the panel, and other Command keys go to the menu bar.
+        #expect(menu.handleKey(code: kVK_Tab, characters: "\t") == .ignored)
+        #expect(menu.handleKey(code: kVK_ANSI_S, characters: "s", command: true) == .ignored)
+        #expect(menu.handleKey(code: kVK_Escape, characters: nil) == .close)
+    }
+
+    @Test func emulatorsMenuShowsTheDotNotTheRunningTag() {
+        let items = DeviceMenu.emulatorsPanelItems(
+            entries: entries(["dev_android36", "pixel9_api35"], running: ["dev_android36"], current: nil))
+        #expect(items.allSatisfy { $0.tag == nil })
+        #expect(items[0].glyph == RowGlyph(kind: .phone, state: .running))
+        #expect(items[1].glyph == RowGlyph(kind: .phone, state: .stopped))
+        #expect(items[0].command == .chooseAVD("dev_android36"))
     }
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Draws Pane's two custom SF Symbol templates (Home and Rotate Left) from geometry.
+"""Draws Pane's custom SF Symbol templates from geometry: Home and Rotate Left for the toolbar, and
+the emulator switcher's three device glyphs (phone, tablet, foldable; board 20).
 
 Device Hub's toolbar glyphs (`app.grid.3x3` and its rotate) are private to Apple, so Pane draws
 look-alikes from measurements of Device Hub's rendering, never from Apple's artwork. Each template
@@ -243,7 +244,57 @@ def rotate(m):
     return path
 
 
-GLYPHS = {"pane.home": (home, "Pane Home: nine app-icon squares"), "pane.rotate.left": (rotate, "Pane Rotate Left")}
+# --- The switcher's device glyphs (board 20, gen/switcher.py's g_phone, g_tablet, g_fold): outlines
+# drawn on a 24-unit grid with a 1.8 stroke, here scaled by DEVICE_UNIT. Android hardware isn't
+# Apple's, so SF Symbols' iPhone and iPad glyphs don't fit.
+DEVICE_UNIT = 4.0
+DEVICE_STROKE = 1.8
+
+
+def device_outline(path, hw, hh, r, m):
+    """A stroked rounded rectangle centred on the origin, in 24-unit grid sizes."""
+    u, w = DEVICE_UNIT * SCALE, DEVICE_STROKE * m / 2
+    path.add(rounded_rect(0, 0, (hw + w) * u, (hh + w) * u, (r + w) * u))
+    path.add(rounded_rect(0, 0, (hw - w) * u, (hh - w) * u, max(0.05, r - w) * u, clockwise=False))
+
+
+def device_bar(path, cx, cy, hw, hh, m):
+    """A round-capped stroke from (cx - hw, cy - hh) to (cx + hw, cy + hh), one of them zero."""
+    u, w = DEVICE_UNIT * SCALE, DEVICE_STROKE * m / 2
+    path.add(rounded_rect(cx * u, cy * u, (hw + w) * u, (hh + w) * u, w * u))
+
+
+def phone(m):
+    """A portrait phone with a short bar near its bottom edge."""
+    path = Path()
+    device_outline(path, 5, 9.5, 2.6, m)
+    device_bar(path, 0, 6.5, 1, 0, m)
+    return path
+
+
+def tablet(m):
+    """A landscape tablet with a short bar near its bottom edge."""
+    path = Path()
+    device_outline(path, 9.5, 7, 2.4, m)
+    device_bar(path, 0, 4.5, 1, 0, m)
+    return path
+
+
+def foldable(m):
+    """An open foldable: a near-square outline split by its hinge."""
+    path = Path()
+    device_outline(path, 9, 7.5, 2.4, m)
+    device_bar(path, 0, 0, 0, 7.5, m)
+    return path
+
+
+GLYPHS = {
+    "pane.home": (home, "Pane Home: nine app-icon squares"),
+    "pane.rotate.left": (rotate, "Pane Rotate Left"),
+    "pane.device.phone": (phone, "Pane device: phone"),
+    "pane.device.tablet": (tablet, "Pane device: tablet"),
+    "pane.device.foldable": (foldable, "Pane device: foldable"),
+}
 
 
 def template(name, make, description):

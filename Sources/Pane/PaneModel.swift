@@ -99,6 +99,10 @@ final class PaneModel {
     /// can send a click there to the switcher, and whether the pointer is over it.
     @ObservationIgnored var switcherFrame = CGRect.zero
     private(set) var pointerOverTitle = false
+    /// The keys are on the switcher's trigger: Esc closed the switcher and gave focus back to
+    /// it, so Space, Return or Down opens it again. Any other key goes to the device (and
+    /// takes focus with it), as does a click.
+    var isTitleFocused = false
     /// The menu panel open over the window (More, the emulator switcher or the emulators
     /// menu); nil when none is.
     var menu: PaneMenu?
@@ -113,6 +117,8 @@ final class PaneModel {
     /// Opens the emulator switcher under the title (set by the window).
     @ObservationIgnored var onShowSwitcher: () -> Void = {}
     @ObservationIgnored var isShownElsewhere: (String) -> Bool = { _ in false }
+    /// The AVDs any Pane window is starting or waiting on to boot (set by the app).
+    @ObservationIgnored var startingAVDs: () -> Set<String> = { [] }
     @ObservationIgnored var showWindow: (String) -> Void = { _ in }
 
     @ObservationIgnored let screenView = ScreenView(cornerRadius: Theme.Frame.screenRadius)
@@ -1219,15 +1225,31 @@ final class PaneModel {
     func handleKey(_ event: NSEvent, isDown: Bool) -> Bool {
         if let menu {
             // An open menu takes the keys: arrows, Return, Esc and letters. None reach the device.
-            guard isDown, !event.modifierFlags.contains(.command) else {
-                return !event.modifierFlags.contains(.command)
-            }
-            switch menu.handleKey(code: Int(event.keyCode), characters: event.charactersIgnoringModifiers) {
-            case .close: closeMenu()
+            let command = event.modifierFlags.contains(.command)
+            guard isDown else { return !command }
+            let result = menu.handleKey(
+                code: Int(event.keyCode), characters: event.charactersIgnoringModifiers, command: command)
+            switch result {
+            case .close:
+                closeMenu()
+                if menu.anchor == .title { isTitleFocused = true }
             case .choose(let command): choose(command)
-            case .handled, .ignored: break
+            case .handled: break
+            case .ignored: if command { return false }
             }
             return true
+        }
+        if isTitleFocused, isDown, event.modifierFlags.intersection([.command, .option, .control]).isEmpty {
+            switch Int(event.keyCode) {
+            case kVK_Space, kVK_Return, kVK_ANSI_KeypadEnter, kVK_DownArrow:
+                onShowSwitcher()
+                return true
+            case kVK_Escape:
+                isTitleFocused = false
+                return true
+            default:
+                isTitleFocused = false
+            }
         }
         if tools.isActive {
             // Esc leaves the tool; every other key is kept from the device.
@@ -1392,6 +1414,12 @@ final class PaneModel {
         connection?.send(.release(point))
         pressedAt = nil
     }
+
+    #if DEBUG
+        /// `pane://check-switcher-hover?title=1`: posted pointer moves don't reach a background
+        /// window's tracking, so checks set the title's hover here.
+        func checkPointerOverTitle(_ over: Bool) { pointerOverTitle = over }
+    #endif
 
     /// The pointer moved over the window (window coordinates, y down), or left it (nil).
     func pointerMoved(to point: CGPoint?) {

@@ -211,26 +211,36 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     }
 
     /// Opens the emulator switcher under the title's device name, or closes it when it is open.
+    /// It opens with this window's row highlighted.
     func showSwitcher() {
         guard !close(menuAt: .title), window.attachedSheet == nil else { return }
-        model.reloadAVDs()
-        let running = EmulatorDiscovery.runningEmulators(in: PaneModel.registrationFolder).map(\.avdName)
-        let entries = SwitcherEntry.entries(
-            avds: model.avds, running: running, current: model.shownAVDName,
-            shownElsewhere: Set(model.avds.map(\.name) + running).filter(model.isShownElsewhere))
+        model.isTitleFocused = false
+        let items = DeviceMenu.switcherPanelItems(entries: switcherEntries())
         model.menu = PaneMenu(
-            label: "Emulators", anchor: .title, items: DeviceMenu.switcherPanelItems(entries: entries),
-            width: Theme.Menu.switcherWidth, submenuWidth: Theme.Menu.switcherSubmenuWidth)
+            label: "Emulators", anchor: .title, items: items, width: Theme.Menu.switcherWidth,
+            submenuWidth: Theme.Menu.switcherSubmenuWidth, highlighted: DeviceMenu.switcherInitialRow(items))
     }
 
     /// The no-emulator screen's "Choose another emulator": every AVD, under the link.
     func showEmulatorsMenu(under anchor: CGPoint) {
         guard !close(menuAt: .below(anchor)) else { return }
-        model.reloadAVDs()
+        let entries = switcherEntries().filter { entry in model.avds.contains { $0.name == entry.name } }
         model.menu = PaneMenu(
             label: "Emulators", anchor: .below(anchor),
-            items: DeviceMenu.emulatorsPanelItems(avds: model.avds, running: model.runningAVDNames),
+            items: DeviceMenu.emulatorsPanelItems(entries: entries),
             width: Theme.Menu.switcherWidth, submenuWidth: Theme.Menu.switcherSubmenuWidth)
+    }
+
+    /// Every emulator as the switcher lists it, read fresh from disk and the registration folder.
+    private func switcherEntries() -> [SwitcherEntry] {
+        #if DEBUG
+            if let fake = SwitcherFake.entries(current: model.shownAVDName) { return fake }
+        #endif
+        model.reloadAVDs()
+        let running = EmulatorDiscovery.runningEmulators(in: PaneModel.registrationFolder).map(\.avdName)
+        return SwitcherEntry.entries(
+            avds: model.avds, running: running, starting: model.startingAVDs(), current: model.shownAVDName,
+            shownElsewhere: Set(model.avds.map(\.name) + running).filter(model.isShownElsewhere))
     }
 
     /// Closes the open menu. True when it was the one at `anchor` (its trigger was pressed

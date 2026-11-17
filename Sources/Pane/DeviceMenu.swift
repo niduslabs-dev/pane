@@ -154,33 +154,52 @@ enum DeviceMenu {
         ]
     }
 
-    /// The emulator switcher's panel (board 13).
+    /// The emulator switcher's panel (board 20): one row per emulator with its device glyph and
+    /// status dot, this window's ticked on the selected fill, and Open in new window as a button
+    /// on the highlighted row of an emulator with no window. No emulators: one disabled line.
     static func switcherPanelItems(entries: [SwitcherEntry]) -> [PaneMenuItem] {
-        func row(_ entry: SwitcherEntry, _ command: DeviceCommand, check: Bool?, prefix: String) -> PaneMenuItem {
+        let rows =
+            entries.isEmpty
+            ? [PaneMenuItem(id: "none", title: noEmulatorsSetUp, isChecked: false, isEnabled: false)]
+            : entries.map { entry in
+                let line = entry.secondLine
+                return PaneMenuItem(
+                    id: "here." + entry.name, title: entry.name, detail: line.lead.isEmpty ? nil : line.lead,
+                    detailTrail: line.trail.isEmpty ? nil : line.trail,
+                    glyph: RowGlyph(kind: entry.kind, state: entry.state),
+                    isSelected: entry.isCurrent,
+                    rowButton: entry.opensInNewWindow
+                        ? RowButton(
+                            title: openInNewWindow, accessibilityLabel: "Open \(entry.name) in new window",
+                            command: .openInNewWindow(entry.name))
+                        : nil,
+                    accessibilityText: entry.accessibilityText, isChecked: entry.isCurrent,
+                    command: .showHere(entry.name))
+            }
+        return [.header("Show in this window")] + rows + [
+            .divider("d1"),
             PaneMenuItem(
-                id: prefix + entry.name, title: entry.name, detail: entry.detail.isEmpty ? nil : entry.detail,
-                tag: entry.isRunning ? "Running" : nil, isChecked: check, command: command)
-        }
-        let others = entries.filter { !$0.isCurrent }
-        return [.header("Show in this window")]
-            + entries.map { row($0, .showHere($0.name), check: $0.isCurrent, prefix: "here.") }
-            + [
-                .divider("d1"),
-                PaneMenuItem(
-                    id: "new", title: "Open in new window", isChecked: false, isEnabled: !others.isEmpty,
-                    submenu: others.isEmpty
-                        ? nil : others.map { row($0, .openInNewWindow($0.name), check: nil, prefix: "new.") }),
-                PaneMenuItem(
-                    id: "finder", title: "Show emulators in Finder", isChecked: false, command: .showEmulatorsInFinder),
-            ]
+                id: "finder", title: "Show emulators in Finder", isChecked: false, command: .showEmulatorsInFinder),
+        ]
     }
 
-    /// The no-emulator screen's emulators menu (board 6).
-    static func emulatorsPanelItems(avds: [AvdInfo], running: Set<String>) -> [PaneMenuItem] {
-        avds.map { avd in
+    /// The row the switcher opens on: this window's emulator.
+    static func switcherInitialRow(_ items: [PaneMenuItem]) -> Int? {
+        items.firstIndex { $0.isSelected }
+    }
+
+    static let openInNewWindow = "Open in new window"
+    /// The no-emulator screen's own words.
+    static let noEmulatorsSetUp = "No emulators set up."
+
+    /// The no-emulator screen's emulators menu (board 6): the same glyph and status dot as the
+    /// switcher, in place of the Running tag.
+    static func emulatorsPanelItems(entries: [SwitcherEntry]) -> [PaneMenuItem] {
+        entries.map { entry in
             PaneMenuItem(
-                id: "avd." + avd.name, title: avd.name, detail: avd.profile.summary.isEmpty ? nil : avd.profile.summary,
-                tag: running.contains(avd.name) ? "Running" : nil, command: .chooseAVD(avd.name))
+                id: "avd." + entry.name, title: entry.name, detail: entry.detail.isEmpty ? nil : entry.detail,
+                glyph: RowGlyph(kind: entry.kind, state: entry.state), accessibilityText: entry.accessibilityText,
+                command: .chooseAVD(entry.name))
         } + [
             .divider("d1"),
             PaneMenuItem(id: "finder", title: "Show emulators in Finder", command: .showEmulatorsInFinder),

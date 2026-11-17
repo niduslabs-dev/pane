@@ -10,14 +10,18 @@ public struct DeviceProfile: Sendable, Equatable {
     public var screenSize: PixelSize?
     /// The screen's density in dpi (`hw.lcd.density`), for Point Accurate and Physical Size.
     public var density: Int?
+    /// Phone, tablet or foldable, from `hw.device.name` (the switcher's row glyph).
+    public var kind: DeviceKind
 
     public init(
-        modelName: String? = nil, androidVersion: String? = nil, screenSize: PixelSize? = nil, density: Int? = nil
+        modelName: String? = nil, androidVersion: String? = nil, screenSize: PixelSize? = nil, density: Int? = nil,
+        kind: DeviceKind = .phone
     ) {
         self.modelName = modelName
         self.androidVersion = androidVersion
         self.screenSize = screenSize
         self.density = density
+        self.kind = kind
     }
 
     /// The window's second title line: model and Android version, joined by a middle dot.
@@ -45,7 +49,8 @@ public struct DeviceProfile: Sendable, Equatable {
             modelName: values["hw.device.name"].map(readableModelName),
             androidVersion: values["image.sysdir.1"].flatMap(apiLevel(fromSystemImagePath:)).map(androidRelease),
             screenSize: size,
-            density: values["hw.lcd.density"].flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
+            density: values["hw.lcd.density"].flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil },
+            kind: values["hw.device.name"].map(DeviceKind.init(deviceName:)) ?? .phone
         )
     }
 
@@ -67,5 +72,25 @@ public struct DeviceProfile: Sendable, Equatable {
     static func androidRelease(apiLevel: Int) -> String {
         let releases = [36: "16", 35: "15", 34: "14", 33: "13", 32: "12L", 31: "12", 30: "11", 29: "10"]
         return releases[apiLevel].map { "Android \($0)" } ?? "API \(apiLevel)"
+    }
+}
+
+/// The shape of device an AVD stands for, as the emulator switcher draws it (board 20).
+public enum DeviceKind: String, Sendable, Equatable, CaseIterable {
+    case phone
+    case tablet
+    case foldable
+
+    /// From an AVD's `hw.device.name`: a name with "tablet" is a tablet, one with "fold" a
+    /// foldable (`pixel_9_pro_fold`), anything else a phone.
+    public init(deviceName: String) {
+        let name = deviceName.lowercased()
+        if name.contains("tablet") {
+            self = .tablet
+        } else if name.contains("fold") {
+            self = .foldable
+        } else {
+            self = .phone
+        }
     }
 }

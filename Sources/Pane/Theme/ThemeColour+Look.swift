@@ -23,6 +23,12 @@ extension ThemeColour {
             darkContrast: darkContrast.opaque)
     }
 
+    /// The Increase Contrast step in every look: text that sits on a shade which would take
+    /// the plain value under 4.5:1 (the switcher's model line on its pressed shade, board 20).
+    var contrastStep: ThemeColour {
+        ThemeColour(light: lightContrast, dark: darkContrast, lightContrast: lightContrast, darkContrast: darkContrast)
+    }
+
     func value(for look: ColourLook) -> RGBA {
         switch look {
         case .light: light

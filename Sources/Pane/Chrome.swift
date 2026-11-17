@@ -13,35 +13,14 @@ struct TitleBar: View {
         // No spacing: the spacer only pushes the title left, and a gap before it would take
         // the name's room in a narrow window.
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Theme.Window.titleLineSpacing) {
-                SwitcherButton(model: model)
-                Text(model.meta)
-                    .font(Theme.Typeface.meta)
-                    .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .padding(.horizontal, Theme.TitleButton.paddingH)
-            .padding(.vertical, Theme.TitleButton.paddingV)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.TitleButton.radius, style: .continuous)
-                    .fill(
-                        Color(nsColor: Theme.Palette.shade)
-                            .opacity(
-                                model.pointerOverTitle || model.menu?.anchor == .title
-                                    ? Theme.TitleButton.hoverOpacity : 0))
-            )
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { model.switcherFrame = proxy.frame(in: .global) }
-                        .onChange(of: proxy.frame(in: .global)) { _, frame in model.switcherFrame = frame }
-                }
-            )
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { model.onShowSwitcher() }
-            .accessibilityIdentifier("window-title")
+            SwitcherTrigger(model: model)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear { model.switcherFrame = proxy.frame(in: .global) }
+                            .onChange(of: proxy.frame(in: .global)) { _, frame in model.switcherFrame = frame }
+                    }
+                )
             Spacer(minLength: 0)
         }
         .padding(.leading, model.titleLeadingInset - Theme.TitleButton.paddingH)
@@ -49,20 +28,28 @@ struct TitleBar: View {
     }
 }
 
-/// The device name in the title, as a button (board 13): under the pointer it gets a soft
-/// shade and a chevron, and a click opens the emulator switcher under it. The title bar takes
-/// real clicks and pointer moves before SwiftUI does, so the window reports the pointer
-/// (`model.pointerOverTitle`) and routes a click on `model.switcherFrame` here; Accessibility
-/// presses the button itself.
-struct SwitcherButton: View {
+/// The emulator switcher's trigger (board 20): the device name with a chevron over its model
+/// line, inside a hairline outline at `radius.control`, so it reads as a pop-up button at rest.
+/// Hover adds GlassToolbar's 6% shade; pressed and open hold the 12% one. While shaded, the
+/// model line and chevron take `textSecondary`'s contrast step, which keeps 4.5:1 there.
+/// Increase Contrast draws the outline in `controlBoundary` at 1 pt. The title bar takes real
+/// clicks and pointer moves before SwiftUI does, so the window reports the pointer
+/// (`model.pointerOverTitle`) and routes a click on `model.switcherFrame` to the switcher;
+/// Accessibility presses the element itself. The keys reach it only from the open panel (Esc
+/// gives focus back to it), because Tab in the emulator window is the device's.
+struct SwitcherTrigger: View {
     let model: PaneModel
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.appearsActive) private var appearsActive
 
     var body: some View {
         let isOpen = model.menu?.anchor == .title
-        let showsChrome = model.pointerOverTitle || isOpen
-        Button {
-            model.onShowSwitcher()
-        } label: {
+        let shade =
+            isOpen ? Theme.TitleButton.openOpacity : (model.pointerOverTitle ? Theme.TitleButton.hoverOpacity : 0)
+        let secondary = Color(nsColor: shade > 0 ? Theme.Palette.textSecondaryOnShade : Theme.Palette.textSecondary)
+        let shape = RoundedRectangle(cornerRadius: Theme.TitleButton.radius, style: .continuous)
+        let increased = contrast == .increased
+        VStack(alignment: .leading, spacing: Theme.Window.titleLineSpacing) {
             HStack(spacing: Theme.TitleButton.chevronGap) {
                 Text(model.title)
                     .font(Theme.Typeface.titleRowName)
@@ -71,15 +58,41 @@ struct SwitcherButton: View {
                     .truncationMode(.tail)
                 Image(systemName: "chevron.down")
                     .font(.system(size: Theme.TitleButton.chevronSize, weight: .semibold))
-                    .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
-                    .opacity(showsChrome ? 1 : 0)
+                    .foregroundStyle(secondary)
+            }
+            Text(model.meta)
+                .font(Theme.Typeface.meta)
+                .foregroundStyle(secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, Theme.TitleButton.paddingH)
+        .padding(.vertical, Theme.TitleButton.paddingV)
+        .background(
+            shape.fill(Color(nsColor: Theme.Palette.shade).opacity(shade))
+                .animation(.easeOut(duration: Theme.TitleButton.hoverDuration), value: shade)
+        )
+        .overlay(
+            shape.strokeBorder(
+                Color(nsColor: increased ? Theme.Palette.controlBoundary : Theme.Palette.hairline),
+                lineWidth: Kit.hairlineWidth(Theme.TitleButton.hairline, contrast: contrast))
+        )
+        .overlay {
+            if model.isTitleFocused && appearsActive && FocusVisibility.shared.isVisible {
+                shape.inset(by: -(Theme.TitleButton.focusRingOffset + Theme.TitleButton.focusRing / 2))
+                    .stroke(Kit.Colour.focusRing, lineWidth: Theme.TitleButton.focusRing)
+                    .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plainRow)
+        .contentShape(shape)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(model.title), switch emulator")
+        .accessibilityValue(model.meta)
+        .accessibilityAddTraits(.isButton)
         .accessibilityHint("Shows the emulators.")
+        .accessibilityAction { model.onShowSwitcher() }
+        .accessibilityIdentifier("window-title")
     }
 }
 
@@ -282,16 +295,20 @@ struct ToolbarButton: View {
 /// over the hover duration, so a quick click reads as a press, not a blink.
 struct ToolbarButtonStyle: ButtonStyle {
     var isHeld = false
+    /// Hovered as its owner tracks it (a menu row's button), in place of the style's own
+    /// pointer tracking.
+    var hoverOverride: Bool?
     @Environment(\.isEnabled) private var isEnabled
     @State private var hovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         let pressed = configuration.isPressed || isHeld
-        let shade = pressed ? Theme.Toolbar.pressedOpacity : (hovered ? Theme.Toolbar.hoverOpacity : 0)
+        let isHovered = hoverOverride ?? hovered
+        let shade = pressed ? Theme.Toolbar.pressedOpacity : (isHovered ? Theme.Toolbar.hoverOpacity : 0)
         configuration.label
             .background(
                 Capsule().fill(Color(nsColor: Theme.Palette.shade).opacity(isEnabled ? shade : 0))
-                    .animation(.easeOut(duration: Theme.Toolbar.hoverDuration), value: hovered)
+                    .animation(.easeOut(duration: Theme.Toolbar.hoverDuration), value: isHovered)
                     .animation(pressed ? nil : Theme.Toolbar.pressRelease, value: pressed)
             )
             .contentShape(Capsule())
@@ -353,6 +370,15 @@ enum PaneSymbol: Equatable {
     static let home = PaneSymbol.custom("pane.home", fallback: "square.grid.3x3.fill")
     /// A device with two arrows turning counter-clockwise, like Device Hub's Rotate Left.
     static let rotateLeft = PaneSymbol.custom("pane.rotate.left", fallback: "rectangle.portrait.rotate")
+
+    /// The switcher's device glyphs (board 20), drawn by `scripts/make-symbols.py`.
+    static func device(_ kind: DeviceKind) -> PaneSymbol {
+        switch kind {
+        case .phone: .custom("pane.device.phone", fallback: "smartphone")
+        case .tablet: .custom("pane.device.tablet", fallback: "ipad.landscape")
+        case .foldable: .custom("pane.device.foldable", fallback: "rectangle.split.2x1")
+        }
+    }
 
     var image: Image {
         switch self {

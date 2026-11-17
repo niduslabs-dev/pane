@@ -589,15 +589,37 @@ extension Theme {
         static let switcherSubmenuShift: CGFloat = 51
         static let switcherSubmenuDrop: CGFloat = 7
         static let edgeMargin = Space.xxs
+        /// The switcher's leading device glyph (board 20): its box, and the glyph's drawn extent
+        /// inside it (the board draws 20.8 of a 24-unit box).
+        static let glyphSize = T.Size.Icon.rowLarge
+        static let glyphArt: CGFloat = 14
+        /// The status dot on the glyph's bottom-right corner: 8 pt (proposed token
+        /// `app.pane.size.statusDot`, `../design/adoption/pane.md`), overhanging the glyph by a
+        /// quarter of itself, with a `border.control` ring and halo.
+        static let statusDot: CGFloat = 8
+        static let statusDotOverhang = statusDot / 4
+        static let statusDotRing = T.Border.control
+        /// A row's own button (Open in new window): GlassToolbar's button, icon at
+        /// `size.icon.rowLarge`, with the 2 pt focus ring.
+        static let rowButtonWidth = T.Size.GlassToolbar.buttonWidth
+        static let rowButtonHeight = T.Size.GlassToolbar.buttonHeight
+        static let rowButtonIconSize = T.Size.Icon.rowLarge
+        static let rowButtonFocusRing = T.Border.focusRing
     }
 
-    /// The device name in the title as a button (board 13): a soft shade and a chevron under
-    /// the pointer.
+    /// The device name and model line in the title as the switcher's trigger (board 20): a
+    /// chevron and a hairline outline at rest, GlassToolbar's shades on hover and while
+    /// pressed or open, the moss focus ring.
     enum TitleButton {
         static let paddingH: CGFloat = 9
         static let paddingV = Space.xxs
         static let radius = T.Radius.control
         static let hoverOpacity = T.Opacity.toolbarHover
+        static let openOpacity = T.Opacity.toolbarPressed
+        static let hairline = T.Border.hairline
+        static let hoverDuration = T.Motion.Duration.hover
+        static let focusRing = T.Border.focusRing
+        static let focusRingOffset = T.Border.focusOffset
         static let chevronGap = Space.xs
         static let chevronSize: CGFloat = 8
     }
@@ -738,6 +760,15 @@ extension Theme.Palette {
     static let menuHighlight = T.Colour.Role.highlight.nsColor
     /// A menu's tick: the link moss of each mode.
     static let menuCheck = T.Colour.Role.link.nsColor
+    /// The status dot (board 20): running is `status.good`, starting a ring in the focus
+    /// ring's moss, stopped a `textSecondary` ring.
+    static let statusGood = T.Colour.Role.Status.good.nsColor
+    static let focusRing = T.Colour.Role.focusRing.nsColor
+    /// The switcher trigger's model line and chevron while shaded: `textSecondary`'s Increase
+    /// Contrast step, which keeps 4.5:1 on the pressed shade over glass at its worst.
+    static let textSecondaryOnShade = T.Colour.Role.textSecondary.contrastStep.nsColor
+    /// The switcher trigger's outline under Increase Contrast.
+    static let controlBoundary = T.Colour.Role.controlBoundary.nsColor
     /// The mode pill: `surfaceRaised` with its Done button on paper or raised ink.
     static let modePill = T.Colour.Role.surfacePill.nsColor
     static let modePillButton = T.Colour.Role.actionSecondary.nsColor

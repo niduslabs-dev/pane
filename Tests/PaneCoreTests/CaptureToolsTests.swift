@@ -151,6 +151,35 @@ private func solid(width: Int, height: Int, red: CGFloat, green: CGFloat, blue: 
         #expect(entries[3].isRunning)
     }
 
+    @Test func switcherEntryStatesAndSecondLine() {
+        let entries = SwitcherEntry.entries(
+            avds: avds, running: ["dev_android36", "pixel9_api35"], starting: ["pixel9_api35"],
+            current: "dev_android36", shownElsewhere: [])
+        #expect(entries.map(\.state) == [.running, .starting, .stopped])
+        // The model truncates first; the Android version, or Starting, is kept whole.
+        #expect(entries[0].secondLine == ("Pixel 8", " · Android 16"))
+        #expect(entries[1].secondLine == ("Pixel 9 Pro", " · Starting"))
+        #expect(entries[2].secondLine == ("", ""))
+        #expect(!entries[0].opensInNewWindow && entries[1].opensInNewWindow)
+        #expect(entries[1].accessibilityText == "pixel9_api35, Pixel 9 Pro, Android 15, starting")
+
+        let elsewhere = SwitcherEntry.entries(
+            avds: avds, running: ["pixel9_api35"], current: "dev_android36", shownElsewhere: ["pixel9_api35"])
+        #expect(elsewhere[1].secondLine == ("In another window", " · Android 15"))
+        #expect(!elsewhere[1].opensInNewWindow)
+        // VoiceOver still reads the model.
+        #expect(elsewhere[1].accessibilityText == "pixel9_api35, Pixel 9 Pro, Android 15, in another window, running")
+    }
+
+    @Test func deviceKindFromTheDeviceName() {
+        #expect(DeviceKind(deviceName: "pixel_8") == .phone)
+        #expect(DeviceKind(deviceName: "pixel_tablet") == .tablet)
+        #expect(DeviceKind(deviceName: "pixel_9_pro_fold") == .foldable)
+        #expect(DeviceKind(deviceName: "7.6in Foldable") == .foldable)
+        #expect(DeviceProfile.parse(configIni: "hw.device.name=pixel_tablet\n").kind == .tablet)
+        #expect(DeviceProfile.parse(configIni: "").kind == .phone)
+    }
+
     @Test func oneWindowPerEmulator() {
         var roster = WindowRoster<Int>()
         #expect(roster.isEmpty)

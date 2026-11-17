@@ -16,8 +16,19 @@ struct PaneMenuItem: Identifiable, Equatable {
     var id: String
     var kind: Kind = .action
     var title = ""
-    /// A second line under the title (an emulator's model and Android version).
+    /// A second line under the title (an emulator's model and Android version). It truncates
+    /// first; `detailTrail` follows it and always shows whole (" · Android 16").
     var detail: String?
+    var detailTrail: String?
+    /// A device glyph with its status dot, after the check slot (the switcher, board 20).
+    var glyph: RowGlyph?
+    /// The current choice: the selected fill (`surfaceCard`) under the tick.
+    var isSelected = false
+    /// A button at the row's end, shown while the row is highlighted (the switcher's Open in
+    /// new window). Right moves to it, Left or Esc back.
+    var rowButton: RowButton?
+    /// What VoiceOver reads for the row, when it differs from the visible text.
+    var accessibilityText: String?
     /// Shown at the row's right in the menu-bar style ("⌥⌘I"). The menu bar item handles the keys.
     var shortcut: String?
     /// A small outlined tag at the row's right ("Running").
@@ -32,7 +43,7 @@ struct PaneMenuItem: Identifiable, Equatable {
 
     var height: CGFloat {
         switch kind {
-        case .action: detail == nil ? Theme.Menu.rowHeight : Theme.Menu.tallRowHeight
+        case .action: detail == nil && detailTrail == nil ? Theme.Menu.rowHeight : Theme.Menu.tallRowHeight
         case .header: Theme.Menu.headerHeight
         case .divider: Theme.Menu.dividerHeight + 2 * Theme.Menu.dividerMarginV
         }
@@ -44,9 +55,24 @@ struct PaneMenuItem: Identifiable, Equatable {
     }
 }
 
+/// A row's leading device glyph and status dot.
+struct RowGlyph: Equatable {
+    var kind: DeviceKind
+    var state: EmulatorRunState
+}
+
+/// A button inside a row: its tooltip, its own accessibility name and what it does.
+struct RowButton: Equatable {
+    var title: String
+    var accessibilityLabel: String
+    var command: DeviceCommand
+}
+
 /// An open menu panel: its rows, where it hangs, and which row the pointer or the keys are on.
-/// Up and Down move, Return or Space chooses, Right opens a submenu, Left or Esc closes it, Esc
-/// closes the menu, and typing a letter jumps to the next row that starts with it.
+/// Up and Down move, Home and End jump, Return or Space chooses, Right opens a submenu or moves
+/// to the row's button, Left or Esc goes back, Esc on a row closes the menu, Command-Return runs
+/// the highlighted row's button, and typing a letter jumps to the next row that starts with it.
+/// There are no Tab stops inside a panel.
 @MainActor
 @Observable
 final class PaneMenu {
@@ -70,13 +96,22 @@ final class PaneMenu {
     /// The row whose submenu is open, and the highlighted row inside it.
     var openSubmenu: Int?
     var submenuHighlighted: Int?
+    /// The keys are on the highlighted row's button, not the row.
+    var isButtonFocused = false
+    /// The pointer is on the highlighted row's button (its hover shade).
+    var isButtonHovered = false
 
-    init(label: String, anchor: Anchor, items: [PaneMenuItem], width: CGFloat, submenuWidth: CGFloat) {
+    /// `highlighted`: the row the panel opens on (the switcher: this window's emulator).
+    init(
+        label: String, anchor: Anchor, items: [PaneMenuItem], width: CGFloat, submenuWidth: CGFloat,
+        highlighted: Int? = nil
+    ) {
         self.label = label
         self.anchor = anchor
         self.items = items
         self.width = width
         self.submenuWidth = submenuWidth
+        self.highlighted = highlighted.flatMap { items.indices.contains($0) && items[$0].isChoosable ? $0 : nil }
     }
 
     enum KeyResult: Equatable {
@@ -105,6 +140,10 @@ final class PaneMenu {
     func hover(_ index: Int?) {
         guard let index else { return }
         guard items[index].isChoosable else { return }
+        if highlighted != index {
+            isButtonFocused = false
+            isButtonHovered = false
+        }
         highlighted = index
         if items[index].submenu != nil {
             if openSubmenu != index {
@@ -134,12 +173,38 @@ final class PaneMenu {
         return items[index].command
     }
 
+    /// The row's button was clicked.
+    func clickButton(_ index: Int) -> DeviceCommand? {
+        guard items.indices.contains(index), items[index].isChoosable else { return nil }
+        return items[index].rowButton?.command
+    }
+
     func clickSubmenu(_ index: Int) -> DeviceCommand? {
         guard submenuItems.indices.contains(index), submenuItems[index].isChoosable else { return nil }
         return submenuItems[index].command
     }
 
-    func handleKey(code: Int, characters: String?) -> KeyResult {
+    /// `command`: Command was held (only Command-Return means anything then).
+    func handleKey(code: Int, characters: String?, command: Bool = false) -> KeyResult {
+        if command {
+            guard code == kVK_Return || code == kVK_ANSI_KeypadEnter, openSubmenu == nil else { return .ignored }
+            guard let index = highlighted, let action = clickButton(index) else { return .handled }
+            return .choose(action)
+        }
+        if isButtonFocused {
+            switch code {
+            case kVK_LeftArrow, kVK_Escape: isButtonFocused = false
+            case kVK_Return, kVK_ANSI_KeypadEnter, kVK_Space:
+                guard let index = highlighted, let action = clickButton(index) else { return .handled }
+                return .choose(action)
+            case kVK_DownArrow, kVK_UpArrow:
+                isButtonFocused = false
+                highlighted = Self.next(from: highlighted, in: items, by: code == kVK_DownArrow ? 1 : -1)
+            case kVK_RightArrow: break
+            default: return .ignored
+            }
+            return .handled
+        }
         if openSubmenu != nil {
             switch code {
             case kVK_DownArrow: submenuHighlighted = Self.next(from: submenuHighlighted, in: submenuItems, by: 1)
@@ -167,7 +232,10 @@ final class PaneMenu {
                 submenuHighlighted = Self.next(from: nil, in: submenuItems, by: 1)
                 return .handled
             }
-            if code == kVK_RightArrow { return .handled }
+            if code == kVK_RightArrow {
+                if items[index].rowButton != nil { isButtonFocused = true }
+                return .handled
+            }
             return items[index].command.map(KeyResult.choose) ?? .handled
         default:
             guard let letter = characters?.lowercased().first, letter.isLetter || letter.isNumber else {
@@ -215,8 +283,10 @@ struct PaneMenuLayer: View {
                 .accessibilityHidden(true)
             PaneMenuPanel(
                 label: menu.label, items: menu.items, highlighted: menu.highlighted, openRow: menu.openSubmenu,
-                hover: { menu.hover($0) },
-                click: { index in if let command = menu.click(index) { model.choose(command) } }
+                isButtonFocused: menu.isButtonFocused, isButtonHovered: menu.isButtonHovered,
+                hover: { menu.hover($0) }, hoverButton: { menu.isButtonHovered = $0 },
+                click: { index in if let command = menu.click(index) { model.choose(command) } },
+                clickButton: { index in if let command = menu.clickButton(index) { model.choose(command) } }
             )
             .frame(width: menu.width)
             .offset(x: origin.x, y: origin.y)
@@ -315,8 +385,12 @@ struct PaneMenuPanel: View {
     let items: [PaneMenuItem]
     let highlighted: Int?
     let openRow: Int?
+    var isButtonFocused = false
+    var isButtonHovered = false
     let hover: (Int?) -> Void
+    var hoverButton: (Bool) -> Void = { _ in }
     let click: (Int) -> Void
+    var clickButton: (Int) -> Void = { _ in }
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
@@ -342,7 +416,10 @@ struct PaneMenuPanel: View {
                 case .action:
                     PaneMenuRow(
                         item: item, isHighlighted: highlighted == index || openRow == index,
-                        hover: { hover($0 ? index : nil) }, click: { click(index) })
+                        isButtonFocused: isButtonFocused && highlighted == index,
+                        isButtonHovered: isButtonHovered && highlighted == index,
+                        hover: { hover($0 ? index : nil) }, hoverButton: hoverButton, click: { click(index) },
+                        clickButton: { clickButton(index) })
                 }
             }
         }
@@ -365,11 +442,39 @@ struct PaneMenuPanel: View {
 private struct PaneMenuRow: View {
     let item: PaneMenuItem
     let isHighlighted: Bool
+    let isButtonFocused: Bool
+    let isButtonHovered: Bool
     let hover: (Bool) -> Void
+    let hoverButton: (Bool) -> Void
     let click: () -> Void
+    let clickButton: () -> Void
     @Environment(\.colorSchemeContrast) private var contrast
 
+    /// The row button shows on the highlighted row only, so a row reads as one choice until
+    /// the pointer or the keys are on it.
+    private var showsButton: Bool { item.rowButton != nil && isHighlighted && item.isEnabled }
+
     var body: some View {
+        ZStack(alignment: .trailing) {
+            rowButton
+            if showsButton, let button = item.rowButton {
+                MenuRowButton(
+                    button: button, isFocused: isButtonFocused, isHovered: isButtonHovered, hover: hoverButton,
+                    action: clickButton
+                )
+                .padding(.trailing, Theme.Menu.rowPaddingH)
+            }
+        }
+        .onHover(perform: hover)
+    }
+
+    private var fill: Color {
+        if isHighlighted && item.isEnabled { return Color(nsColor: Theme.Palette.menuHighlight) }
+        if item.isSelected { return Color(nsColor: Theme.Palette.card) }
+        return .clear
+    }
+
+    private var rowButton: some View {
         Button(action: click) {
             HStack(spacing: Theme.Menu.rowGap) {
                 if let isChecked = item.isChecked {
@@ -379,18 +484,28 @@ private struct PaneMenuRow: View {
                         .frame(width: Theme.Menu.checkSlot)
                         .opacity(isChecked ? 1 : 0)
                 }
+                if let glyph = item.glyph {
+                    DeviceGlyph(glyph: glyph)
+                }
                 VStack(alignment: .leading, spacing: Theme.Menu.lineSpacing) {
                     Text(item.title)
                         .font(Theme.Typeface.menuRow)
                         .foregroundStyle(Color(nsColor: Theme.Palette.text))
-                    if let detail = item.detail {
-                        Text(detail)
-                            .font(Theme.Typeface.menuDetail)
-                            .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
+                        .truncationMode(.middle)
+                    if item.detail != nil || item.detailTrail != nil {
+                        HStack(spacing: 0) {
+                            if let detail = item.detail {
+                                Text(detail).truncationMode(.tail)
+                            }
+                            if let trail = item.detailTrail {
+                                Text(trail).fixedSize()
+                            }
+                        }
+                        .font(Theme.Typeface.menuDetail)
+                        .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
                     }
                 }
                 .lineLimit(1)
-                .truncationMode(.middle)
                 Spacer(minLength: 0)
                 if let tag = item.tag {
                     Text(tag)
@@ -413,19 +528,21 @@ private struct PaneMenuRow: View {
                         .font(.system(size: Theme.Menu.chevronSize, weight: .semibold))
                         .foregroundStyle(Color(nsColor: Theme.Palette.textSecondary))
                 }
+                if showsButton {
+                    // Room for the row button drawn over the row, so the text truncates before it.
+                    Color.clear.frame(width: Theme.Menu.rowButtonWidth, height: Theme.Menu.rowButtonHeight)
+                }
             }
             .padding(.horizontal, Theme.Menu.rowPaddingH)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: item.height)
             .background(
-                RoundedRectangle(cornerRadius: Theme.Menu.rowRadius, style: .continuous)
-                    .fill(Color(nsColor: Theme.Palette.menuHighlight).opacity(isHighlighted && item.isEnabled ? 1 : 0))
+                RoundedRectangle(cornerRadius: Theme.Menu.rowRadius, style: .continuous).fill(fill)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plainRow)
         .disabled(!item.isEnabled)
-        .onHover(perform: hover)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityValue(item.isChecked == true ? "checked" : "")
@@ -433,8 +550,90 @@ private struct PaneMenuRow: View {
         .accessibilityHint(item.submenu == nil ? "" : "Opens a submenu.")
     }
 
-    /// "dev_android36, Pixel 8 · Android 16, Running".
+    /// "dev_android36, Pixel 8 · Android 16, Running", unless the row gives its own.
     private var accessibilityText: String {
-        [item.title, item.detail, item.tag].compactMap { $0 }.joined(separator: ", ")
+        item.accessibilityText
+            ?? [item.title, [item.detail, item.detailTrail].compactMap { $0 }.joined(), item.tag]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+}
+
+/// A row's own button (the switcher's Open in new window): GlassToolbar's button inside a
+/// MenuPanel row, with its hover and pressed shades, the moss ring while the keys are on it,
+/// and its own accessibility element.
+private struct MenuRowButton: View {
+    let button: RowButton
+    let isFocused: Bool
+    let isHovered: Bool
+    let hover: (Bool) -> Void
+    let action: () -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "macwindow.badge.plus")
+                .font(.system(size: Theme.Menu.rowButtonIconSize))
+                .foregroundStyle(Color(nsColor: Theme.Palette.icon))
+                .frame(width: Theme.Menu.rowButtonWidth, height: Theme.Menu.rowButtonHeight)
+        }
+        .buttonStyle(ToolbarButtonStyle(hoverOverride: isHovered))
+        .onHover(perform: hover)
+        .overlay {
+            if isFocused {
+                Capsule()
+                    .strokeBorder(Kit.Colour.focusRing, lineWidth: Theme.Menu.rowButtonFocusRing)
+                    .padding(-Theme.Menu.rowButtonFocusRing)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .help(button.title)
+        .accessibilityLabel(button.accessibilityLabel)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("menu-row-button")
+    }
+}
+
+/// An emulator's device glyph (`PaneSymbol.device`) with its status dot on the glyph's
+/// bottom-right corner: filled `status.good` when running, a moss ring (the focus ring's
+/// colour) while starting, a `textSecondary` ring when stopped, so status never rests on
+/// colour alone. A halo in the menu's colour keeps the dot apart from the glyph's stroke.
+struct DeviceGlyph: View {
+    let glyph: RowGlyph
+
+    var body: some View {
+        PaneSymbol.device(glyph.kind).image
+            .resizable()
+            .scaledToFit()
+            .frame(width: Theme.Menu.glyphArt, height: Theme.Menu.glyphArt)
+            .foregroundStyle(Color(nsColor: Theme.Palette.icon))
+            .frame(width: Theme.Menu.glyphSize, height: Theme.Menu.glyphSize)
+            .overlay(alignment: .bottomTrailing) {
+                StatusDot(state: glyph.state)
+                    .offset(x: Theme.Menu.statusDotOverhang, y: Theme.Menu.statusDotOverhang)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// The 8 pt status dot (board 20).
+struct StatusDot: View {
+    let state: EmulatorRunState
+
+    var body: some View {
+        let ring = Theme.Menu.statusDotRing
+        ZStack {
+            Circle().fill(Color(nsColor: Theme.Palette.menuPanelSolid))
+                .padding(-ring)
+            switch state {
+            case .running:
+                Circle().fill(Color(nsColor: Theme.Palette.statusGood))
+            case .starting:
+                Circle().strokeBorder(Color(nsColor: Theme.Palette.focusRing), lineWidth: ring)
+            case .stopped:
+                Circle().strokeBorder(Color(nsColor: Theme.Palette.textSecondary), lineWidth: ring)
+            }
+        }
+        .frame(width: Theme.Menu.statusDot, height: Theme.Menu.statusDot)
     }
 }

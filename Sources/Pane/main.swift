@@ -104,6 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.model.isShownElsewhere = { [weak self] name in
             self?.roster.avdsShown(except: id).contains(name) ?? false
         }
+        controller.model.startingAVDs = { [weak self] in
+            Set(
+                (self?.controllers ?? []).filter { [.starting, .booting].contains($0.model.status) }
+                    .compactMap(\.model.shownAVDName))
+        }
         controller.model.showWindow = { [weak self] name in
             self?.controller(showing: name)?.window.makeKeyAndOrderFront(nil)
         }
@@ -208,6 +213,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case "check-location": controller.showCustomLocation(latitude: value("lat"), longitude: value("lon"))
             case "check-gif": if let file = files.first { model.exportGIF(from: file) }
             case "check-switcher": controller.showSwitcher()
+            case "check-switcher-hover":
+                // title=1: the pointer on the trigger; row=N: on that row; button=1: on its button.
+                if let title = value("title") { model.checkPointerOverTitle(title == "1") }
+                if let row = value("row").flatMap(Int.init), let menu = model.menu {
+                    menu.hover(row)
+                    menu.isButtonHovered = value("button") == "1"
+                }
             case "check-settings": showSettings(nil)
             case "check-drop-hover": model.drop.isHovered = value("on") == "1"
             case "check-restart": controller.restart()
@@ -451,6 +463,7 @@ final class PaneWindow: NSWindow {
         // The title bar takes clicks before the content under it, so a click on the device
         // name is handed to the emulator switcher here.
         if event.type == .leftMouseDown, attachedSheet == nil {
+            model.isTitleFocused = false
             let point = CGPoint(x: event.locationInWindow.x, y: frame.height - event.locationInWindow.y)
             if model.switcherFrame.contains(point) {
                 model.onShowSwitcher()
