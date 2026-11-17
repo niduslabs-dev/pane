@@ -128,6 +128,8 @@ jobs:
 
       - name: Lint and test (CI didn't pass on this code)
         if: steps.ci.outputs.passed != 'true'
+        # A hang fails here instead of using up the job's time.
+        timeout-minutes: 20
         run: .github/scripts/test.sh
 
       # A throwaway keychain with a random password, first in the search list for this job

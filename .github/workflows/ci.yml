@@ -60,7 +60,9 @@ jobs:
       - name: Build
         run: .github/scripts/test.sh build
 
+      # A hang fails here instead of using up the job's time (the tests take seconds).
       - name: Test
+        timeout-minutes: 15
         run: .github/scripts/test.sh test
 
       - name: Assemble Pane.app
