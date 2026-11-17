@@ -15,7 +15,7 @@ them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z
 - Stopping a recording no longer flashes a dark dot on the Record button.
 - The emulator switcher shows each emulator's device and status, and looks like a control.
 - The recording time's colon no longer jumps as the seconds roll.
-- Rotating shows the new orientation at once, also on the home screen.
+- Rotating turns the window in about a third of a second, also on the home screen.
 
 ## 1.0.0
 
