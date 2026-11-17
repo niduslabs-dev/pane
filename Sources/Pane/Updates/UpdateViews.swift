@@ -122,7 +122,7 @@ private struct DownloadBar: View {
                 .frame(width: geometry.size.width * min(max(fraction, 0), 1))
         }
         .frame(height: Kit.Progress.height)
-        .background(Kit.Colour.bodyText.opacity(Kit.Progress.trackOpacity), in: shape)
+        .background(Kit.Colour.track, in: shape)
         .clipShape(shape)
         .animation(reduceMotion ? nil : Kit.Motion.progress, value: fraction)
         .accessibilityElement()

@@ -245,7 +245,6 @@ struct NidusSelect<Value: Hashable>: View {
     }
 
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isFocused: Bool
     @State private var anchor = ViewAnchor()
     @State private var menu = SelectMenuHandle()
@@ -279,7 +278,7 @@ struct NidusSelect<Value: Hashable>: View {
             // accessibility frame stays the select's own.
             if menu.isOpen {
                 shape.inset(by: -Kit.Select.openRing / 2)
-                    .stroke(Kit.Colour.focusRing.opacity(openRingOpacity), lineWidth: Kit.Select.openRing)
+                    .stroke(Kit.Colour.openRing, lineWidth: Kit.Select.openRing)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                     .transition(.opacity)
@@ -309,10 +308,6 @@ struct NidusSelect<Value: Hashable>: View {
         #if DEBUG
             .onAppear { SelectDemo.openers[label] = { open(byKeyboard: $0) } }
         #endif
-    }
-
-    private var openRingOpacity: Double {
-        colorScheme == .dark ? Kit.Select.openRingOpacityDark : Kit.Select.openRingOpacityLight
     }
 
     /// Opens on mouse down, like a native pop-up button.
@@ -789,7 +784,6 @@ private struct SelectMenuRowView: View {
     let row: SelectMenuRow
     let isSelected: Bool
     let isHighlighted: Bool
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: Kit.Select.rowIconSpacing) {
@@ -805,12 +799,8 @@ private struct SelectMenuRowView: View {
         .frame(maxWidth: .infinity, minHeight: Kit.Select.rowHeight, maxHeight: Kit.Select.rowHeight)
         .background {
             RoundedRectangle(cornerRadius: Kit.Select.rowRadius, style: .continuous)
-                .fill(Kit.Colour.focusRing.opacity(isHighlighted ? highlight : 0))
+                .fill(isHighlighted ? Kit.Colour.highlight : .clear)
         }
-    }
-
-    private var highlight: Double {
-        colorScheme == .dark ? Kit.Select.highlightDark : Kit.Select.highlightLight
     }
 }
 
@@ -822,15 +812,10 @@ private struct SelectMenuSurface: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        if colorScheme == .dark {
-            let solid = reduceTransparency || contrast == .increased
-            ZStack {
-                if !solid { BehindWindowBlur() }
-                Color(nsColor: NSColor(hex: Kit.Select.menuDarkTint))
-                    .opacity(solid ? 1 : Kit.Select.menuDarkTintOpacity)
-            }
-        } else {
-            Color.white
+        let solid = reduceTransparency || contrast == .increased
+        ZStack {
+            if colorScheme == .dark && !solid { BehindWindowBlur() }
+            solid ? Kit.Colour.menuSurfaceSolid : Kit.Colour.menuSurface
         }
     }
 }
