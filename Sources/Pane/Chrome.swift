@@ -140,25 +140,54 @@ struct DeviceToolbar: View {
     }
 }
 
-/// Record: starts and stops a recording; the tooltip shows how long it has run.
+/// Record: starts and stops a recording. While recording it widens to the red icon and the
+/// elapsed time (board 16, "Recording timer"), and its name carries the time too.
 struct RecordButton: View {
     let model: PaneModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            ToolbarButton(
-                symbol: .system(model.recordingStartedAt == nil ? "record.circle" : "record.circle.fill"),
-                label: label(at: context.date),
-                tint: model.recordingStartedAt == nil ? nil : Color(nsColor: Theme.Palette.recording)
-            ) { model.toggleRecording() }
+        if let start = model.recordingStartedAt {
+            TimelineView(.periodic(from: start, by: 1)) { context in
+                recording(seconds: max(0, Int(context.date.timeIntervalSince(start))))
+            }
+        } else {
+            ToolbarButton(symbol: .system("record.circle"), label: "Record") { model.toggleRecording() }
         }
     }
 
-    private func label(at date: Date) -> String {
-        guard let start = model.recordingStartedAt else { return "Record" }
-        let seconds = max(0, Int(date.timeIntervalSince(start)))
+    private func recording(seconds: Int) -> some View {
+        let time = Self.elapsed(seconds)
+        return Button {
+            model.toggleRecording()
+        } label: {
+            HStack(spacing: Theme.Toolbar.recordingGap) {
+                Image(systemName: "record.circle.fill")
+                    .font(.system(size: Theme.Toolbar.iconSize, weight: .regular))
+                    .foregroundStyle(Color(nsColor: Theme.Palette.recording))
+                Text(time)
+                    .font(Theme.Toolbar.timeFont)
+                    .monospacedDigit()
+                    .foregroundStyle(Color(nsColor: Theme.Palette.text))
+                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(seconds)))
+                    .animation(
+                        reduceMotion ? nil : .easeInOut(duration: Theme.Toolbar.timeRollDuration), value: seconds
+                    )
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, Theme.Toolbar.recordingPaddingH)
+            .frame(height: Theme.Toolbar.buttonHeight)
+        }
+        .buttonStyle(ToolbarButtonStyle())
+        .help("Stop recording, \(time)")
+        .accessibilityLabel("Stop recording, \(time)")
+    }
+
+    /// "0:07", "1:12", "12:00".
+    static func elapsed(_ seconds: Int) -> String {
         let secondsPerMinute = 60
-        return String(format: "Stop recording (%d:%02d)", seconds / secondsPerMinute, seconds % secondsPerMinute)
+        return String(format: "%d:%02d", seconds / secondsPerMinute, seconds % secondsPerMinute)
     }
 }
 

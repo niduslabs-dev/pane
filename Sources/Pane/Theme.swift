@@ -196,6 +196,12 @@ enum Theme {
         static let hoverOpacity = T.Opacity.toolbarHover
         static let pressedOpacity = T.Opacity.toolbarPressed
         static let hoverDuration = T.Motion.Duration.hover
+        /// Record while recording widens to the red icon and the elapsed time (board 16,
+        /// "Recording timer"): tabular digits that roll (`numericRoll`).
+        static let recordingGap = Space.xxs
+        static let recordingPaddingH = Space.s
+        static let timeFont = T.TypeScale.bodyMedium.font
+        static let timeRollDuration = T.Motion.Duration.numbers
     }
 
     /// The window's glass: behind-window blur under an ink tint in dark (`inkGlass`) and a
