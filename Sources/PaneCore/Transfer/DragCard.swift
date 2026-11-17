@@ -100,7 +100,7 @@ public struct DragCard: Sendable, Equatable {
             let apps = usable.count(where: \.isApp)
             header = Self.itemCount(usable.count)
             media = .stack(apps: apps, files: usable.count - apps)
-            title = usable.map(Self.shortName).joined(separator: ", ")
+            title = Self.names(usable.map(Self.shortName))
             chip = Self.counts(apps: apps, files: usable.count - apps)
             return
         }
@@ -144,6 +144,17 @@ public struct DragCard: Sendable, Equatable {
             files > 0 ? (files == 1 ? "1 file" : "\(files) files") : nil,
         ]
         return parts.compactMap { $0 }.joined(separator: ", ")
+    }
+
+    /// "Splito and IMG_2041.jpg", "Splito and 2 more": the first item by name, so a long list
+    /// still fits on the title line.
+    static func names(_ names: [String]) -> String {
+        guard let first = names.first else { return "" }
+        switch names.count {
+        case 1: return first
+        case 2: return "\(first) and \(names[1])"
+        default: return "\(first) and \(names.count - 1) more"
+        }
     }
 
     /// An app by its label once read, else the file's name.

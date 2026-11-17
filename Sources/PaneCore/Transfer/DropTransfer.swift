@@ -72,7 +72,9 @@ public struct DropFailure: Error, Sendable, Equatable {
     public static func install(_ name: String, output: String) -> DropFailure {
         let reason = Adb.reason(from: output)
         let body: String? =
-            if reason.hasPrefix("INSTALL_PARSE_FAILED") || reason.hasPrefix("INSTALL_FAILED_INVALID_APK") {
+            if reason.hasPrefix("INSTALL_PARSE_FAILED") || reason.hasPrefix("INSTALL_FAILED_INVALID_APK")
+                || output.contains("Failed to parse APK")
+            {
                 "This file isn't an Android app, or it's damaged."
             } else {
                 switch reason {

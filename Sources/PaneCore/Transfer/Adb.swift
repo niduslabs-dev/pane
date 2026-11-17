@@ -78,6 +78,11 @@ public struct Adb: Sendable {
             open.upperBound <= close
         {
             detail = String(failure[open.upperBound..<close])
+        } else if let error = lines.first(where: { $0.contains("Error: ") }),
+            let start = error.range(of: "Error: ")
+        {
+            // pm's exception dump: the "Error: …" message, not the stack under it.
+            detail = String(error[start.upperBound...])
         } else if let last = lines.last(where: { !$0.isEmpty }) {
             detail = last
             for lead in ["adb: error: ", "adb: ", "error: "] where detail.hasPrefix(lead) {

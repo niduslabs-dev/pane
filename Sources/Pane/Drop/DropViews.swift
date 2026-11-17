@@ -50,7 +50,7 @@ struct DropLayer: View {
 
     @ViewBuilder private var card: some View {
         if let drag = drop.drag {
-            DragCardView(drag: drag, icon: drag.items.count == 1 ? drop.icons[drag.items[0].url] : nil)
+            DragCardView(drag: drag, icons: drag.items.filter(\.isApp).compactMap { drop.icons[$0.url] })
         } else if let job = drop.job {
             DropResultCard(drop: drop, job: job)
         }
@@ -81,7 +81,8 @@ private struct DropCardSurface: ViewModifier {
 /// "Splito 1.4.0" as the title, and the chip that says what letting go does.
 struct DragCardView: View {
     let drag: DropModel.Drag
-    let icon: NSImage?
+    /// The dragged apps' icons as read so far, in drag order.
+    let icons: [NSImage]
 
     var body: some View {
         let card = drag.card
@@ -91,7 +92,7 @@ struct DragCardView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             HStack(spacing: Theme.Drop.mediaGap) {
-                DropMedia(media: card.media, size: Theme.Drop.media, icon: icon)
+                DropMedia(media: card.media, size: Theme.Drop.media, icon: icons.first, stackIcons: icons)
                 VStack(alignment: .leading, spacing: Theme.Drop.chipGap) {
                     DropTitle(title: card.title, version: card.version)
                     HStack(spacing: Theme.Drop.statusGap) {
@@ -156,6 +157,8 @@ struct DropMedia: View {
     let media: DragCard.Media
     let size: CGFloat
     let icon: NSImage?
+    /// The apps' icons for a stack, first first; an app without one is a plain tile.
+    var stackIcons: [NSImage] = []
 
     var body: some View {
         switch media {
@@ -179,13 +182,22 @@ struct DropMedia: View {
             let appTiles = min(apps, count - min(files, 1))
             ZStack(alignment: .topLeading) {
                 ForEach(0..<count, id: \.self) { index in
-                    DropTile(glyph: index < appTiles ? .app : .file, size: tile)
-                        .background(
-                            RoundedRectangle(cornerRadius: tile * Theme.Drop.tileRatio, style: .continuous)
-                                .fill(Kit.Colour.menuSurfaceSolid)
-                                .padding(-Theme.Drop.stackRing)
-                        )
-                        .offset(x: CGFloat(index) * step, y: CGFloat(index) * step)
+                    let isTop = index == count - 1
+                    let tileShape = RoundedRectangle(cornerRadius: tile * Theme.Drop.tileRatio, style: .continuous)
+                    Group {
+                        if index < appTiles, index < stackIcons.count {
+                            Image(nsImage: stackIcons[index])
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: tile, height: tile)
+                                .clipShape(tileShape)
+                        } else {
+                            // Only the top tile has room for its glyph; the ones under it are plain.
+                            DropTile(glyph: index < appTiles ? .app : .file, size: tile, showsGlyph: isTop)
+                        }
+                    }
+                    .background(tileShape.fill(Kit.Colour.menuSurfaceSolid).padding(-Theme.Drop.stackRing))
+                    .offset(x: CGFloat(index) * step, y: CGFloat(index) * step)
                 }
             }
             .frame(width: size, height: size, alignment: .topLeading)
@@ -198,16 +210,19 @@ struct DropMedia: View {
 struct DropTile: View {
     let glyph: DragCard.Glyph
     let size: CGFloat
+    var showsGlyph = true
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: size * Theme.Drop.tileRatio, style: .continuous)
         shape.fill(Kit.Colour.infoFill)
             .overlay(Hairline(shape: shape))
-            .overlay(
-                Image(systemName: Self.symbol(glyph))
-                    .font(.system(size: size >= Theme.Drop.media ? Theme.Drop.tileGlyph : Theme.Drop.listGlyph))
-                    .foregroundStyle(Kit.Colour.secondaryText)
-            )
+            .overlay {
+                if showsGlyph {
+                    Image(systemName: Self.symbol(glyph))
+                        .font(.system(size: size >= Theme.Drop.media ? Theme.Drop.tileGlyph : Theme.Drop.listGlyph))
+                        .foregroundStyle(Kit.Colour.secondaryText)
+                }
+            }
             .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
@@ -494,12 +509,14 @@ private struct DropListRow: View {
             case .sending, .installing:
                 ProgressView().controlSize(.small)
                 Text(item.isApp ? "Installing" : "Copying").foregroundStyle(Kit.Colour.secondaryText)
+            // Next to Open or Show the tick says it alone, so the name keeps the room.
             case .installed:
                 Image(systemName: "checkmark.circle").foregroundStyle(Kit.Colour.good)
-                Text("Installed").foregroundStyle(Kit.Colour.secondaryText)
+                    .accessibilityLabel("Installed")
+                if DeviceIntent.after(item) == nil { Text("Installed").foregroundStyle(Kit.Colour.secondaryText) }
             case .copied:
                 Image(systemName: "checkmark.circle").foregroundStyle(Kit.Colour.good)
-                Text("Copied").foregroundStyle(Kit.Colour.secondaryText)
+                    .accessibilityLabel("Copied")
             case .skipped:
                 Text("Not installed").foregroundStyle(Kit.Colour.secondaryText)
             case .failed:

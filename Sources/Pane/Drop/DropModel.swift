@@ -92,7 +92,9 @@ final class DropModel {
             return item
         }
         guard let card = DragCard(items: items, emulator: context.emulatorName) else { return false }
-        if card.isRefused && !context.showsRefusal { return false }
+        // With no live emulator the refusal shows only on the no-emulator screen; a folder
+        // dragged over a live one always says why it's refused.
+        if context.emulatorName == nil && !context.showsRefusal { return false }
         // A finished card gives way to the new drag.
         if job != nil { dismissNow() }
         drag = Drag(items: items, card: card, emulator: context.emulatorName)
@@ -116,8 +118,9 @@ final class DropModel {
         let apps = drag.items.indices.filter { drag.items[$0].isApp && drag.items[$0].isUsable }
             .prefix(Theme.Drop.maxReadsWhileDragging)
         let needsReading = apps.contains { drag.items[$0].badging == nil || drag.items[$0].change == nil }
-        let singleApp = drag.items.count == 1 ? apps.first : nil
-        guard needsReading || singleApp.map({ icons[drag.items[$0].url] == nil }) == true else {
+        // The card draws the icons of one app, or of the first two in a stack.
+        let iconApps = Set(apps.prefix(Theme.Drop.stackCount - 1))
+        guard needsReading || iconApps.contains(where: { icons[drag.items[$0].url] == nil }) else {
             announce(drag.card.announcement)
             return
         }
@@ -129,6 +132,11 @@ final class DropModel {
                 self.drag?.showsSpinner = true
             }
             defer { spinner.cancel() }
+            #if DEBUG
+                // Checks hold the first frame (`-PaneDropReadDelay <seconds>`) to capture it.
+                let hold = UserDefaults.standard.double(forKey: "PaneDropReadDelay")
+                if hold > 0 { try? await Task.sleep(for: .seconds(hold)) }
+            #endif
             for index in apps {
                 guard let self, !Task.isCancelled, let url = self.drag?.items[index].url else { return }
                 let badging = await self.readBadging(url)
@@ -139,7 +147,7 @@ final class DropModel {
                     guard !Task.isCancelled, self.drag?.items[index].url == url else { return }
                     self.updateDragItem(index) { $0.change = VersionChange(installing: badging, over: installed) }
                 }
-                if index == singleApp, let badging, badging.hasDrawableIcon, let path = badging.iconPath {
+                if iconApps.contains(index), let badging, badging.hasDrawableIcon, let path = badging.iconPath {
                     await self.readIcon(url, path: path)
                 }
             }
@@ -315,6 +323,7 @@ final class DropModel {
     private func finish() {
         guard let job else { return }
         finishedAt = .now
+        log.info("Drop: finished, \(job.failures.count) failed")
         if !job.failures.isEmpty { isHidden = false }
         announce(Self.summary(job))
         scheduleDismissal()
@@ -366,8 +375,11 @@ final class DropModel {
 
     /// adb's lines for every failure, for Copy.
     var detailsText: String {
-        job?.failures.compactMap { item in item.failure?.code.map { "\(item.file.lastPathComponent): \($0)" } }
-            .joined(separator: "\n") ?? ""
+        guard let job else { return "" }
+        let failures = job.failures
+        if job.items.count == 1 { return failures.first?.failure?.code ?? "" }
+        return failures.compactMap { item in item.failure?.code.map { "\(item.file.lastPathComponent): \($0)" } }
+            .joined(separator: "\n")
     }
 
     /// Return and Esc while the card is up. Return opens the newest installed app (or answers
@@ -427,7 +439,9 @@ final class DropModel {
             job: job, finishedAt: finishedAt, now: .now, isHovered: isHovered, afterDone: Theme.Drop.afterDone)
         {
         case .stay: return
-        case .close: dismissNow()
+        case .close:
+            log.info("Drop: the finished card closed itself")
+            dismissNow()
         case .wait(let delay):
             dismissTask = Task { [weak self] in
                 try? await Task.sleep(for: delay)

@@ -114,7 +114,7 @@ enum Theme {
         /// A push and an install may run this long.
         static let transferTimeout: Duration = .seconds(600)
         /// How often the bytes on the device are read while a file is pushed.
-        static let progressPoll: Duration = .milliseconds(250)
+        static let progressPoll: Duration = .milliseconds(100)
         static let progressCeiling = T.Motion.progressCeiling
         static let progressHeight = T.Size.Progress.height
         static let progressRadius = T.Size.Progress.radius

@@ -175,7 +175,8 @@ private func fixture(_ path: String) throws -> String {
         #expect(card.chip == "2 apps, 1 file")
         #expect(card.header == "3 items")
         #expect(card.media == .stack(apps: 2, files: 1))
-        #expect(card.title == "Splito, linea-2.1.0.apk, IMG_2041.jpg")
+        #expect(card.title == "Splito and 2 more")
+        #expect(DragCard.names(["Splito", "IMG_2041.jpg"]) == "Splito and IMG_2041.jpg")
         #expect(DragCard.counts(apps: 1, files: 0) == "1 app")
         #expect(DragCard.counts(apps: 0, files: 3) == "3 files")
     }
@@ -386,6 +387,17 @@ private func fixture(_ path: String) throws -> String {
         #expect(unknown.body == nil)
         #expect(unknown.code == "INSTALL_FAILED_SOMETHING_NEW: z")
         #expect(unknown.rowReason == "Didn't work.")
+        let parse = DropFailure.install(
+            "broken.apk",
+            output: """
+
+                Exception occurred while executing 'install':
+                java.lang.IllegalArgumentException: Error: Failed to parse APK file: /data/local/tmp/p.apk: Failed to parse /data/local/tmp/p.apk
+                \tat com.android.server.pm.PackageManagerShellCommand.setParamsSize(PackageManagerShellCommand.java:707)
+                \t... 12 more
+                """)
+        #expect(parse.body == "This file isn't an Android app, or it's damaged.")
+        #expect(parse.code == "Failed to parse APK file: /data/local/tmp/p.apk: Failed to parse /data/local/tmp/p.apk")
         let copy = DropFailure.copy("a.jpg", output: "adb: error: failed to copy 'a.jpg': No space left on device\n")
         #expect(copy.title == "Couldn't copy a.jpg.")
         #expect(copy.body == "The emulator is out of space.")
