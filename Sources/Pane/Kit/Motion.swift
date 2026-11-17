@@ -112,10 +112,7 @@ struct RollingNumber: View {
             .overlay(alignment: .topLeading) {
                 if let glyphs {
                     ZStack(alignment: .topLeading) {
-                        if let base {
-                            Text(base.text).fixedSize()
-                                .textRenderer(RollBaseRenderer(base: base, progress: baseProgress))
-                        }
+                        if let base { baseText(base) }
                         ForEach(glyphs.filter { !$0.inBase }) { RollingGlyph(glyph: $0, reduceMotion: reduceMotion) }
                     }
                     .accessibilityHidden(true)
@@ -133,6 +130,23 @@ struct RollingNumber: View {
             .monospacedDigit()
             .accessibilityRepresentation { Text(text) }
             .onChange(of: text) { _, new in change(to: new) }
+    }
+
+    /// The new text whole, its changed characters drawn clear, so the unchanged ones keep their
+    /// shape in context. When they all move by the same amount (or not at all, as on every tick
+    /// of a clock) it is a plain `Text` that slides as one; only when they move apart does
+    /// `RollBaseRenderer` draw them. While that renderer is on screen the app holds about
+    /// 100 MB more graphics memory (measured: Pane's recording timer, which rolls every second,
+    /// went from 61 to 168 MB), so it is kept to those rare rolls
+    /// (`.claude/research/recording-memory.md`).
+    @ViewBuilder private func baseText(_ base: RollBase) -> some View {
+        if let shift = base.sharedShift {
+            Text(base.unchangedOnly).fixedSize()
+                .offset(x: shift * baseProgress)
+        } else {
+            Text(base.text).fixedSize()
+                .textRenderer(RollBaseRenderer(base: base, progress: baseProgress))
+        }
     }
 
     private func probe(_ string: String) -> some View {
@@ -359,6 +373,29 @@ struct RollBase: Equatable {
             if let index = glyph.index { kept[index] = glyph.x - glyph.targetX }
         }
         self.kept = kept
+    }
+
+    /// How far every unchanged character starts from its place, when they all share it: 0 when
+    /// none moves or none is kept, nil when they move apart.
+    var sharedShift: CGFloat? {
+        let shifts = Set(kept.values)
+        return shifts.count <= 1 ? (shifts.first ?? 0) : nil
+    }
+
+    /// `text` with its changed characters clear. A colour change doesn't split the text's
+    /// shaping, so the unchanged characters draw exactly as in the whole text (the raised colon
+    /// between digits included; checked pixel for pixel).
+    var unchangedOnly: AttributedString {
+        var result = AttributedString(text)
+        let utf16Count = text.utf16.count
+        for (cluster, start) in starts.enumerated() where kept[cluster] == nil {
+            let end = cluster + 1 < starts.count ? starts[cluster + 1] : utf16Count
+            let range = String.Index(utf16Offset: start, in: text)..<String.Index(utf16Offset: end, in: text)
+            if let attributed = Range(range, in: result) {
+                result[attributed].foregroundColor = .clear
+            }
+        }
+        return result
     }
 }
 

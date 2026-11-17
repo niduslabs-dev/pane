@@ -59,22 +59,44 @@ public struct StreamFrame: @unchecked Sendable {
 /// recording. When all are out the next frame is dropped (and shows as a sequence gap), so a
 /// stalled consumer can never grow memory. A new size makes a new pool; the old one's buffers
 /// are freed as their frames are released.
+///
+/// The emulator sends frames only when its screen changes, so after a burst the pool would keep
+/// its spare buffers (one frame each) for as long as the screen stays still. Once no frame has
+/// come for `idleTrimDelay` they are freed; the buffer on screen stays, held by its frame.
 public final class FramePixelBufferPool: @unchecked Sendable {
-    // `@unchecked`: used only from the one task that iterates a stream's responses.
+    // `@unchecked`: `buffer(size:)` runs on the one task that iterates a stream's responses and
+    // the trim on a timer's queue; both take `lock`.
 
     /// Enough for the frame on screen, one being shown, one queued and a recorder's own hold.
     public static let defaultMaxBuffers = 6
+    /// How long the screen stays still before the spare buffers are freed. Long enough that a
+    /// scroll or an animation, whose frames come tens of milliseconds apart, never trims.
+    public static let defaultIdleTrimDelay: Duration = .seconds(2)  // design-ok: engine timing, not a UI value
 
     public let maxBuffers: Int
+    private let idleTrimDelay: Duration
+    private let idleTrimTimer: any IdleTrimTimer
+    private let lock = NSLock()
     private var pool: CVPixelBufferPool?
     private var poolSize: PixelSize?
 
-    public init(maxBuffers: Int = FramePixelBufferPool.defaultMaxBuffers) {
+    /// `idleTrimTimer` is for tests, which drive the trim by hand.
+    public init(
+        maxBuffers: Int = FramePixelBufferPool.defaultMaxBuffers,
+        idleTrimDelay: Duration = FramePixelBufferPool.defaultIdleTrimDelay,
+        idleTrimTimer: any IdleTrimTimer = DispatchIdleTrimTimer()
+    ) {
         self.maxBuffers = maxBuffers
+        self.idleTrimDelay = idleTrimDelay
+        self.idleTrimTimer = idleTrimTimer
     }
+
+    deinit { idleTrimTimer.cancel() }
 
     /// A buffer of `size`, or nil when `maxBuffers` are already out (or CoreVideo fails).
     public func buffer(size: PixelSize) -> CVPixelBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
         if poolSize != size {
             if let pool { CVPixelBufferPoolFlush(pool, .excessBuffers) }
             pool = Self.makePool(size: size)
@@ -84,7 +106,15 @@ public final class FramePixelBufferPool: @unchecked Sendable {
         var buffer: CVPixelBuffer?
         let threshold = [kCVPixelBufferPoolAllocationThresholdKey as String: maxBuffers] as CFDictionary
         let result = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(nil, pool, threshold, &buffer)
+        idleTrimTimer.schedule(after: idleTrimDelay) { [weak self] in self?.trimSpareBuffers() }
         return result == kCVReturnSuccess ? buffer : nil
+    }
+
+    /// Frees every buffer no frame holds. The idle timer calls it.
+    func trimSpareBuffers() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let pool { CVPixelBufferPoolFlush(pool, .excessBuffers) }
     }
 
     private static func makePool(size: PixelSize) -> CVPixelBufferPool? {
@@ -99,6 +129,54 @@ public final class FramePixelBufferPool: @unchecked Sendable {
         var pool: CVPixelBufferPool?
         CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool)
         return pool
+    }
+}
+
+/// Runs a stream pool's idle trim. Each request replaces the one before, so the action runs
+/// only once `delay` passes with no newer request.
+public protocol IdleTrimTimer: AnyObject, Sendable {
+    func schedule(after delay: Duration, _ action: @escaping @Sendable () -> Void)
+    func cancel()
+}
+
+/// The trim's timer in the app: one `DispatchSourceTimer` on a utility queue, pushed back on
+/// every request.
+public final class DispatchIdleTrimTimer: IdleTrimTimer, @unchecked Sendable {
+    // `@unchecked`: `timer` is made once under `lock`; a dispatch source is thread-safe.
+    private let lock = NSLock()
+    private var timer: DispatchSourceTimer?
+
+    public init() {}
+
+    deinit { timer?.cancel() }
+
+    public func schedule(after delay: Duration, _ action: @escaping @Sendable () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        let source: DispatchSourceTimer
+        if let timer {
+            source = timer
+        } else {
+            source = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            source.schedule(deadline: .distantFuture)
+            source.activate()
+            timer = source
+        }
+        source.setEventHandler(handler: action)
+        source.schedule(deadline: .now() + Self.interval(delay))
+    }
+
+    public func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        timer?.schedule(deadline: .distantFuture)
+    }
+
+    private static func interval(_ duration: Duration) -> DispatchTimeInterval {
+        let (seconds, attoseconds) = duration.components
+        let attosecondsPerNanosecond: Int64 = 1_000_000_000
+        let nanosecondsPerSecond: Int64 = 1_000_000_000
+        return .nanoseconds(Int(seconds * nanosecondsPerSecond + attoseconds / attosecondsPerNanosecond))
     }
 }
 

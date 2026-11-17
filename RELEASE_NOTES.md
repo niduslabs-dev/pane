@@ -7,6 +7,7 @@ them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z
 ## 1.0.2
 
 - Pressing Record no longer freezes the window for a moment.
+- Recording uses about 100 MB less memory.
 
 ## 1.0.1
 
