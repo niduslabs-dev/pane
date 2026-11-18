@@ -5,22 +5,24 @@ import SwiftUI
 /// Settings (canvas board 14), the studio's SettingsWindow: a "Settings" page title inside the
 /// content, then groups of SettingsRows in r14 cards. One setting per row, switches only, one
 /// caption line at most, longer text behind an ⓘ, no footer notes. Changes apply at once. The
-/// Pane group is last and holds the version and updates (board 15); while an update waits for
-/// a restart its banner leads the page.
+/// Pane group is last: its version row is the whole update surface (UpdatesInRow board), and
+/// What's new opens the release notes in a sheet over a scrim.
 struct SettingsView: View {
     @Bindable var settings: PaneSettings
     let takeover: TakeoverSwitch
     @Bindable var updates: UpdateModel
     /// Opens the folder picker for Save to.
     let chooseFolder: () -> Void
-    /// The app's version, for the last group.
-    var version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
 
     @Environment(\.titleBarHeight) private var titleBarHeight
     @Environment(\.settingsSizing) private var sizing
     @Environment(\.settingsScrollTarget) private var scrollTarget
     @Environment(\.settingsInfo) private var info
     @State private var scrollPosition = ScrollPosition(edge: .top)
+    /// What's new: the row moves focus here when its action dims, and the sheet returns it.
+    @State private var whatsNewFocus = FocusLink()
+    /// The bundled RELEASE_NOTES.md, read once.
+    @State private var bundledNotes = ReleaseNotesFile.bundled()
 
     /// The scroll view fills the window below the title bar, and the window controller sizes
     /// the window to the page (`SettingsSizing`), so the page's own insets are the only space
@@ -57,6 +59,34 @@ struct SettingsView: View {
         .background(SurfaceBackground(kind: .settings).ignoresSafeArea())
         .foregroundStyle(Kit.Colour.bodyText)
         .environment(\.cardScale, .window)
+        .overlay {
+            // The Sheet primitive dims its parent.
+            if info?.showsNotes == true {
+                Kit.Colour.scrim.ignoresSafeArea().allowsHitTesting(false).transition(.opacity)
+            }
+        }
+        .animation(Kit.Motion.fade, value: info?.showsNotes)
+        .sheet(
+            isPresented: notesShown, onDismiss: { whatsNewFocus.request() },
+            content: {
+                ReleaseNotesSheet(
+                    appName: "Pane", groups: notesGroups, allNotesURL: UpdateModel.allReleaseNotesURL,
+                    openURL: updates.openURL, done: { info?.showsNotes = false }
+                )
+                .presentationBackground { SurfaceBackground(kind: .sheet) }
+                .displayOptions()
+            })
+    }
+
+    private var notesShown: Binding<Bool> {
+        Binding(get: { info?.showsNotes ?? false }, set: { info?.showsNotes = $0 })
+    }
+
+    private var notesGroups: [ReleaseNoteGroup] {
+        #if DEBUG
+            if info?.demoEmptyNotes == true { return [] }
+        #endif
+        return updates.whatsNew(bundled: bundledNotes)
     }
 
     /// The scroll-edge effect: over its first `scrollEdgeFade` points rows fade out instead of
@@ -77,7 +107,6 @@ struct SettingsView: View {
                 .accessibilityAddTraits(.isHeader)
                 .padding(.bottom, Kit.Settings.titleToGroups)
             VStack(alignment: .leading, spacing: Kit.Settings.groupSpacing) {
-                if updates.isReady { UpdateBanner(model: updates) }
                 group("Emulators", anchorsInfo: true) {
                     takeoverRow
                     SwitchRow(title: "Start emulators without sound", isOn: $settings.startsWithoutSound)
@@ -106,7 +135,14 @@ struct SettingsView: View {
                         isOn: $settings.sharesClipboard)
                 }
                 group("Pane") {
-                    VersionRow(updates: updates, version: version)
+                    // The line reads the clock: "checked just now" turns into the time after a
+                    // minute without another update event.
+                    TimelineView(.periodic(from: .now, by: UpdateModel.justNow / 2)) { context in
+                        let row = updates.versionRow(now: context.date)
+                        UpdateRow(
+                            content: row.content, action: { updates.perform(row.action.updateAction) },
+                            whatsNew: { info?.showsNotes = true }, whatsNewFocus: whatsNewFocus)
+                    }
                     SwitchRow(
                         title: "Install updates automatically",
                         caption: "Downloads in the background and installs when Pane quits.",
@@ -185,6 +221,12 @@ private struct InfoAnchorKey: PreferenceKey {
 @Observable
 final class SettingsInfo {
     var isShown = false
+    /// What's new is up.
+    var showsNotes = false
+    #if DEBUG
+        /// `pane://check-whats-new?empty=1`: the sheet's empty state.
+        var demoEmptyNotes = false
+    #endif
 }
 
 /// The ⓘ popover (board 14): 280 wide, 12 pt text, `surfaceMenu` with a hairline and a
@@ -211,42 +253,6 @@ private struct TakeoverInfoPopover: View {
         .overlay(Hairline(shape: shape))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isStaticText)
-    }
-}
-
-/// "Version 1.0" with Check for updates. The caption carries the check's result in place:
-/// "Checking…" with a spinner, "Up to date · checked just now", "Downloading 1.1…", or
-/// "Couldn't check. Try again later." in the error colour.
-private struct VersionRow: View {
-    let updates: UpdateModel
-    let version: String
-
-    var body: some View {
-        // The caption reads the clock when the page draws; Settings is redrawn on every open
-        // and on each update event, which is often enough for "today".
-        let caption = updates.versionCaption()
-        HStack(spacing: Kit.Row.labelControlGap) {
-            VStack(alignment: .leading, spacing: Kit.Row.captionGap) {
-                Text(version.isEmpty ? "Pane" : "Version \(version)").font(Kit.Font.body)
-                StatusSwap(key: caption) {
-                    HStack(spacing: Kit.Row.titleInfoGap) {
-                        if updates.isChecking {
-                            ProgressView().controlSize(.mini).accessibilityHidden(true)
-                        }
-                        Text(caption).font(Kit.Font.caption).monospacedDigit()
-                            .foregroundStyle(updates.hasFailed ? Kit.Colour.error : Kit.Colour.secondaryText)
-                            .lineLimit(1)
-                    }
-                }
-            }
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 0)
-            Button("Check for updates") { updates.perform(.check) }.buttonStyle(.nidusSmall)
-                .disabled(!updates.canCheck)
-                .accessibilityIdentifier("settings-check-updates")
-        }
-        .padding(.horizontal, Kit.Row.horizontalPadding)
-        .padding(.vertical, Kit.Row.verticalPadding)
     }
 }
 
@@ -368,16 +374,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             .environment(\.settingsScrollTarget, target)
             .environment(\.settingsInfo, info)
             .displayOptions())
+        updates.settingsDidOpen()
         presentPending = true
         hosting?.layoutSubtreeIfNeeded()
         // A reopen with the page unchanged reports no new height: use the last one.
         if contentHeight > 0 { resize(window, to: contentHeight) }
     }
 
-    /// A result nobody is looking at any more ("Up to date", a failed check) is cleared.
+    /// The row hands back to the popup; a result nobody is looking at any more is cleared
+    /// (`UpdateModel.settingsDidClose`).
     func windowWillClose(_ notification: Notification) {
-        updates.perform(.dismiss)
+        updates.settingsDidClose()
         info.isShown = false
+        info.showsNotes = false
     }
 
     private func makeWindow() -> NSWindow {
@@ -457,5 +466,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     #if DEBUG
         /// Sets Save to as the picker would, for background checks (a file panel needs focus).
         func checkChooseFolder(_ path: String) { settings.captureDestination = .folder(path) }
+
+        /// `pane://check-whats-new` opens What's new (`empty`: its empty state), and
+        /// `check-whats-new-close` closes it, as Done would.
+        func checkWhatsNew(open: Bool, empty: Bool = false) {
+            info.demoEmptyNotes = empty
+            info.showsNotes = open
+        }
+
+        /// What's new's sheet window while it is up, for captures.
+        var sheetWindowNumber: Int? { window?.attachedSheet?.windowNumber }
     #endif
 }

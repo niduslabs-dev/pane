@@ -131,10 +131,28 @@ struct NidusButtonStyle: PrimitiveButtonStyle {
     var kind: Kind = .secondary
     var size: Size = .regular
     var font: Font?
+    /// Reports this button's keyboard focus and takes focus requests (`FocusLink`).
+    var focusLink: FocusLink?
 
     func makeBody(configuration: Configuration) -> some View {
-        NidusButtonBody(configuration: configuration, kind: kind, size: size, font: font)
+        NidusButtonBody(configuration: configuration, kind: kind, size: size, font: font, focusLink: focusLink)
     }
+}
+
+/// Keyboard focus between kit controls that can't share a `FocusState` (each kit button
+/// keeps its own). A button given a link reports its focus into `isFocused` and takes focus
+/// when `request()` is called. `isFocused` keeps its last value while the button is
+/// disabled, so a row can tell that the button which just dimmed had focus and move it on
+/// (macOS can't keep focus on a disabled control).
+@MainActor
+@Observable
+final class FocusLink {
+    /// The linked control had focus when it was last enabled.
+    var isFocused = false
+    /// Bumped by `request()`; the linked control takes focus on each change.
+    private(set) var requests = 0
+
+    func request() { requests += 1 }
 }
 
 extension PrimitiveButtonStyle where Self == NidusButtonStyle {
@@ -154,6 +172,7 @@ private struct NidusButtonBody: View {
     let kind: NidusButtonStyle.Kind
     let size: NidusButtonStyle.Size
     let font: Font?
+    let focusLink: FocusLink?
 
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
@@ -171,6 +190,8 @@ private struct NidusButtonBody: View {
             .nidusFocusable($isFocused, enabled: isEnabled) { configuration.trigger() }
             .opacity(isEnabled ? 1 : Kit.Control.disabledOpacity)
             .animation(Kit.Motion.enable, value: isEnabled)
+            .onChange(of: isFocused) { if isEnabled { focusLink?.isFocused = isFocused } }
+            .onChange(of: focusLink?.requests) { if isEnabled { isFocused = true } }
     }
 
     private var height: CGFloat {
@@ -459,5 +480,16 @@ struct ProgressCapsule: View {
             .animation(reduceMotion ? nil : Kit.Motion.numbers, value: percent)
             .foregroundStyle(colour)
             .singleLineLabel()
+    }
+}
+
+/// A button label that blur-swaps when its text changes, in a button that stays the same
+/// view (Not now, Cancel, Show in Finder). `fills` centres it in a fixed-width capsule.
+struct SwapLabel: View {
+    let title: String
+    var fills = false
+
+    var body: some View {
+        StatusSwap(key: title) { Text(title).frame(maxWidth: fills ? .infinity : nil) }
     }
 }

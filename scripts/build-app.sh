@@ -100,6 +100,8 @@ env -u CC -u CXX -u CPPFLAGS -u LDFLAGS -u LIBRARY_PATH xcrun actool Resources/A
     --compile "$APP/Contents/Resources" --platform macosx --minimum-deployment-target "$MIN_MACOS" \
     --output-partial-info-plist "$(dirname "$APP")/assets-partial.plist" >/dev/null
 cp scripts/emulator-takeover.sh "$APP/Contents/Resources/emulator-takeover.sh"
+# What's new in Settings reads the release notes the build was made from.
+cp RELEASE_NOTES.md "$APP/Contents/Resources/RELEASE_NOTES.md"
 
 # The app icon: generated in the Nidus Labs assets repo and committed here as
 # Resources/AppIcon.icns (scripts/sync-icon.sh refreshes it; never edit it by hand).

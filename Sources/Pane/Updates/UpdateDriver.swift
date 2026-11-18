@@ -45,7 +45,17 @@ final class UpdateDriver: NSObject, SPUUserDriver, SPUUpdaterDelegate, UpdateEng
         }
         self.updater = updater
         model.attach(self)
-        if feedOverride != nil { updater.checkForUpdatesInBackground() }
+        if feedOverride != nil, !Self.skipsLaunchCheck { updater.checkForUpdatesInBackground() }
+    }
+
+    /// `-PaneUpdateNoLaunchCheck YES` (debug): a test feed doesn't get the background check at
+    /// launch, so a check can start from Settings' row first (`update-e2e.sh`).
+    private static var skipsLaunchCheck: Bool {
+        #if DEBUG
+            UserDefaults.standard.bool(forKey: "PaneUpdateNoLaunchCheck")
+        #else
+            false
+        #endif
     }
 
     // MARK: UpdateEngine

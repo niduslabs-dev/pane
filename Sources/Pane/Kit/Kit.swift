@@ -69,17 +69,49 @@ enum Kit {
         static let solid = T.Colour.Role.surfaceBaseSolid.dark.swiftUI
     }
 
-    /// The Updates board: the update popup and the Settings banner.
+    /// The Updates board: the update popup.
     enum Update {
         /// Title to the "1.0 → 1.1" line (Drop's own, off the scale).
         static let titleSpacing: CGFloat = 3
         /// Between release-note lines.
         static let noteSpacing = T.Space.xxs
         static let bulletGap = T.Space.xs
-        static let bannerSpacing = T.Space.m
-        static let bannerIcon: CGFloat = 28
-        /// The banner's moss tint over the window.
-        static let bannerFillOpacity: Double = 0.10
+    }
+
+    /// The UpdatesInRow board: the version row in Settings.
+    enum UpdateRow {
+        /// Between What's new and the row's action.
+        static let buttonGap: CGFloat = Button.spacing
+        /// The mini spinner to the line it leads.
+        static let spinnerGap: CGFloat = Space.xs
+    }
+
+    /// The Sheet primitive, list state (`size.sheet`): What's new.
+    enum Sheet {
+        static let width: CGFloat = T.Size.Sheet.width
+        static let height: CGFloat = T.Size.Sheet.height
+        static let inset: CGFloat = Space.xl
+        /// Title to description, description to the body card, body card to the footer.
+        static let descriptionGap: CGFloat = Space.s
+        static let bodyGap: CGFloat = Space.l
+        static let footerGap: CGFloat = Space.xl
+        /// A version group inside the body card.
+        static let groupHorizontalPadding: CGFloat = Space.l
+        static let groupVerticalPadding: CGFloat = Space.m
+        /// Version to its tag, and to its first line.
+        static let tagGap: CGFloat = Space.s
+        static let versionToLines: CGFloat = Space.xs
+        /// The tag pill: group label type, a hairline, padded 8 × 2.
+        static let tagHorizontalPadding: CGFloat = Space.s
+        static let tagVerticalPadding: CGFloat = Space.xxxs
+        /// Between note lines, the bullet's indent, and the board's 1.45 line height on
+        /// 12 pt notes (0.45 × 12).
+        static let lineGap: CGFloat = Space.xxs
+        static let bulletIndent: CGFloat = Space.l
+        static let noteLineSpacing: CGFloat = 5.4
+        /// Arrow keys and Page keys scroll the focused list by these.
+        static let arrowScroll: CGFloat = 40
+        static let pageOverlap: CGFloat = 40
     }
 
     /// Where the popup sits: the Arrival board's top right, this far inside the visible
@@ -313,6 +345,8 @@ enum Kit {
         /// The select's menu panel: blurred in dark, `menuSurfaceSolid` where no blur is drawn.
         static let menuSurface = T.Colour.Role.surfaceMenu.swiftUI
         static let menuSurfaceSolid = T.Colour.Role.surfaceMenu.opaque.swiftUI
+        /// The dim over a window behind a sheet (`color.role.scrim`).
+        static let scrim = T.Colour.Role.scrim.swiftUI
         /// A progress bar's unfilled part.
         static let track = T.Colour.Role.track.swiftUI
         static let switchOff = T.Colour.Role.switchOff.swiftUI

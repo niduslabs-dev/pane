@@ -2,40 +2,160 @@ import Foundation
 
 // What the update surfaces say (canvas board 15). Kept apart from the views so tests pin it.
 
+/// The Settings Version row in one state (the in-row update board): the title, the second
+/// line, the action and What's new. A value, so tests pin every state's words.
+struct VersionRowState: Equatable {
+    enum Action: Equatable {
+        case check, download, restart, retry
+
+        /// What pressing it asks the model to do.
+        var updateAction: UpdateAction {
+            switch self {
+            case .check: .check
+            case .download: .download
+            case .restart: .restart
+            case .retry: .retry
+            }
+        }
+    }
+
+    /// "Version 1.0.2".
+    var title: String
+    /// The second line without the percentage: "Downloading 1.0.3", "Version 1.0.3 is ready".
+    var caption: String
+    /// The download's percentage, shown after the caption as " · 42%" and rolled.
+    var percent: Int?
+    /// The kit's mini spinner leads the line (checking, preparing, installing).
+    var spinner = false
+    /// The line is a failure, in the error colour.
+    var isError = false
+    var action: Action
+    /// False dims the action in place.
+    var actionEnabled: Bool
+    /// What's new shows (every build that updates itself).
+    var showsWhatsNew: Bool
+    /// The version What's new names for VoiceOver.
+    var whatsNewVersion: String
+    /// The update the action is about, for its VoiceOver name.
+    var pendingVersion: String?
+
+    var actionTitle: String {
+        switch action {
+        case .check: "Check for updates"
+        case .download: "Download"
+        case .restart: "Restart to update"
+        case .retry: "Try again"
+        }
+    }
+
+    /// The action's VoiceOver name: what it does, with the version.
+    var actionAccessibilityLabel: String {
+        switch (action, pendingVersion) {
+        case (.download, let version?): "Download Pane \(version)"
+        case (.restart, let version?): "Restart to update to Pane \(version)"
+        default: actionTitle
+        }
+    }
+
+    var whatsNewAccessibilityLabel: String { "What's new in Pane \(whatsNewVersion)" }
+
+    /// The moss primary capsule (Restart to update), else the small secondary.
+    var actionIsPrimary: Bool { action == .restart }
+
+    /// The whole line as drawn: " · 42%" after the caption while downloading.
+    var line: String { caption + (percent.map { " \u{00B7} \($0)%" } ?? "") }
+}
+
 extension UpdateModel {
-    /// A downloaded update waits for a restart: Settings shows its banner.
+    /// A downloaded update waits for a restart.
     var isReady: Bool {
         if case .ready = phase { return true }
         return false
     }
 
-    /// The Version row shows a spinner beside its caption.
+    /// The Version row's caption shows a spinner.
     var isChecking: Bool { phase == .checking }
 
     /// The Version row's caption is a failure (drawn in the error colour).
     var hasFailed: Bool {
         if case .failed = phase { return true }
-        return false
+        return restartFailed && isReady
     }
 
-    /// The caption under "Version x" in Settings: "Up to date · checked today at 09:12",
-    /// "1.1 downloaded · checked today at 09:12", "Checking…", and so on. `locale` and
-    /// `calendar` are parameters so tests pin the clock format.
+    /// The Version row in the current state. `locale` and `calendar` are parameters so tests
+    /// pin the clock format.
+    func versionRow(now: Date = .now, locale: Locale = .current, calendar: Calendar = .current) -> VersionRowState {
+        let pending = update?.version
+        let ready =
+            isReady
+            || {
+                if case .installing = phase { return true }
+                return false
+            }()
+        var row = VersionRowState(
+            title: "Version \(currentVersion)",
+            caption: versionCaption(now: now, locale: locale, calendar: calendar),
+            action: .check, actionEnabled: canCheck, showsWhatsNew: isEnabled,
+            whatsNewVersion: ready ? (pending ?? currentVersion) : currentVersion, pendingVersion: pending)
+        switch phase {
+        case .checking:
+            row.spinner = true
+        case .available:
+            row.action = .download
+            row.actionEnabled = true
+        case .downloading(_, let progress):
+            row.action = .restart
+            row.actionEnabled = false
+            if progress.stage == .preparing {
+                row.spinner = true
+            } else if let fraction = progress.fraction {
+                row.percent = Int((fraction * 100).rounded(.down))
+            }
+        case .ready:
+            row.action = .restart
+            row.actionEnabled = true
+            row.isError = restartFailed
+        case .installing:
+            row.action = .restart
+            row.actionEnabled = false
+            row.spinner = true
+        case .failed:
+            row.action = .retry
+            row.actionEnabled = isEnabled
+            row.isError = true
+        case .idle, .upToDate:
+            break
+        }
+        return row
+    }
+
+    /// The second line under "Version x" in Settings, without the download's percentage:
+    /// "Up to date · checked today at 09:12", "Checking for updates…", "Version 1.1 is ready",
+    /// and so on.
     func versionCaption(now: Date = .now, locale: Locale = .current, calendar: Calendar = .current) -> String {
         let checked =
             lastChecked.map {
                 " \u{00B7} checked " + Self.checkedPhrase($0, now: now, locale: locale, calendar: calendar)
             } ?? ""
         switch phase {
-        case .checking: return "Checking\u{2026}"
-        case .installing: return "Installing\u{2026}"
-        case .downloading(let update, _): return "Downloading \(update.version)\u{2026}"
-        case .ready(let update): return "\(update.version) downloaded" + checked
-        case .available(let update): return "\(update.version) available" + checked
-        case .failed: return "Couldn't check. Try again later."
+        case .checking: return "Checking for updates\u{2026}"
+        case .installing(let update):
+            return update.map { "Installing \($0.version)\u{2026}" } ?? "Installing\u{2026}"
+        case .downloading(let update, let progress):
+            if progress.stage == .preparing { return "Preparing \(update.version)\u{2026}" }
+            return progress.fraction == nil ? "Downloading \(update.version)\u{2026}" : "Downloading \(update.version)"
+        case .ready(let update):
+            if restartFailed { return "Couldn't restart. It installs on quit." }
+            if isDeferred { return "\(update.version) installs when Pane quits" }
+            return "Version \(update.version) is ready"
+        case .available(let update): return "Version \(update.version) is available"
+        case .failed(.check): return "Couldn't check for updates."
+        case .failed(.download(let version)): return "Couldn't download \(version)."
+        case .failed(.verify(let version)): return "Couldn't verify \(version)."
         case .upToDate: return "Up to date" + (checked.isEmpty ? "" : " \u{00B7} checked just now")
         case .idle:
             guard isEnabled else { return "This build doesn't update itself." }
+            if let updatedTo { return "Updated to \(updatedTo)" }
             return lastChecked == nil ? "Not checked yet" : "Up to date" + checked
         }
     }

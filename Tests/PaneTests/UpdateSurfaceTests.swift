@@ -27,7 +27,7 @@ import Testing
         let model = UpdateModel(currentVersion: "1.0")
         #expect(caption(model) == "This build doesn't update itself.")
         model.checkStarted()
-        #expect(caption(model) == "Checking\u{2026}")
+        #expect(caption(model) == "Checking for updates\u{2026}")
         #expect(model.isChecking)
         model.cycleFinished(lastChecked: now)
         model.notFound()
@@ -37,9 +37,10 @@ import Testing
 
     @Test func aFailedCheckSaysSoInTheCaption() {
         let model = UpdateModel(currentVersion: "1.0")
+        model.demo(.idle, surface: false, lastChecked: nil)
         model.checkStarted()
         model.failed(FeedDown())
-        #expect(caption(model) == "Couldn't check. Try again later.")
+        #expect(caption(model) == "Couldn't check for updates.")
         #expect(model.hasFailed)
         // Closing Settings clears it.
         model.perform(.dismiss)
@@ -51,12 +52,70 @@ import Testing
         model.cycleFinished(lastChecked: now.addingTimeInterval(-10_080))
         model.checkStarted()
         model.found(update, downloaded: false) { _ in }
-        #expect(caption(model) == "Downloading 1.1\u{2026}")
+        #expect(caption(model) == "Downloading 1.1")
+        #expect(model.versionRow().percent == 0)
+        model.downloadExpects(6_000_000)
+        model.downloadReceived(2_520_000)
+        #expect(model.versionRow().line == "Downloading 1.1 \u{00B7} 42%")
+        model.preparing(0.5)
+        #expect(caption(model) == "Preparing 1.1\u{2026}")
+        #expect(model.versionRow().spinner)
+        #expect(model.versionRow().percent == nil)
         model.readyToInstall { _ in }
-        // The clock's digits follow the Mac's own format ("09:12" or "9:12").
-        #expect(caption(model).hasPrefix("1.1 downloaded \u{00B7} checked today at "))
-        #expect(caption(model).hasSuffix("9:12"))
+        #expect(caption(model) == "Version 1.1 is ready")
         #expect(model.isReady)
+    }
+
+    @Test func theDownloadsLengthIsUnknownAtFirst() {
+        let model = UpdateModel(currentVersion: "1.0")
+        model.checkStarted()
+        model.found(
+            AvailableUpdate(version: "1.1", size: nil, notes: [], releaseNotesURL: nil), downloaded: false
+        ) { _ in }
+        #expect(caption(model) == "Downloading 1.1\u{2026}")
+        #expect(model.versionRow().percent == nil)
+        #expect(model.versionRow().action == .restart)
+        #expect(!model.versionRow().actionEnabled)
+    }
+
+    @Test func everyRowStateHasItsButton() {
+        let model = UpdateModel(currentVersion: "1.0.2")
+        var row = model.versionRow(now: now, locale: locale, calendar: calendar)
+        #expect(row.caption == "This build doesn't update itself.")
+        #expect(!row.showsWhatsNew)
+        #expect(!row.actionEnabled)
+
+        model.demo(.idle, surface: false, lastChecked: nil)
+        row = model.versionRow(now: now, locale: locale, calendar: calendar)
+        #expect(row.caption == "Not checked yet")
+        #expect(row.title == "Version 1.0.2")
+        #expect(row.actionTitle == "Check for updates")
+        #expect(row.showsWhatsNew)
+        #expect(row.whatsNewAccessibilityLabel == "What's new in Pane 1.0.2")
+
+        model.demo(.available(update), surface: false, lastChecked: nil)
+        row = model.versionRow()
+        #expect(row.caption == "Version 1.1 is available")
+        #expect(row.actionTitle == "Download")
+        #expect(row.actionAccessibilityLabel == "Download Pane 1.1")
+        #expect(!row.actionIsPrimary)
+
+        model.demo(.ready(update), surface: false, lastChecked: nil)
+        row = model.versionRow()
+        #expect(row.actionIsPrimary)
+        #expect(row.actionAccessibilityLabel == "Restart to update to Pane 1.1")
+        #expect(row.whatsNewAccessibilityLabel == "What's new in Pane 1.1")
+
+        model.demo(.installing(update), surface: false, lastChecked: nil)
+        row = model.versionRow()
+        #expect(row.caption == "Installing 1.1\u{2026}")
+        #expect(row.spinner)
+        #expect(!row.actionEnabled)
+
+        model.demo(.checking, surface: false, lastChecked: nil)
+        row = model.versionRow()
+        #expect(row.spinner)
+        #expect(!row.actionEnabled)
     }
 
     @Test func checkedPhraseNamesTheDay() {
@@ -110,7 +169,7 @@ import Testing
         #expect(UpdatePopupController.shows(.downloading(update, fraction: 0.3), whilePresented: true))
         // Results of a check by hand belong to the Version row.
         #expect(!UpdatePopupController.shows(.upToDate(version: "1.0"), whilePresented: true))
-        #expect(!UpdatePopupController.shows(.error(message: "x"), whilePresented: true))
+        #expect(!UpdatePopupController.shows(.error(.check), whilePresented: true))
         #expect(!UpdatePopupController.shows(nil, whilePresented: true))
     }
 

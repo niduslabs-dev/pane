@@ -220,7 +220,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     menu.hover(row)
                     menu.isButtonHovered = value("button") == "1"
                 }
-            case "check-settings": showSettings(nil)
+            case "check-settings":
+                // scroll=pane: opens at the Pane group, as Check for Updates… does.
+                if value("scroll") == "pane" { settingsWindow.show(scrollTo: .paneGroup) } else { showSettings(nil) }
+            case "check-whats-new": settingsWindow.checkWhatsNew(open: true, empty: value("empty") == "1")
+            case "check-whats-new-close": settingsWindow.checkWhatsNew(open: false)
             case "check-drop-hover": model.drop.isHovered = value("on") == "1"
             case "check-restart": controller.restart()
             case "check-shutdown": controller.shutDown()
@@ -244,6 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// except with `-PaneUpdateFeed <url>`, which runs it against a local test appcast.
     private func startUpdates() {
         updates.openURL = { NSWorkspace.shared.open($0) }
+        updates.noteLaunch()
         updates.surface = updatePopup
         var feed: URL?
         var isDebug = false
@@ -272,32 +277,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// example update, so every state can be captured without a feed.
         private func showUpdateCheck(_ state: String) {
             let update = AvailableUpdate(
-                version: "1.1", size: 6_000_000,
-                notes: [
-                    "Inspect layout, Measure and Pick colour", "Drop an app on the window to install it",
-                    "Fixes for clipboard sharing",
-                ], releaseNotesURL: URL(string: "https://github.com/niduslabs-dev/pane/releases"))
+                version: Self.demoUpdateVersion, size: 6_000_000,
+                notes: ["Settings shows an update in the version row", "What's new opens from Settings"],
+                releaseNotesURL: URL(string: "https://github.com/niduslabs-dev/pane/releases"))
             let checked = Date.now.addingTimeInterval(-Theme.Timing.updateCheckDemoAge)
+            func downloading(_ progress: UpdateProgress) -> UpdateModel.Phase { .downloading(update, progress) }
+            updates.demoFlags()
+            // Found only waits for Download with Install updates automatically off (board 22).
+            updates.installsAutomatically = state != "available"
             switch state {
             case "ready": updates.demo(.ready(update), surface: true, lastChecked: checked)
-            case "later": updates.demo(.ready(update), surface: false, lastChecked: checked)
+            case "later":
+                updates.demo(.ready(update), surface: false, lastChecked: checked)
+                updates.demoFlags(deferred: true)
+            case "laterfail":
+                updates.demo(.ready(update), surface: false, lastChecked: checked)
+                updates.demoFlags(deferred: true, restartFailed: true)
+            case "installing": updates.demo(.installing(update), surface: false, lastChecked: checked)
             case "available": updates.demo(.available(update), surface: true, lastChecked: checked)
             case "downloading":
                 // From the popup's Download: the popup is up first, then follows the download.
                 updates.demo(.available(update), surface: true, lastChecked: checked)
                 updates.demo(
-                    .downloading(update, UpdateProgress(received: 2_100_000, expected: 6_000_000)), surface: true,
+                    downloading(UpdateProgress(received: 2_520_000, expected: 6_000_000)), surface: true,
                     lastChecked: checked)
             case "downloading-quiet":
                 updates.demo(
-                    .downloading(update, UpdateProgress(received: 2_100_000, expected: 6_000_000)), surface: true,
+                    downloading(UpdateProgress(received: 2_520_000, expected: 6_000_000)), surface: false,
                     lastChecked: checked)
+            case "nosize": updates.demo(downloading(UpdateProgress()), surface: false, lastChecked: checked)
+            case "preparing":
+                updates.demo(
+                    downloading(UpdateProgress(stage: .preparing, received: 6_000_000, expected: 6_000_000)),
+                    surface: false, lastChecked: checked)
             case "checking": updates.demo(.checking, surface: false, lastChecked: checked)
-            case "uptodate": updates.demo(.upToDate, surface: true, lastChecked: .now)
-            case "failed": updates.demo(.failed(message: "The feed is down."), surface: true, lastChecked: checked)
+            case "uptodate": updates.demo(.upToDate, surface: false, lastChecked: .now)
+            case "failed": updates.demo(.failed(.check), surface: false, lastChecked: checked)
+            case "dlfailed":
+                updates.demo(.failed(.download(version: update.version)), surface: false, lastChecked: checked)
+            case "verifyfailed":
+                updates.demo(.failed(.verify(version: update.version)), surface: false, lastChecked: checked)
+            case "notchecked": updates.demo(.idle, surface: false, lastChecked: nil)
+            case "disabled": updates.demo(.idle, surface: false, lastChecked: nil, enabled: false)
+            case "updated":
+                updates.demo(.idle, surface: false, lastChecked: checked)
+                updates.demoFlags(updatedTo: updates.currentVersion)
             default: updates.demo(.idle, surface: false, lastChecked: checked)
             }
         }
+
+        /// The demo states' update, the board's example.
+        static let demoUpdateVersion = "1.0.3"
     #endif
 
     // MARK: Settings

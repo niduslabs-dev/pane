@@ -8,7 +8,8 @@ struct AvailableUpdate: Equatable, Sendable {
     let version: String
     /// The download's size in bytes, when the feed gives one.
     let size: UInt64?
-    /// Up to `ReleaseNotes.lineLimit` lines from the item's description.
+    /// Every line of the item's description. The popup shows the first
+    /// `ReleaseNotes.popupLineLimit`; What's new shows them all.
     let notes: [String]
     /// Where Release notes goes: the GitHub release page.
     let releaseNotesURL: URL?
@@ -54,6 +55,19 @@ enum UpdateAction: Equatable, Sendable {
     case later
     /// Close "up to date" or an error.
     case dismiss
+    /// Try again after a failure the Version row shows: checks again, and downloads again
+    /// when the download or its checks failed.
+    case retry
+}
+
+/// What failed, for the Version row's error line.
+enum UpdateFailure: Equatable, Sendable {
+    /// A check the user started.
+    case check
+    /// A download the user started or watched.
+    case download(version: String)
+    /// Sparkle couldn't unpack the download, or a signature didn't match.
+    case verify(version: String)
 }
 
 /// How the engine wants an answer to a prompt, kept until the user picks one. Mirrors
@@ -86,7 +100,7 @@ enum UpdatePresentation: Equatable, Sendable {
     /// A check the user started found nothing newer than `version`.
     case upToDate(version: String)
     /// A check or download the user started failed.
-    case error(message: String)
+    case error(UpdateFailure)
 }
 
 /// The UI's side of updates. The approved design implements this; the model calls it with
@@ -113,16 +127,19 @@ protocol UpdateEngine: AnyObject {
 }
 
 /// The state behind every update surface and the Check for Updates… menu item.
-/// `UpdateDriver` feeds it Sparkle's events; the surface sends the user's choices back
+/// `UpdateDriver` feeds it Sparkle's events; the surfaces send the user's choices back
 /// through `perform(_:)`.
 ///
-/// Rules:
-/// - A check Pane makes by itself stays silent until there is something to decide: with
-///   automatic downloads on, the update downloads unseen and the surface says it is ready;
-///   off, the surface offers Download.
-/// - A check the user starts always answers: progress while it downloads, "up to date", or
-///   the error.
-/// - Later hides the surface and keeps the update: it installs when Pane quits.
+/// Rules (the in-row update board, 2026-11-18):
+/// - Settings' Version row shows every state. The popup (`surface`) is only for what Pane's
+///   own background check finds while Settings is closed: an update that waits for Download
+///   or is ready. It follows a download started from its own Download button.
+/// - A check the user starts (the row's button, or Check for Updates…, which opens Settings)
+///   never raises the popup: the row shows every step, including Ready.
+/// - Opening Settings closes the popup and keeps Sparkle's pending reply for the row; nothing
+///   raises the popup while Settings is open. Closing Settings answers a reply still pending
+///   as Later would, so Sparkle isn't left waiting.
+/// - Later hides the popup and keeps the update: it installs when Pane quits.
 /// - Failures of Pane's own checks are logged, never shown. The next scheduled check retries.
 @MainActor
 @Observable
@@ -137,12 +154,13 @@ final class UpdateModel {
         case downloading(AvailableUpdate, UpdateProgress)
         /// Downloaded and verified: installs on quit, or now with Restart to Update.
         case ready(AvailableUpdate)
-        /// The engine is quitting Pane to install.
-        case installing
+        /// The engine is quitting Pane to install `update` (nil when the engine started it
+        /// on its own).
+        case installing(AvailableUpdate?)
         /// A check the user started found nothing newer.
         case upToDate
         /// A check or download the user started failed.
-        case failed(message: String)
+        case failed(UpdateFailure)
     }
 
     /// The running version ("1.0").
@@ -150,12 +168,22 @@ final class UpdateModel {
     private(set) var phase = Phase.idle {
         didSet { publish() }
     }
-    /// The surface is wanted for the current phase. False after Later, and during anything
-    /// Pane does by itself.
+    /// The popup is wanted for the current phase. False after Later, while Settings is
+    /// open, and for anything the user started from Settings.
     private(set) var wantsSurface = false {
         didSet { publish() }
     }
     private(set) var lastChecked: Date?
+    /// Later was pressed on a ready update (or Settings closed on one): it installs on quit,
+    /// and the row says so.
+    private(set) var isDeferred = false
+    /// Restart to update, after Later, couldn't reach the feed. The update still installs
+    /// on quit.
+    private(set) var restartFailed = false
+    /// The Settings window is open: the popup stays down and the row shows everything.
+    private(set) var isSettingsOpen = false
+    /// The version this launch updated to, until Settings has been open once ("Updated to X").
+    private(set) var updatedTo: String?
     /// False when no engine runs (debug builds, builds without a feed): Check for Updates…
     /// is disabled.
     private(set) var isEnabled = false
@@ -202,6 +230,9 @@ final class UpdateModel {
     /// Restart to Update was pressed with nothing to call: the next prompt for this update
     /// is answered with install straight away.
     @ObservationIgnored private var restartRequested = false
+    /// Download or Try again was pressed with no prompt to answer: the next offer of this
+    /// update is answered with install straight away.
+    @ObservationIgnored private var downloadRequested = false
     /// The running cycle began with Check for Updates…, so it reports back.
     @ObservationIgnored private var userInitiated = false
     @ObservationIgnored private var published: UpdatePresentation?
@@ -228,7 +259,16 @@ final class UpdateModel {
     var update: AvailableUpdate? {
         switch phase {
         case .available(let update), .downloading(let update, _), .ready(let update): update
-        case .idle, .checking, .installing, .upToDate, .failed: nil
+        case .installing(let update): update
+        case .idle, .checking, .upToDate, .failed: nil
+        }
+    }
+
+    /// Whether the row's action is the moss Restart to update (dimmed while it can't run yet).
+    var offersRestart: Bool {
+        switch phase {
+        case .downloading, .ready, .installing: true
+        case .idle, .checking, .available, .upToDate, .failed: false
         }
     }
 
@@ -241,17 +281,23 @@ final class UpdateModel {
         }
     }
 
-    /// What the surface shows now.
+    /// What the popup shows now.
     var presentation: UpdatePresentation? {
-        guard wantsSurface else { return nil }
+        guard wantsSurface, !isSettingsOpen else { return nil }
         switch phase {
         case .idle, .checking, .installing: return nil
         case .available(let update): return .available(update)
         case .downloading(let update, let progress): return .downloading(update, fraction: progress.fraction)
         case .ready(let update): return .ready(update)
         case .upToDate: return .upToDate(version: currentVersion)
-        case .failed(let message): return .error(message: message)
+        case .failed(let failure): return .error(failure)
         }
+    }
+
+    /// Raises the popup for something Pane's own check found, unless the user is in
+    /// Settings or started the cycle there.
+    private func offerInPopup() {
+        if !userInitiated, !isSettingsOpen { wantsSurface = true }
     }
 
     private func publish() {
@@ -268,20 +314,28 @@ final class UpdateModel {
         case .check:
             guard canCheck else { return }
             if case .ready = phase {
-                // Already downloaded: show it again instead of asking the feed.
-                wantsSurface = true
+                // Already downloaded: there is nothing newer to ask the feed for.
+                if !isSettingsOpen { wantsSurface = true }
                 return
             }
             engine?.checkForUpdates()
         case .download:
             guard case .available(let update) = phase, let reply = takeReply() else {
-                engine?.checkForUpdates()
+                requestDownload()
                 return
             }
-            userInitiated = true
+            // From the popup's own Download the popup follows the download; from the row
+            // it stays in the row.
             phase = .downloading(update, UpdateProgress(expected: update.size))
-            wantsSurface = true
+            if wantsSurface { userInitiated = true }
             reply(.install)
+        case .retry:
+            switch phase {
+            case .failed(.download), .failed(.verify): requestDownload()
+            case .failed(.check): engine?.checkForUpdates()
+            case .ready: perform(.restart)
+            case .idle, .checking, .available, .downloading, .installing, .upToDate: break
+            }
         case .cancelDownload:
             guard case .downloading = phase else { return }
             let cancel = cancelDownload
@@ -290,21 +344,26 @@ final class UpdateModel {
             phase = .idle
             cancel?()
         case .restart:
+            guard let update else { return }
             wantsSurface = false
+            restartFailed = false
             if let installNow {
-                phase = .installing
+                phase = .installing(update)
                 installNow()
             } else if let reply = takeReply() {
-                phase = .installing
+                phase = .installing(update)
                 reply(.install)
             } else {
                 // After Later the prompt was answered; a new check brings the pending update
-                // back as a prompt, answered with install (`found`).
+                // back as a prompt, answered with install (`found`). A failed check puts the
+                // row back on Ready with the failure (`failed`).
                 restartRequested = true
+                phase = .installing(update)
                 engine?.checkForUpdates()
             }
         case .later:
             wantsSurface = false
+            if case .ready = phase { isDeferred = true }
             takeReply()?(.dismiss)
         case .dismiss:
             wantsSurface = false
@@ -313,6 +372,50 @@ final class UpdateModel {
             case .idle, .checking, .available, .downloading, .ready, .installing: break
             }
         }
+    }
+
+    /// Download or Try again with no prompt open: check again and take the offer.
+    private func requestDownload() {
+        guard let engine, engine.canCheckForUpdates else { return }
+        downloadRequested = true
+        engine.checkForUpdates()
+    }
+
+    // MARK: Settings
+
+    /// Settings opened: the popup closes and the row takes over, with any pending reply.
+    func settingsDidOpen() {
+        isSettingsOpen = true
+        wantsSurface = false
+        publish()
+    }
+
+    /// Settings closed. A result nobody is looking at any more ("Up to date", a failure) is
+    /// cleared, "Updated to X" has been seen, and a prompt still waiting is answered as Later
+    /// would, so Sparkle isn't left holding it: a ready update installs on quit.
+    func settingsDidClose() {
+        isSettingsOpen = false
+        updatedTo = nil
+        restartFailed = false
+        perform(.dismiss)
+        if pendingReply != nil {
+            if case .ready = phase { isDeferred = true }
+            takeReply()?(.dismiss)
+        }
+    }
+
+    // MARK: Updated to X
+
+    /// The key under which the last version that ran is kept.
+    static let lastRunVersionKey = "PaneLastRunVersion"
+
+    /// Records this launch's version, and notes "Updated to X" when the last launch ran an
+    /// older one. A first launch (nothing stored) is not an update.
+    func noteLaunch(defaults: UserDefaults = .standard) {
+        let last = defaults.string(forKey: Self.lastRunVersionKey)
+        defaults.set(currentVersion, forKey: Self.lastRunVersionKey)
+        guard let last, last.compare(currentVersion, options: .numeric) == .orderedAscending else { return }
+        updatedTo = currentVersion
     }
 
     func openReleaseNotes() {
@@ -325,10 +428,10 @@ final class UpdateModel {
     func checkStarted() {
         userInitiated = true
         switch phase {
-        case .idle, .upToDate, .failed:
+        case .idle, .upToDate, .failed, .available:
             wantsSurface = false
             phase = .checking
-        case .checking, .available, .downloading, .ready, .installing: break
+        case .checking, .downloading, .ready, .installing: break
         }
     }
 
@@ -338,23 +441,25 @@ final class UpdateModel {
         if downloaded {
             if restartRequested {
                 restartRequested = false
-                phase = .installing
+                phase = .installing(update)
                 reply(.install)
                 return
             }
+            downloadRequested = false
             pendingReply = reply
             phase = .ready(update)
-            wantsSurface = true
-        } else if downloadsAutomatically {
+            offerInPopup()
+        } else if downloadsAutomatically || downloadRequested {
             // A check the user started downloads straight away, as Pane's own check would
-            // have, and shows its progress because they are waiting for it.
+            // have, and the row shows its progress because they are waiting for it.
+            downloadRequested = false
+            restartRequested = false
             phase = .downloading(update, UpdateProgress(expected: update.size))
-            wantsSurface = userInitiated
             reply(.install)
         } else {
             pendingReply = reply
             phase = .available(update)
-            wantsSurface = true
+            offerInPopup()
         }
     }
 
@@ -397,35 +502,43 @@ final class UpdateModel {
         }
         if restartRequested {
             restartRequested = false
-            phase = .installing
+            phase = .installing(update)
             reply(.install)
             return
         }
         pendingReply = reply
+        isDeferred = false
+        // The popup stays up only when it followed the download from its own button.
         phase = .ready(update)
-        wantsSurface = true
     }
 
     /// A download nobody watched finished and installs on quit; `installNow` installs and
     /// reopens Pane at once.
     func readyOnQuit(_ update: AvailableUpdate, installNow: @escaping () -> Void) {
         self.installNow = installNow
+        isDeferred = false
         phase = .ready(update)
-        wantsSurface = true
+        offerInPopup()
     }
 
     /// A check found nothing newer.
     func notFound() {
+        downloadRequested = false
+        if restartRequested, case .installing(let update?) = phase {
+            restartRequested = false
+            restartFailed = true
+            phase = .ready(update)
+            return
+        }
         restartRequested = false
         guard case .checking = phase else { return }
         phase = .upToDate
-        wantsSurface = userInitiated
     }
 
     /// The engine is installing (Pane is about to quit).
     func installing() {
         wantsSurface = false
-        phase = .installing
+        phase = .installing(update)
     }
 
     /// The engine finished a cycle, with or without an update.
@@ -445,17 +558,41 @@ final class UpdateModel {
         }
     }
 
-    /// Any failure. Shown only when the user started the check or is watching the download;
-    /// otherwise logged, and the next scheduled check retries. A downloaded update stays.
+    /// The failure the row shows for what was running when `failed` came.
+    private var failureHere: UpdateFailure? {
+        switch phase {
+        case .checking: return .check
+        case .available(let update): return .download(version: update.version)
+        case .downloading(let update, let progress):
+            return progress.stage == .preparing ? .verify(version: update.version) : .download(version: update.version)
+        case .failed(let failure): return failure
+        case .idle, .upToDate: return .check
+        case .ready, .installing: return nil
+        }
+    }
+
+    /// Any failure. Shown in the row only when the user started the check or is watching the
+    /// download; otherwise logged, and the next scheduled check retries. A downloaded update
+    /// stays: Restart after Later that couldn't reach the feed says so and keeps it.
     func failed(_ error: any Error) {
         Self.log.error("Update failed: \(error.localizedDescription, privacy: .public)")
-        restartRequested = false
+        let watched = userInitiated || wantsSurface || downloadRequested
+        let failure = failureHere
         pendingReply = nil
         cancelDownload = nil
+        defer {
+            restartRequested = false
+            downloadRequested = false
+        }
+        if restartRequested, case .installing(let update?) = phase {
+            restartFailed = true
+            phase = .ready(update)
+            return
+        }
         if case .ready = phase { return }
-        if userInitiated || wantsSurface {
-            phase = .failed(message: error.localizedDescription)
-            wantsSurface = true
+        wantsSurface = false
+        if watched, let failure {
+            phase = .failed(failure)
         } else {
             phase = .idle
         }
@@ -471,8 +608,8 @@ final class UpdateModel {
 
     #if DEBUG
         /// Sets a state directly, for screenshots of the surfaces (`pane://check-update`).
-        func demo(_ phase: Phase, surface: Bool, lastChecked: Date?) {
-            isEnabled = true
+        func demo(_ phase: Phase, surface: Bool, lastChecked: Date?, enabled: Bool = true) {
+            isEnabled = enabled
             if demoEngine == nil {
                 let stand = DemoUpdateEngine()
                 demoEngine = stand
@@ -481,6 +618,13 @@ final class UpdateModel {
             self.lastChecked = lastChecked
             self.phase = phase
             wantsSurface = surface
+        }
+
+        /// The flags the demo states need besides the phase.
+        func demoFlags(deferred: Bool = false, restartFailed: Bool = false, updatedTo: String? = nil) {
+            isDeferred = deferred
+            self.restartFailed = restartFailed
+            self.updatedTo = updatedTo
         }
     #endif
 }
@@ -503,11 +647,12 @@ final class UpdateModel {
 /// Release-note lines for a surface from a feed item's description, which is HTML (a `<ul>`
 /// from the release workflow) or plain lines.
 enum ReleaseNotes {
-    static let lineLimit = 3
+    /// The popup shows this many; What's new shows every line.
+    static let popupLineLimit = 3
 
-    /// The first `limit` list items, or else the first non-empty lines, with tags and list
+    /// The list items, or else the non-empty lines (at most `limit`), with tags and list
     /// markers removed and the common entities decoded.
-    static func lines(from description: String?, limit: Int = lineLimit) -> [String] {
+    static func lines(from description: String?, limit: Int = .max) -> [String] {
         guard let description, !description.isEmpty else { return [] }
         let items = matches(of: #"<li[^>]*>(.*?)</li>"#, in: description)
         let raw: [String]

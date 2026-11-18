@@ -129,6 +129,13 @@ private final class FakeEngine: UpdateEngine {
         model.failed(FeedDown())
         model.cycleEnded()
     }
+
+    /// Unpacking or a signature check fails after the download.
+    func verifyFails() {
+        model.preparing(0)
+        model.failed(FeedDown())
+        model.cycleEnded()
+    }
 }
 
 @MainActor
@@ -170,7 +177,7 @@ private final class RecordingSurface: UpdateSurface {
         let model = UpdateModel(currentVersion: "1.0")
         model.demo(.upToDate, surface: false, lastChecked: .now)
         #expect(model.canCheck)
-        model.demo(.failed(message: "The feed is down."), surface: false, lastChecked: .now)
+        model.demo(.failed(.check), surface: false, lastChecked: .now)
         #expect(model.canCheck)
         model.demo(.checking, surface: false, lastChecked: .now)
         #expect(!model.canCheck)
@@ -189,42 +196,42 @@ private final class RecordingSurface: UpdateSurface {
         model.perform(.check)
         #expect(engine.userChecks == 1)
         #expect(model.phase == .upToDate)
-        #expect(surface.current == .upToDate(version: "1.0"))
+        // The result is the row's; the popup never shows it.
+        #expect(surface.shown.allSatisfy { $0 == nil })
         #expect(model.lastChecked == engine.lastUpdateCheckDate)
         model.perform(.dismiss)
         #expect(model.phase == .idle)
-        #expect(surface.current == nil)
     }
 
     @Test func userCheckShowsAnError() {
         let (model, engine, surface) = make(feed: [newer])
         engine.feedIsDown = true
         model.perform(.check)
-        #expect(model.phase == .failed(message: "The feed couldn't be read."))
-        #expect(surface.current == .error(message: "The feed couldn't be read."))
+        #expect(model.phase == .failed(.check))
+        #expect(surface.shown.allSatisfy { $0 == nil })
         #expect(model.canCheck)
         model.perform(.dismiss)
-        #expect(surface.current == nil)
+        #expect(model.phase == .idle)
     }
 
     @Test func userCheckDownloadsWithProgressThenIsReady() {
         let (model, engine, surface) = make(feed: [FeedItem(version: "1.0", size: 1), newer])
         model.perform(.check)
         #expect(engine.replies == [.install])
-        #expect(surface.current == .downloading(update, fraction: 0))
+        #expect(model.phase == .downloading(update, UpdateProgress(expected: 4_000_000)))
         #expect(!model.canCheck)
 
         engine.download(chunks: 4, stopAfter: 1)
-        #expect(surface.current == .downloading(update, fraction: 0.25))
+        #expect(model.versionRow().percent == 25)
         engine.download(chunks: 4, stopAfter: 3)
         engine.unpack()
         #expect(model.phase == .ready(update))
-        #expect(surface.current == .ready(update))
+        // A check by hand never raises the popup, not even for Ready.
+        #expect(surface.shown.allSatisfy { $0 == nil })
 
         model.perform(.restart)
         #expect(engine.replies == [.install, .install])
-        #expect(model.phase == .installing)
-        #expect(surface.current == nil)
+        #expect(model.phase == .installing(update))
     }
 
     @Test func progressIsIndeterminateUntilALengthIsKnown() {
@@ -250,7 +257,8 @@ private final class RecordingSurface: UpdateSurface {
         model.perform(.check)
         engine.download(stopAfter: 2)
         engine.downloadFails()
-        #expect(surface.current == .error(message: "The feed couldn't be read."))
+        #expect(model.phase == .failed(.download(version: "1.1")))
+        #expect(surface.shown.allSatisfy { $0 == nil })
     }
 
     // MARK: Pane's own checks
@@ -279,7 +287,7 @@ private final class RecordingSurface: UpdateSurface {
 
         model.perform(.restart)
         #expect(engine.installNowCalls == 1)
-        #expect(model.phase == .installing)
+        #expect(model.phase == .installing(update))
     }
 
     @Test func withAutomaticDownloadsOffTheSurfaceAsksFirst() {
@@ -333,7 +341,7 @@ private final class RecordingSurface: UpdateSurface {
         model.perform(.restart)
         #expect(engine.userChecks == 1)
         #expect(engine.replies == [.install, .dismiss, .install])
-        #expect(model.phase == .installing)
+        #expect(model.phase == .installing(update))
     }
 
     @Test func aFailureNeverLosesADownloadedUpdate() {
@@ -403,8 +411,212 @@ private final class RecordingSurface: UpdateSurface {
 
     @Test func releaseNotesComeFromTheFeedsList() {
         let html = "<ul>\n<li>One</li>\n<li>Two &amp; three</li>\n<li>Four</li>\n<li>Five</li>\n</ul>"
-        #expect(ReleaseNotes.lines(from: html) == ["One", "Two & three", "Four"])
+        #expect(ReleaseNotes.lines(from: html) == ["One", "Two & three", "Four", "Five"])
+        #expect(ReleaseNotes.lines(from: html, limit: ReleaseNotes.popupLineLimit) == ["One", "Two & three", "Four"])
         #expect(ReleaseNotes.lines(from: "- First\n\n* Second") == ["First", "Second"])
         #expect(ReleaseNotes.lines(from: nil).isEmpty)
     }
+
+    // MARK: The row and the popup (in-row update board)
+
+    @Test func aCheckFromSettingsNeverRaisesThePopup() {
+        let (model, engine, surface) = make(feed: [newer], automaticDownloads: false)
+        model.settingsDidOpen()
+        model.perform(.check)
+        #expect(model.phase == .available(update))
+        model.perform(.download)
+        #expect(engine.replies == [.install])
+        engine.download()
+        engine.unpack()
+        #expect(model.phase == .ready(update))
+        #expect(surface.shown.allSatisfy { $0 == nil })
+        #expect(model.versionRow().action == .restart)
+        #expect(model.versionRow().actionEnabled)
+    }
+
+    @Test func checkForUpdatesFromTheMenuStaysQuietAfterSettingsCloses() {
+        // The menu item opens Settings and checks; the result is still the row's after a close.
+        let (model, engine, surface) = make(feed: [newer], automaticDownloads: false)
+        model.perform(.check)
+        #expect(model.phase == .available(update))
+        #expect(surface.shown.allSatisfy { $0 == nil })
+        model.settingsDidClose()
+        #expect(engine.replies == [.dismiss])
+        #expect(surface.shown.allSatisfy { $0 == nil })
+    }
+
+    @Test func openingSettingsClosesThePopupAndTheRowKeepsTheReply() {
+        let (model, engine, surface) = make(feed: [newer], automaticDownloads: false)
+        engine.scheduledCheck()
+        #expect(surface.current == .available(update))
+        model.settingsDidOpen()
+        #expect(surface.current == nil)
+        #expect(engine.replies.isEmpty)
+        model.perform(.download)
+        #expect(engine.replies == [.install])
+        #expect(engine.userChecks == 0)
+        engine.download()
+        engine.unpack()
+        #expect(surface.current == nil)
+    }
+
+    @Test func nothingRaisesThePopupWhileSettingsIsOpen() {
+        let (model, engine, surface) = make(feed: [newer])
+        model.settingsDidOpen()
+        engine.scheduledCheck()
+        #expect(model.phase == .ready(update))
+        #expect(surface.shown.allSatisfy { $0 == nil })
+        // Closing Settings doesn't bring it back: the row already showed it.
+        model.settingsDidClose()
+        #expect(surface.shown.allSatisfy { $0 == nil })
+    }
+
+    @Test func closingSettingsOnAReadyUpdateDefersItToQuit() {
+        let (model, engine, _) = make(feed: [newer], automaticDownloads: false)
+        model.settingsDidOpen()
+        model.perform(.check)
+        model.perform(.download)
+        engine.download()
+        engine.unpack()
+        #expect(model.versionCaption() == "Version 1.1 is ready")
+        model.settingsDidClose()
+        #expect(engine.replies == [.install, .dismiss])
+        #expect(model.versionCaption() == "1.1 installs when Pane quits")
+    }
+
+    @Test func laterSaysItInstallsOnQuit() {
+        let (model, engine, _) = make(feed: [newer])
+        engine.scheduledCheck()
+        model.perform(.later)
+        #expect(model.isDeferred)
+        #expect(model.versionCaption() == "1.1 installs when Pane quits")
+        #expect(model.versionRow().whatsNewVersion == "1.1")
+    }
+
+    @Test func restartAfterLaterOfflineKeepsTheUpdateAndSaysSo() {
+        let (model, engine, _) = make(feed: [newer], automaticDownloads: false)
+        engine.scheduledCheck()
+        model.perform(.download)
+        engine.download()
+        engine.unpack()
+        model.perform(.later)
+        engine.feedIsDown = true
+        model.perform(.restart)
+        #expect(model.phase == .ready(update))
+        #expect(model.versionCaption() == "Couldn't restart. It installs on quit.")
+        #expect(model.versionRow().isError)
+        #expect(model.versionRow().action == .restart)
+        // Back online, Restart installs.
+        engine.feedIsDown = false
+        model.perform(.restart)
+        #expect(model.phase == .installing(update))
+        #expect(!model.restartFailed)
+    }
+
+    @Test func aFailedDownloadTriesAgainByCheckingThenDownloading() {
+        let (model, engine, _) = make(feed: [newer], automaticDownloads: false)
+        model.settingsDidOpen()
+        model.perform(.check)
+        model.perform(.download)
+        engine.download(stopAfter: 1)
+        engine.downloadFails()
+        #expect(model.versionCaption() == "Couldn't download 1.1.")
+        #expect(model.versionRow().action == .retry)
+        #expect(model.versionRow().actionTitle == "Try again")
+
+        model.perform(.retry)
+        #expect(engine.userChecks == 2)
+        #expect(engine.replies == [.install, .install])
+        #expect(model.versionRow().action == .restart)
+        #expect(!model.versionRow().actionEnabled)
+    }
+
+    @Test func aFailureWhilePreparingIsCouldntVerify() {
+        let (model, engine, _) = make(feed: [newer])
+        model.perform(.check)
+        engine.download()
+        engine.verifyFails()
+        #expect(model.phase == .failed(.verify(version: "1.1")))
+        #expect(model.versionCaption() == "Couldn't verify 1.1.")
+        model.perform(.retry)
+        #expect(model.phase == .downloading(update, UpdateProgress(expected: 4_000_000)))
+    }
+
+    @Test func aDownloadFromThePopupLetsThePopupFollowIt() {
+        let (model, engine, surface) = make(feed: [newer], automaticDownloads: false)
+        engine.scheduledCheck()
+        model.perform(.download)
+        engine.download(stopAfter: 2)
+        #expect(surface.current == .downloading(update, fraction: 0.5))
+        engine.downloadFails()
+        // The popup goes; a failure shows only in the row.
+        #expect(surface.current == nil)
+        #expect(model.phase == .failed(.download(version: "1.1")))
+    }
+
+    // MARK: Updated to X
+
+    @Test func updatedToShowsAfterAnUpdateUntilSettingsCloses() throws {
+        let suite = "dev.niduslabs.pane.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let first = UpdateModel(currentVersion: "1.0.2")
+        first.noteLaunch(defaults: defaults)
+        #expect(first.updatedTo == nil)
+
+        let same = UpdateModel(currentVersion: "1.0.2")
+        same.noteLaunch(defaults: defaults)
+        #expect(same.updatedTo == nil)
+
+        let updated = UpdateModel(currentVersion: "1.0.3")
+        updated.attach(FakeEngine(model: updated, installed: "1.0.3"))
+        updated.noteLaunch(defaults: defaults)
+        #expect(updated.updatedTo == "1.0.3")
+        #expect(updated.versionCaption() == "Updated to 1.0.3")
+        #expect(updated.versionRow().whatsNewVersion == "1.0.3")
+        updated.settingsDidOpen()
+        updated.settingsDidClose()
+        #expect(updated.updatedTo == nil)
+        #expect(updated.versionCaption() == "Not checked yet")
+    }
+
+    // MARK: What's new
+
+    @Test func whatsNewListsThePendingUpdateThenTheBundledFile() {
+        let (model, engine, _) = make(feed: [
+            FeedItem(version: "1.1", size: 4_000_000, notes: "<ul><li>A</li><li>B</li><li>C</li><li>D</li></ul>")
+        ])
+        let bundled = ReleaseNotesFile.parse(
+            "# Release notes\n\nIntro.\n\n## 1.2\n\n- Unreleased\n\n## 1.0\n\n- One\n- Two\n\n## 0.9\n\n- Zero\n")
+        #expect(bundled.map(\.version) == ["1.2", "1.0", "0.9"])
+
+        #expect(model.whatsNew(bundled: bundled).map(\.version) == ["1.0", "0.9"])
+        #expect(model.whatsNew(bundled: bundled).first?.tag == "Installed")
+
+        engine.scheduledCheck()
+        let groups = model.whatsNew(bundled: bundled)
+        #expect(groups.map(\.version) == ["1.1", "1.0", "0.9"])
+        #expect(groups.first?.tag == "Ready to install")
+        // Every line of the feed, not the popup's three.
+        #expect(groups.first?.lines == ["A", "B", "C", "D"])
+        #expect(model.whatsNew(bundled: []).count == 1)
+    }
+
+    @Test func whatsNewIsEmptyWithNoNotes() {
+        let model = UpdateModel(currentVersion: "1.0")
+        #expect(model.whatsNew(bundled: []).isEmpty)
+    }
+
+    @Test func theBundledFileIsPanesOwn() throws {
+        let url = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../RELEASE_NOTES.md")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let groups = ReleaseNotesFile.parse(text)
+        #expect(groups.contains { $0.version == "1.0.0" })
+        // One line style: no full stop at the end of a line.
+        for group in groups {
+            for line in group.lines { #expect(!line.hasSuffix("."), "\(group.version): \(line)") }
+        }
+    }
+
 }

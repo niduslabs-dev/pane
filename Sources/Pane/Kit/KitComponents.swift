@@ -111,12 +111,15 @@ struct PanelCard<Content: View>: View {
 }
 
 /// A window's backdrop. Light: the white surface, over the popover material for the popup.
+/// A sheet is `surfaceMenu`: white, or ink at 96% over the blur in dark.
 /// Dark: the ink glass (`Kit.Glass`), or solid ink with Reduce Transparency or Increase
 /// Contrast.
 struct SurfaceBackground: View {
     enum Kind {
         case popup
         case settings
+        /// A sheet (`color.role.surfaceMenu`).
+        case sheet
     }
     let kind: Kind
     @Environment(\.colorScheme) private var colorScheme
@@ -125,7 +128,16 @@ struct SurfaceBackground: View {
 
     var body: some View {
         let solid = reduceTransparency || contrast == .increased || DisplayOptions.reduceTransparency
-        if colorScheme == .dark {
+        if kind == .sheet {
+            if colorScheme == .dark, !solid {
+                ZStack {
+                    VisualEffectBackground(material: Kit.Glass.darkMaterial)
+                    Kit.Colour.menuSurface
+                }
+            } else {
+                Kit.Colour.menuSurfaceSolid
+            }
+        } else if colorScheme == .dark {
             if solid {
                 Kit.Glass.solid
             } else {

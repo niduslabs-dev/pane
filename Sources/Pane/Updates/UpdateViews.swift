@@ -46,8 +46,8 @@ struct UpdatePopupView: View {
                     VersionStep(model: model).font(Kit.Font.subtitle)
                 }
             }
-            if let notes = model.update?.notes, !notes.isEmpty {
-                NotesCard(lines: notes)
+            if let notes = model.update?.notes.prefix(ReleaseNotes.popupLineLimit), !notes.isEmpty {
+                NotesCard(lines: Array(notes))
             }
             if let fraction = model.barFraction(ceiling: Kit.Motion.progressCeiling) {
                 DownloadBar(fraction: fraction)
@@ -132,37 +132,11 @@ private struct DownloadBar: View {
     }
 }
 
-/// The banner at the top of Settings while an update waits for a restart: "Pane 1.1 is ready",
-/// "Installs next time Pane quits, or now." and Restart to Update.
-struct UpdateBanner: View {
-    let model: UpdateModel
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Kit.Radius.card, style: .continuous)
-        HStack(spacing: Kit.Update.bannerSpacing) {
-            PaneIcon(size: Kit.Update.bannerIcon)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(model.popupTitle).font(Kit.Font.calloutTitle).foregroundStyle(Kit.Colour.bodyText)
-                Text("Installs next time Pane quits, or now.").font(Kit.Font.caption)
-                    .foregroundStyle(Kit.Colour.secondaryText)
-            }
-            Spacer(minLength: 0)
-            Button("Restart to update") { model.perform(.restart) }
-                .buttonStyle(NidusButtonStyle(kind: .primary, size: .small))
-        }
-        .padding(.horizontal, Kit.Row.horizontalPadding)
-        .padding(.vertical, Kit.Row.verticalPadding)
-        .background(Kit.Colour.accent.opacity(Kit.Update.bannerFillOpacity), in: shape)
-        .overlay { Hairline(shape: shape) }
-        .accessibilityElement(children: .contain)
-    }
-}
-
 /// Pane's `UpdateSurface`: the top-right notification panel. It never takes focus and never
-/// activates Pane. It shows an update that is ready or waits for Download, and follows a
-/// download started from its own Download button. Everything else the model reports ("up to
-/// date", a failed check, a download after Check for Updates) shows in Settings' Version row,
-/// which reads the model itself.
+/// activates Pane. It shows an update Pane's own background check found (ready, or waiting
+/// for Download) while Settings is closed, and follows a download started from its own
+/// Download button. Everything else shows in Settings' Version row (UpdatesInRow board),
+/// which reads the model itself; the model never asks for the popup while Settings is open.
 @MainActor
 final class UpdatePopupController: UpdateSurface {
     private let model: UpdateModel
