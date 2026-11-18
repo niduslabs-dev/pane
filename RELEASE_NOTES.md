@@ -4,11 +4,6 @@ The release workflow takes the section for the version it builds: its "- " lines
 GitHub release and the update feed, and the first three show in Pane's update surface. Keep
 them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z`.
 
-## 1.0.2
-
-- Pressing Record no longer freezes the window for a moment.
-- Recording uses about 100 MB less memory.
-
 ## 1.0.1
 
 - Screenshots follow macOS's Save to setting, including Clipboard.
@@ -21,6 +16,8 @@ them short, one change per line. Add a `## X.Y.Z` section before tagging `vX.Y.Z
 - The emulator switcher shows each emulator's device and status, and looks like a control.
 - The recording time's colon no longer jumps as the seconds roll.
 - Rotating turns the window in about a third of a second, also on the home screen.
+- Pressing Record no longer freezes the window for a moment.
+- Recording uses about 100 MB less memory.
 
 ## 1.0.0
 
