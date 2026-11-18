@@ -616,7 +616,7 @@ final class TitlebarToolbar: NSObject, NSToolbarDelegate {
     @objc private func pressMore(_ sender: Any?) { onMore() }
 
     /// Gives More's button the accessibility identifier `window-more`, so the measured check
-    /// (`design/checks/measured`) finds it. AppKit draws the item's view itself (not an
+    /// (`tools/design/checks/measured`) finds it. AppKit draws the item's view itself (not an
     /// `NSButton`), so it is found by its role and name once the window is on screen.
     static func identifyMore(in window: NSWindow) {
         guard let frame = window.contentView?.superview else { return }

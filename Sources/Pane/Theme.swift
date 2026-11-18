@@ -4,10 +4,10 @@ import SwiftUI
 
 private typealias T = ThemeTokens
 
-/// Every size, colour and type style Pane draws with, named after `docs/mac-app-design.md` and the
+/// Every size, colour and type style Pane draws with, named after `studio/design/mac-apps.md` and the
 /// approved board on the Pane design canvas. Shared values read `ThemeTokens` (the studio's
 /// generated tokens, `scripts/sync-tokens.sh`); change one in `assets/tokens.json`, never here.
-/// The numbers still written out are Pane's own, with no token yet (`design/adoption/pane.md`,
+/// The numbers still written out are Pane's own, with no token yet (`studio/pane/adoption.md`,
 /// group C). Views never hold raw numbers.
 enum Theme {
     /// The studio spacing scale (design guide 1.1).
@@ -213,12 +213,12 @@ enum Theme {
     /// The flash over the device screen when a screenshot lands (`captureFlash`, board 18).
     enum CaptureFlash {
         /// Pane's own value until `app.pane.opacity.captureFlash` is a token
-        /// (`design/adoption/pane.md`).
+        /// (`studio/pane/adoption.md`).
         static let peakOpacity: Double = 0.5
         static let fadeDuration = T.Motion.Duration.fade
         /// White in both modes, as the device's own camera flash is (`captureFlash.yaml`, params
         /// colour). Pane's own value until `app.pane.color.captureFlash` is a token
-        /// (`design/adoption/pane.md`). Board 18 drew `brand.paper`; white was approved with the
+        /// (`studio/pane/adoption.md`). Board 18 drew `brand.paper`; white was approved with the
         /// build (`AGENTS.md`, Design deviations).
         static let colour = ThemeColour(fixed: .init(0xFFFFFF))
     }
@@ -598,7 +598,7 @@ extension Theme {
         static let glyphSize = T.Size.Icon.rowLarge
         static let glyphArt: CGFloat = 14
         /// The status dot on the glyph's bottom-right corner: 8 pt (proposed token
-        /// `app.pane.size.statusDot`, `../design/adoption/pane.md`), overhanging the glyph by a
+        /// `app.pane.size.statusDot`, `../studio/pane/adoption.md`), overhanging the glyph by a
         /// quarter of itself, with a `border.control` ring and halo.
         static let statusDot: CGFloat = 8
         static let statusDotOverhang = statusDot / 4

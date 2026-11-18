@@ -44,7 +44,7 @@ BUILD_NUMBER=${BUILD:-$VERSION}
 SIGN_IDENTITY=${SIGN_IDENTITY:--}
 # The public half of the EdDSA key that signs release DMGs (private half: the
 # SPARKLE_ED_PRIVATE_KEY secret). Sparkle refuses any update not signed with it.
-# Empty until the key is generated (plans/pane-ship.md in the workspace repo, "Jatin's steps").
+# Empty until the key is generated (studio/pane/ship.md in the workspace repo, "Jatin's steps").
 RELEASE_SPARKLE_PUBLIC_KEY=cc12vVSGxDtLkacH/AoB542CiqxSLGV6zhQwnbZJbNk=
 FEED_URL=https://github.com/niduslabs-dev/pane/releases/latest/download/appcast.xml
 MIN_MACOS=15.0

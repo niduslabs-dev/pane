@@ -3,18 +3,18 @@ import SwiftUI
 
 private typealias T = ThemeTokens
 
-/// The Nidus component kit's values under the names the kit's views use (`docs/mac-app-design.md`;
+/// The Nidus component kit's values under the names the kit's views use (`studio/design/mac-apps.md`;
 /// the canvas's "Nidus kit and Pane pieces" board): Drop's Settings, notification panel, buttons,
 /// switch and select, so the same surfaces look the same in every Nidus app. Every shared value
 /// reads `ThemeTokens` (`scripts/sync-tokens.sh`); change one in `assets/tokens.json`, never here.
-/// The values written out below are Drop's own, with no token yet (`design/adoption/pane.md`,
+/// The values written out below are Drop's own, with no token yet (`studio/pane/adoption.md`,
 /// group C); they move to tokens when Drop adopts them. Pane's own pieces (the title row, the
 /// toolbar, the device frame) stay in `Theme`.
 enum Kit {
     /// The notification panel's content inset, the same on all four sides.
     static let panelInset = T.Size.NotificationPanel.inset
 
-    /// The studio spacing scale (`docs/mac-app-design.md` 1.1). Every gap and inset is one of
+    /// The studio spacing scale (`studio/design/mac-apps.md` 1.1). Every gap and inset is one of
     /// these; anything off the scale says which optical fix it is where it's declared.
     enum Space {
         static let xxxs = T.Space.xxxs
@@ -27,7 +27,7 @@ enum Kit {
         static let xxl = T.Space.xxl
     }
 
-    /// The studio radii (`docs/mac-app-design.md` 1.4): capsules for actions, `control` for
+    /// The studio radii (`studio/design/mac-apps.md` 1.4): capsules for actions, `control` for
     /// value controls, `card` for containers at window scale.
     enum Radius {
         static let control = T.Radius.control
