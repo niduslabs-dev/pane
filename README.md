@@ -99,6 +99,7 @@ A [Nidus Labs](https://niduslabs.dev) app. *A home for little ideas.*
 | Shortcut | Action |
 |---|---|
 | ⌘N | New window, for an emulator that doesn't have one |
+| ⌘E | Switch emulator |
 | ⌘L | Open link |
 | ⌘S | Save screenshot |
 | ⇧⌘C | Copy screenshot |

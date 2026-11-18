@@ -115,6 +115,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         case .showHere(let avd): model.switchTo(avdName: avd)
         case .openInNewWindow(let avd): openInNewWindow(avd)
         case .showEmulatorsInFinder: NSWorkspace.shared.open(PaneModel.avdHome)
+        case .showSwitcher: showSwitcher()
         case .chooseAVD(let name):
             if let avd = model.avds.first(where: { $0.name == name }) { model.choose(avd) }
         case .settings: NSApp.sendAction(DeviceMenu.settingsAction, to: NSApp.delegate, from: self)
@@ -231,8 +232,12 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
             width: Theme.Menu.switcherWidth, submenuWidth: Theme.Menu.switcherSubmenuWidth)
     }
 
+    /// Stands in for the emulators on disk when set, so tests can open the switcher with known rows.
+    var switcherEntriesOverride: (() -> [SwitcherEntry])?
+
     /// Every emulator as the switcher lists it, read fresh from disk and the registration folder.
     private func switcherEntries() -> [SwitcherEntry] {
+        if let switcherEntriesOverride { return switcherEntriesOverride() }
         #if DEBUG
             if let fake = SwitcherFake.entries(current: model.shownAVDName) { return fake }
         #endif

@@ -18,6 +18,9 @@ enum DeviceCommand: Equatable {
     case showHere(String)
     case openInNewWindow(String)
     case showEmulatorsInFinder
+    /// Opens the emulator switcher under the title, as a click on the device name does: the
+    /// keyboard's way in, since Tab in the window belongs to the device.
+    case showSwitcher
     /// The no-emulator screen's emulators menu: show this AVD with Start ready (or attach).
     case chooseAVD(String)
     /// Opens the Settings window.
@@ -84,6 +87,7 @@ enum DeviceMenu {
 
     static func emulatorItems(target: AnyObject, action: Selector) -> [NSMenuItem] {
         [
+            item(switchEmulatorTitle, .showSwitcher, key: "e", target: target, action: action),
             item("Restart Emulator", .restart, target: target, action: action),
             item("Shut Down Emulator", .shutDown, target: target, action: action),
         ]
@@ -189,6 +193,8 @@ enum DeviceMenu {
     }
 
     static let openInNewWindow = "Open in new window"
+    /// Device › Switch Emulator… (⌘E).
+    static let switchEmulatorTitle = "Switch Emulator\u{2026}"
     /// The no-emulator screen's own words.
     static let noEmulatorsSetUp = "No emulators set up."
 
@@ -238,6 +244,9 @@ enum DeviceMenu {
         case .restart, .shutDown:
             return model.emulator != nil
         case .showHere, .openInNewWindow, .showEmulatorsInFinder, .chooseAVD:
+            return true
+        case .showSwitcher:
+            // Enabled with no emulators too: the panel then says "No emulators set up."
             return true
         case .settings:
             return true

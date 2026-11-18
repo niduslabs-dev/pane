@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import Foundation
 import PaneCore
@@ -222,5 +223,68 @@ import Testing
         #expect(items[0].glyph == RowGlyph(kind: .phone, state: .running))
         #expect(items[1].glyph == RowGlyph(kind: .phone, state: .stopped))
         #expect(items[0].command == .chooseAVD("dev_android36"))
+    }
+
+    // MARK: Device › Switch Emulator… (⌘E)
+
+    /// A window controller on its own preferences, its switcher listing `entries`.
+    private func controller(entries: [SwitcherEntry]) -> PaneWindowController {
+        let defaults = UserDefaults(suiteName: "PaneMenuTests.\(UUID().uuidString)")!
+        let controller = PaneWindowController(settings: PaneSettings(defaults: defaults))
+        controller.switcherEntriesOverride = { entries }
+        return controller
+    }
+
+    private func switchEmulatorItem(target: AnyObject) -> NSMenuItem? {
+        DeviceMenu.emulatorItems(target: target, action: #selector(PaneWindowController.runDeviceCommand(_:)))
+            .first { $0.deviceCommand == .showSwitcher }
+    }
+
+    @Test func switchEmulatorIsInTheDeviceMenuOnCommandE() throws {
+        let items = DeviceMenu.emulatorItems(target: NSObject(), action: #selector(NSObject.description))
+        let item = try #require(items.first)
+        #expect(item.title == "Switch Emulator\u{2026}")
+        #expect(item.keyEquivalent == "e")
+        #expect(item.keyEquivalentModifierMask == [.command])
+        #expect(item.deviceCommand == .showSwitcher)
+        #expect(items.map(\.title) == ["Switch Emulator\u{2026}", "Restart Emulator", "Shut Down Emulator"])
+    }
+
+    @Test func commandEIsNotTakenByAnotherMenuItem() {
+        let target = NSObject()
+        let action = #selector(NSObject.description)
+        let all =
+            DeviceMenu.captureItems(target: target, action: action)
+            + DeviceMenu.deviceItems(target: target, action: action)
+            + DeviceMenu.toolItems(target: target, action: action)
+            + DeviceMenu.emulatorItems(target: target, action: action)
+        let commandE = all.filter { $0.keyEquivalent == "e" && $0.keyEquivalentModifierMask == [.command] }
+        #expect(commandE.map(\.title) == ["Switch Emulator\u{2026}"])
+    }
+
+    @Test func switchEmulatorOpensTheSwitcherOnThisWindowsRow() throws {
+        let controller = controller(
+            entries: entries(["dev_android36", "pixel9_api35"], running: ["dev_android36"], current: "dev_android36"))
+        let item = try #require(switchEmulatorItem(target: controller))
+        #expect(controller.validateMenuItem(item))
+        controller.runDeviceCommand(item)
+        let menu = try #require(controller.model.menu)
+        #expect(menu.anchor == .title)
+        #expect(menu.highlighted == 1)
+        #expect(menu.items[1].title == "dev_android36" && menu.items[1].isSelected)
+        // Pressed again, as the trigger does, it closes the switcher.
+        controller.runDeviceCommand(item)
+        #expect(controller.model.menu == nil)
+    }
+
+    @Test func switchEmulatorStaysEnabledWithNoEmulators() throws {
+        let controller = controller(entries: [])
+        let item = try #require(switchEmulatorItem(target: controller))
+        #expect(controller.validateMenuItem(item))
+        controller.runDeviceCommand(item)
+        let menu = try #require(controller.model.menu)
+        #expect(menu.items.map(\.title).contains("No emulators set up."))
+        // With no window to act on, the menu bar's item is dimmed like every device command.
+        #expect(!DeviceMenu.validate(item, model: nil))
     }
 }
