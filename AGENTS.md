@@ -3,7 +3,7 @@
 A Mac app that mirrors an Android emulator in a clean window, inside a device frame we draw, and forwards clicks, scrolls, keys and frame-button presses to it over the emulator's own gRPC interface (`EmulatorController`). It also starts emulators headless. Android emulator only. Status: v1 and the tools (More menu, Open link, Inspect layout, Measure, Pick colour, emulator switcher, one window per emulator) built 2026-11-17, waiting for Jatin to try them.
 
 - Plan and decisions: `../studio/pane/plan.md` (Nidus Labs workspace). Research with sources: `~/Work/personal/.claude/research/emulator-mirror-grpc.md`.
-- Design canvas: [Pane design](https://claude.ai/artifact/SSy48PyDrNEapFzTWwoybJ). Studio design rules: `../studio/design/mac-apps.md`.
+- Design boards: [Pane design](https://artifacts.niduslabs.dev/pane/boards). Studio design rules: `../studio/design/mac-apps.md`.
 
 ## Layout
 
@@ -45,7 +45,7 @@ A Swift package, no Xcode project. Swift 6, strict concurrency, macOS 15+.
 
 ## Design
 
-- Chrome measured from Apple's Device Hub with the Accessibility API (title 28 pt past the traffic lights, 36 pt glass capsule and circle under the device). Boards: the [Pane design](https://claude.ai/artifact/SSy48PyDrNEapFzTWwoybJ) canvas (window boards 1 to 6, tools 7 to 13, kit 16).
+- Chrome measured from Apple's Device Hub with the Accessibility API (title 28 pt past the traffic lights, 36 pt glass capsule and circle under the device). Boards: the [Pane design](https://artifacts.niduslabs.dev/pane/boards) canvas (window boards 1 to 6, tools 7 to 13, kit 16).
 - **The emulator switcher is built to board 20, option A** (2026-11-18; it replaces board 13's switcher). The trigger shows its chevron and hairline outline at rest; the panel opens on this window's row; "Open in new window" is a row button (Right onto it, Left or Esc back, Command-Return from the row), never a submenu. Contracts: `SwitcherTrigger` and `DeviceStatus` (`../tools/design/contracts/apps/pane/`) and MenuPanel's selected, keyboard and rowButton states. `-PaneSwitcherFake three|starting|other|long|one|none` (debug) fills it with board 20's examples.
 - **Tools are built to boards 7 to 11 and 13.** Tool colours are fixed in both modes because they draw on the device: moss `#4F7A4A` for outlines and lines, amber `#B25E00` (always dashed) for distances and snap guides, a paper halo around both, ink chips. Pick colour's loupe reads the frame Pane is showing (scaled down in a window smaller than the device); a click takes a full-resolution screenshot (`EmulatorConnection.screenshotFrame`) and copies the device's own pixel.
 - **The window is glass in light mode too** (a deviation, below). Paper tint 93% and ink tint 86% keep secondary text at 4.5:1 over pure black or white (`GlassTests` holds it); Reduce Transparency and Increase Contrast make it solid.
