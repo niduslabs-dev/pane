@@ -78,6 +78,17 @@ final class PaneSettings {
         defaults.set(mode?.rawValue, forKey: Key.sizeMode + avd)
     }
 
+    /// The shape an AVD's screen last had while Pane showed it, when it differed from its
+    /// `config.ini` (a folded Fold), so Pane opens in it with no jump (board 27, item 5). Nil
+    /// when it was the configured screen.
+    func liveScreenSize(for avd: String) -> PixelSize? {
+        defaults.string(forKey: Key.liveScreenSize + avd).flatMap(LiveScreen.parse)
+    }
+
+    func setLiveScreenSize(_ size: PixelSize?, for avd: String) {
+        defaults.set(size.map(LiveScreen.stored), forKey: Key.liveScreenSize + avd)
+    }
+
     /// Where an AVD's window last was: its top left corner in screen coordinates.
     func windowTopLeft(for avd: String) -> CGPoint? {
         guard let values = defaults.array(forKey: Key.windowTopLeft + avd) as? [Double], values.count == 2 else {
@@ -134,6 +145,7 @@ final class PaneSettings {
         static let captureFolderPath = "captureFolderPath"
         static let sizeMode = "sizeMode."
         static let windowTopLeft = "windowTopLeft."
+        static let liveScreenSize = "liveScreenSize."
         static let recentLinks = "recentLinks."
         static let location = "location."
         static let lastRecording = "lastRecording"

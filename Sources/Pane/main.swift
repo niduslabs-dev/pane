@@ -265,6 +265,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case "check-hover-end": _ = model.dragChanged(files: nil)
             case "check-drop": _ = model.drop(files: files)
             case "check-paste": model.paste()
+            case "check-click":
+                // A click at a point of the screen (x, y in its points), through the same path
+                // as a real one: posted clicks don't reach a background window.
+                if let x = value("x").flatMap(Double.init), let y = value("y").flatMap(Double.init) {
+                    model.screenView.onPointer?(.down, CGPoint(x: x, y: y))
+                    model.screenView.onPointer?(.up, CGPoint(x: x, y: y))
+                }
+            case "check-inspect": model.tools.toggle(.inspect)
             case "check-open-link": controller.showOpenLink(text: value("text") ?? "")
             case "check-location": controller.showCustomLocation(latitude: value("lat"), longitude: value("lon"))
             case "check-gif": if let file = files.first { model.exportGIF(from: file) }
@@ -529,13 +537,7 @@ final class PaneWindow: NSWindow {
     /// Resizes the content, keeping the window's top edge and horizontal centre where they are
     /// and the whole window on its screen.
     func setContentSizeKeepingTop(_ size: CGSize) {
-        let newFrame = frameRect(forContentRect: NSRect(origin: .zero, size: size))
-        var origin = CGPoint(x: frame.midX - newFrame.width / 2, y: frame.maxY - newFrame.height)
-        if let visible = screen?.visibleFrame {
-            origin.x = min(max(origin.x, visible.minX), visible.maxX - newFrame.width)
-            origin.y = min(max(origin.y, visible.minY), visible.maxY - newFrame.height)
-        }
-        setFrame(NSRect(origin: origin, size: newFrame.size), display: true, animate: false)
+        setFrame(frameKeepingTop(forContentSize: size, from: frame), display: true, animate: false)
     }
 
     /// Where the system's traffic lights end, in content coordinates, so the title can sit

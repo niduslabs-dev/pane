@@ -8,7 +8,7 @@ struct PaneContentView: View {
     let model: PaneModel
 
     var body: some View {
-        let layout = model.layout
+        let layout = model.shownLayout
         ZStack(alignment: .topLeading) {
             TitleBar(model: model)
                 .frame(width: layout.windowContentSize.width, height: Theme.Window.titleRowHeight)
@@ -50,9 +50,10 @@ struct DeviceFrameView: View {
             ForEach(layout.buttons, id: \.button) { button in
                 buttonShape(button)
             }
+            .opacity(model.hidesSideButtons ? 0 : 1)
             bodyShape
             screen
-            if model.status == .live {
+            if model.status == .live, !model.hidesSideButtons {
                 ForEach(layout.buttons, id: \.button) { button in
                     hitArea(button)
                 }
@@ -90,7 +91,8 @@ struct DeviceFrameView: View {
                 case .live, .failed: EmptyView()
                 }
             }
-            if model.status == .live {
+            // Tools draw again once the new shape's frame is in.
+            if model.status == .live, model.reshape.acceptsInput {
                 ToolOverlay(tools: model.tools)
             }
             CaptureFlash(model: model)

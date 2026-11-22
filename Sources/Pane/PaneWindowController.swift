@@ -24,6 +24,8 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     /// True while Pane itself moves or resizes the window, so that isn't taken for a drag.
     private var isAdjustingFrame = false
     private var openSheet: NSWindow?
+    /// The window's morph to a new device shape while it runs (board 27).
+    private var morph: WindowMorph?
     private let log = Logger(subsystem: "dev.niduslabs.pane", category: "window")
 
     init(settings: PaneSettings = .shared, initialAVD: String? = nil) {
@@ -37,6 +39,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
             self.window.setContentSizeKeepingTop(size)
             self.isAdjustingFrame = false
         }
+        model.onReshape = { [weak self] from, to, animated in self?.reshape(from: from, to: to, animated: animated) }
         model.onShowSwitcher = { [weak self] in self?.showSwitcher() }
         model.onShowMore = { [weak self] in self?.toggleMoreMenu() }
         model.onShowEmulators = { [weak self] anchor in self?.showEmulatorsMenu(under: anchor) }
@@ -84,11 +87,41 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     }
 
     private func rememberPosition() {
-        guard let placedAVD, !isAdjustingFrame else { return }
+        guard let placedAVD, !isAdjustingFrame, morph == nil else { return }
         model.settings.setWindowTopLeft(CGPoint(x: window.frame.minX, y: window.frame.maxY), for: placedAVD)
     }
 
     func windowDidMove(_ notification: Notification) { rememberPosition() }
+
+    // MARK: Reshape
+
+    /// Morphs the window and the drawn device to a new shape (a fold or a turn), starting from
+    /// wherever a running morph has got to. Without animation (Reduce Motion, or a window
+    /// that isn't on screen) the window takes the new size at once.
+    private func reshape(from: DeviceFrameLayout, to: DeviceFrameLayout, animated: Bool) {
+        morph?.stop()
+        morph = nil
+        guard animated, window.isVisible else {
+            model.morphStep(nil)
+            isAdjustingFrame = true
+            window.setContentSizeKeepingTop(to.windowContentSize)
+            isAdjustingFrame = false
+            model.reshapeSettled()
+            return
+        }
+        let next = WindowMorph(
+            window: window, from: from, to: to,
+            onStep: { [weak self] layout in self?.model.morphStep(layout) },
+            onSettled: { [weak self] in
+                guard let self else { return }
+                self.model.morphStep(nil)
+                self.morph = nil
+                self.rememberPosition()
+                self.model.reshapeSettled()
+            })
+        morph = next
+        next.start()
+    }
 
     // MARK: Commands
 
@@ -289,6 +322,7 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     /// (Accessibility) is snapped to the device's shape here. Sizes the model set itself
     /// already match and are left alone, even when taller than the screen.
     func windowDidResize(_ notification: Notification) {
+        guard morph == nil else { return }
         let content = window.contentRect(forFrameRect: window.frame).size
         // AppKit rounds frames to whole points, so "already the model's size" is within a point.
         let expected = model.layout.windowContentSize

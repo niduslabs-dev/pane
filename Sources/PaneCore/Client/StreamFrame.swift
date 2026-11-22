@@ -26,6 +26,22 @@ public struct StreamFrame: @unchecked Sendable {
     public let timestampMicroseconds: UInt64
     /// Quarter turns counter-clockwise from portrait, as the emulator reports it.
     public let rotationQuadrants: Int
+    /// The folded screen's exact size in device pixels, natural (portrait) orientation, when the
+    /// device is folded (`ImageFormat.foldedDisplay`); nil when it isn't. The frame's own size
+    /// is scaled, so it gives only the aspect.
+    public let foldedDisplay: PixelSize?
+
+    public init(
+        size: PixelSize, pixelBuffer: CVPixelBuffer, sequence: UInt32, timestampMicroseconds: UInt64,
+        rotationQuadrants: Int, foldedDisplay: PixelSize? = nil
+    ) {
+        self.size = size
+        self.pixelBuffer = pixelBuffer
+        self.sequence = sequence
+        self.timestampMicroseconds = timestampMicroseconds
+        self.rotationQuadrants = rotationQuadrants
+        self.foldedDisplay = foldedDisplay
+    }
 
     /// The surface behind the buffer, for `CALayer.contents`.
     public var surface: IOSurfaceRef? { CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue() }
@@ -260,7 +276,16 @@ public enum StreamFrameDecoder {
         return StreamFrame(
             size: size, pixelBuffer: buffer, sequence: fields.sequence,
             timestampMicroseconds: fields.timestampMicroseconds,
-            rotationQuadrants: fields.format.rotation.rotation.rawValue)
+            rotationQuadrants: fields.format.rotation.rotation.rawValue,
+            foldedDisplay: foldedDisplay(of: fields.format))
+    }
+
+    /// `foldedDisplay` as a size, or nil when the frame has none (or an empty one).
+    static func foldedDisplay(of format: Android_Emulation_Control_ImageFormat) -> PixelSize? {
+        guard format.hasFoldedDisplay, format.foldedDisplay.width > 0, format.foldedDisplay.height > 0 else {
+            return nil
+        }
+        return PixelSize(width: Int(format.foldedDisplay.width), height: Int(format.foldedDisplay.height))
     }
 }
 

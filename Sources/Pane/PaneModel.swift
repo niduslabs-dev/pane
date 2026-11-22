@@ -35,8 +35,28 @@ final class PaneModel {
     private(set) var heldButtons: Set<FrameButton> = []
     /// Quarter turns counter-clockwise from portrait, from the latest frame.
     private(set) var quadrants = 0
-    /// The screen's long side in points; the window's size follows from it.
+    /// The screen's long side in points; the window's size follows from it. It is the height
+    /// the user chose, raised to the smallest for the current shape (`ScreenHeightRule`).
     private(set) var screenHeight = Theme.Frame.screenHeight
+    /// The height the user chose (a drag or a Window menu size). A raise forced by a narrow
+    /// shape never changes it, so turning or unfolding back returns to it.
+    @ObservationIgnored private var chosenScreenHeight = Theme.Frame.screenHeight
+    /// The screen Android is showing when it isn't the configured one (folded), from the
+    /// frames' `foldedDisplay`; nil when it is the configured screen.
+    private(set) var liveScreenSize: PixelSize?
+    /// The device frame drawn while the window morphs to `layout`; nil when it isn't morphing.
+    private(set) var morphLayout: DeviceFrameLayout?
+    /// What the window draws: the morph's step, else the layout.
+    var shownLayout: DeviceFrameLayout { morphLayout ?? layout }
+    /// The reshape after a fold, unfold or turn (board 27): clicks wait until it has cleared.
+    private(set) var reshape = ReshapeTransition()
+    /// True while the device turns: the side buttons fade out and come back on their new edge.
+    private(set) var hidesSideButtons = false
+    /// The new shape's first frame, held under the veil until the morph has settled.
+    @ObservationIgnored private var pendingFrame: StreamFrame?
+    /// Morphs the window from one layout to the other (`animated`), or sizes it at once, and
+    /// calls `morphStep` and then `reshapeSettled` (set by the window).
+    @ObservationIgnored var onReshape: ((DeviceFrameLayout, DeviceFrameLayout, Bool) -> Void)?
     /// Where the title starts: just past the system's traffic lights, measured by the window.
     var titleLeadingInset = Theme.Window.fallbackTitleLeading
     /// The Window menu size in effect (ticked), or nil after a manual resize.
@@ -200,7 +220,8 @@ final class PaneModel {
         return Self.ownedEmulatorPIDs.contains(emulator.pid)
     }
 
-    var deviceSize: PixelSize { profile.screenSize ?? Theme.Frame.fallbackDeviceSize }
+    /// The screen Android shows now, portrait: folded or the configured one.
+    var deviceSize: PixelSize { liveScreenSize ?? profile.screenSize ?? Theme.Frame.fallbackDeviceSize }
 
     /// `initialAVD` is what a second window opens on; the first window passes nil and shows the
     /// AVD remembered from last time.
@@ -233,7 +254,7 @@ final class PaneModel {
     func reloadAVDs() {
         avds = AvdCatalog.list(in: Self.avdHome)
         runningAVDNames = Set(EmulatorDiscovery.runningEmulators(in: Self.registrationFolder).map(\.avdName))
-        if status == .noEmulator, let avd = selectedAVD { setProfile(avd.profile) }
+        if status == .noEmulator, let avd = selectedAVD { setProfile(avd.profile, avd: avd.name) }
     }
 
     /// AVDs with an emulator running right now, for the menu's Running tags.
@@ -280,7 +301,7 @@ final class PaneModel {
     func selectAVD(_ name: String) {
         selectedAVDName = name
         startProblem = nil
-        if status == .noEmulator, let avd = selectedAVD { setProfile(avd.profile) }
+        if status == .noEmulator, let avd = selectedAVD { setProfile(avd.profile, avd: avd.name) }
     }
 
     private func startWatcher() {
@@ -356,7 +377,7 @@ final class PaneModel {
             return
         }
         startProblem = nil
-        setProfile(profile)
+        setProfile(profile, avd: avdName)
         launchedAVDName = avdName
         status = .starting
         isSlowStart = false
@@ -480,7 +501,7 @@ final class PaneModel {
         reconnectTask?.cancel()
         reconnectAttempt = 0
         if emulator != nil { disconnect() }
-        if let avd = avds.first(where: { $0.name == avdName }) { setProfile(avd.profile) }
+        if let avd = avds.first(where: { $0.name == avdName }) { setProfile(avd.profile, avd: avd.name) }
         if let running {
             status = .noEmulator
             connect(to: running)
@@ -551,7 +572,7 @@ final class PaneModel {
         status = .noEmulator
         startProblem = nil
         selectedAVDName = avdName
-        if let avd = selectedAVD { setProfile(avd.profile) }
+        if let avd = selectedAVD { setProfile(avd.profile, avd: avd.name) }
         if let running = EmulatorDiscovery.runningEmulators(in: Self.registrationFolder).first(where: {
             $0.avdName == avdName
         }) {
@@ -616,12 +637,17 @@ final class PaneModel {
     private struct StreamRequest: Equatable {
         var size: PixelSize
         var quadrants: Int
+        /// The device's screen the stream was asked for (folded or not), portrait.
+        var deviceSize: PixelSize
     }
 
-    private func setProfile(_ profile: DeviceProfile) {
+    /// Shows `avd`'s device, in the shape its screen last had (folded or not).
+    private func setProfile(_ profile: DeviceProfile, avd: String?) {
         let oldSize = deviceSize
         let oldDensity = self.profile.density
         self.profile = profile
+        liveScreenSize = LiveScreen.remembered(
+            liveSize: avd.flatMap(settings.liveScreenSize(for:)), configured: profile.screenSize)
         if deviceSize != oldSize || profile.density != oldDensity {
             relayout(resizeWindow: true)
             if screenView.window != nil { applyRememberedSize() }
@@ -636,16 +662,29 @@ final class PaneModel {
             quadrants: quadrants, floor: Theme.Frame.minScreenHeight)
     }
 
-    /// Rebuilds the layout; the window follows unless the user is resizing it. A turn to
-    /// portrait can leave the screen under the minimum, so it grows back to it.
+    /// Rebuilds the layout; the window follows unless the user is resizing it.
     private func relayout(resizeWindow: Bool) {
-        if screenHeight < minScreenHeight { screenHeight = minScreenHeight }
+        guard updateLayout() else { return }
+        if resizeWindow, morphLayout == nil { onWindowContentSizeChange?(layout.windowContentSize) }
+        scheduleFrameRestart()
+    }
+
+    /// Lays the frame out at the shown height for the current shape. False when nothing changed.
+    @discardableResult
+    private func updateLayout() -> Bool {
+        screenHeight = ScreenHeightRule.shown(
+            chosen: chosenScreenHeight, minimum: minScreenHeight, displayFit: sizeMode == nil ? displayFitHeight : nil)
         let next = DeviceFrameLayout(
             spec: Theme.Frame.spec, deviceSize: deviceSize, screenHeight: screenHeight, quadrants: quadrants)
-        guard next != layout else { return }
+        guard next != layout else { return false }
         layout = next
-        if resizeWindow { onWindowContentSizeChange?(next.windowContentSize) }
-        scheduleFrameRestart()
+        return true
+    }
+
+    /// The largest screen height that fits the window's display in the current shape.
+    private var displayFitHeight: CGFloat? {
+        guard let available = screenView.window?.screen?.visibleFrame.size else { return nil }
+        return screenHeight(fitting: available, available: available)
     }
 
     /// The screen height whose layout fits a proposed window content size, kept between the
@@ -671,7 +710,7 @@ final class PaneModel {
     /// A manual size clears the Window menu's tick.
     func windowResized(screenHeight: CGFloat) {
         guard screenHeight != self.screenHeight else { return }
-        self.screenHeight = screenHeight
+        chosenScreenHeight = screenHeight
         setSizeMode(nil)
         relayout(resizeWindow: false)
     }
@@ -713,8 +752,7 @@ final class PaneModel {
     func applySize(_ mode: ScreenSizeMode) {
         guard let side = longSide(for: mode) else { return }
         setSizeMode(mode)
-        guard side != screenHeight else { return }
-        screenHeight = side
+        chosenScreenHeight = side
         relayout(resizeWindow: true)
     }
 
@@ -776,7 +814,7 @@ final class PaneModel {
         let size = ScreenMapping.requestedImageSize(
             screenPoints: layout.screenRect.size, backingScale: backingScale, deviceSize: deviceSize,
             quadrants: quadrants)
-        return StreamRequest(size: size, quadrants: quadrants)
+        return StreamRequest(size: size, quadrants: quadrants, deviceSize: deviceSize)
     }
 
     // MARK: Home
@@ -915,6 +953,8 @@ final class PaneModel {
         guard let connection, status == .live else { return }
         let target = rotations.ask(from: quadrants)
         releaseAll()
+        // The reshape starts on the click; the stream restarts once the turn is asked for.
+        shapeChanged(liveSize: deviceSize, quadrants: target, restartOn: nil)
         let previous = rotationTask
         previous?.cancel()
         rotationTask = Task { [weak self] in
@@ -952,23 +992,93 @@ final class PaneModel {
         startFrames(on: connection)
     }
 
-    /// A frame arrived in another orientation than the stream was asked for: turn the layout
-    /// (keeping the screen's size, within the display) and ask for frames in the new shape.
-    private func orientationChanged(to newQuadrants: Int, on connection: EmulatorConnection) {
-        rotations.shown(newQuadrants)
-        guard newQuadrants != quadrants else { return }
+    /// The device's screen changed shape (a fold, an unfold, a turn): the reshape starts
+    /// (board 27). Held touches are released and clicks wait; an open menu closes, since what
+    /// was under it moved. The last frame is veiled while the window morphs to the new shape,
+    /// and the stream restarts at the new size (`restartOn`; a turn from Pane's button restarts
+    /// it once the turn is asked for). The Window menu's sizes follow the real screen, Fit fits
+    /// again, and a manual size keeps the chosen height (`ScreenHeightRule`).
+    private func shapeChanged(
+        liveSize: PixelSize?, quadrants newQuadrants: Int, restartOn connection: EmulatorConnection?
+    ) {
+        let newLive = LiveScreen.remembered(liveSize: liveSize, configured: profile.screenSize)
+        let resized = newLive != liveScreenSize
+        let turned = newQuadrants != quadrants
+        guard resized || turned else { return }
         log.info(
-            "Orientation \(self.quadrants) -> \(newQuadrants), size \(self.sizeMode?.rawValue ?? "manual", privacy: .public)"
+            "Shape \(self.deviceSize.description, privacy: .public) turned \(self.quadrants) -> \((newLive ?? self.profile.screenSize)?.description ?? "?", privacy: .public) turned \(newQuadrants), size \(self.sizeMode?.rawValue ?? "manual", privacy: .public)"
         )
         releaseAll()
+        menu = nil
+        if resized, let name = emulator?.avdName { settings.setLiveScreenSize(newLive, for: name) }
+        let from = shownLayout
+        liveScreenSize = newLive
         quadrants = newQuadrants
-        if sizeMode == .fit, let side = longSide(for: .fit) {
-            screenHeight = side
-        } else if sizeMode == nil, let available = screenView.window?.screen?.visibleFrame.size {
-            screenHeight = min(screenHeight, screenHeight(fitting: available, available: available))
+        if let mode = sizeMode, let side = longSide(for: mode) { chosenScreenHeight = side }
+        updateLayout()
+        let reduceMotion = MotionOptions.reduceMotion(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        reshape.begin(reduceMotion: reduceMotion)
+        pendingFrame = nil
+        if turned { withAnimation(Theme.Reshape.sideButtonFade) { hidesSideButtons = true } }
+        screenView.beginVeil()
+        if let onReshape {
+            onReshape(from, layout, !reduceMotion)
+        } else {
+            reshapeSettled()
         }
-        relayout(resizeWindow: true)
-        restartFrames(on: connection)
+        if let connection { restartFrames(on: connection) }
+    }
+
+    /// One step of the window's morph (nil once it has settled).
+    func morphStep(_ layout: DeviceFrameLayout?) { morphLayout = layout }
+
+    /// The window has its new shape. The veil clears once the new frame is in too.
+    func reshapeSettled() {
+        if reshape.morphSettled() { clearVeil() }
+    }
+
+    /// Shows the new shape's frame and clears the veil; clicks work again once it has cleared.
+    private func clearVeil() {
+        let frame = pendingFrame
+        pendingFrame = nil
+        withAnimation(Theme.Reshape.sideButtonFade) { hidesSideButtons = false }
+        screenView.clearVeil(showing: frame, crossfade: reshape.clear == .crossfade) { [weak self] in
+            guard let self else { return }
+            self.reshape.cleared()
+            self.tools.screenChanged()
+        }
+        hasFrame = true
+        updateLiveStatus()
+    }
+
+    /// What a streamed frame does: shown, held under the reshape's veil, or dropped. A frame
+    /// whose screen (folded or not) or orientation differs from the window's starts a reshape;
+    /// one from a stream asked for at another shape is dropped while its restart is on its way.
+    /// Returns the recording to add the frame to.
+    private func receive(_ frame: StreamFrame, on connection: EmulatorConnection) -> FrameRecorder? {
+        let turn = frame.rotationQuadrants
+        // While a turn is under way the emulator eases the angle and can pass through another
+        // orientation (180 to -90 goes via 0); only the ones asked for count.
+        if turn != quadrants, !rotations.follows(turn) { return nil }
+        rotations.shown(turn)
+        let live = LiveScreen.size(foldedDisplay: frame.foldedDisplay, configured: profile.screenSize)
+        if turn != quadrants || !LiveScreen.frame(liveSize: live, matches: deviceSize) {
+            shapeChanged(liveSize: live, quadrants: turn, restartOn: connection)
+            return nil
+        }
+        guard let request = streamRequest, request.quadrants == turn,
+            LiveScreen.frame(liveSize: live, matches: request.deviceSize)
+        else { return nil }
+        if reshape.holdsFrames {
+            pendingFrame = frame
+            if reshape.frameArrived() { clearVeil() }
+            return recorderSlot.current
+        }
+        screenView.show(frame)
+        hasFrame = true
+        updateLiveStatus()
+        tools.screenChanged()
+        return recorderSlot.current
     }
 
     // MARK: Connection
@@ -982,7 +1092,8 @@ final class PaneModel {
             Self.ownedEmulatorPIDs.insert(emulator.pid)
         }
         if wasStarting { startTask?.cancel() }
-        setProfile(emulator.avdDirectory.map(DeviceProfile.load(avdDirectory:)) ?? DeviceProfile())
+        setProfile(
+            emulator.avdDirectory.map(DeviceProfile.load(avdDirectory:)) ?? DeviceProfile(), avd: emulator.avdName)
         status = wasStarting ? .booting : .connecting
         hasFrame = false
         isBooted = false
@@ -992,7 +1103,7 @@ final class PaneModel {
 
         let connection: EmulatorConnection
         do {
-            connection = try EmulatorConnection(emulator: emulator, deviceSize: deviceSize)
+            connection = try EmulatorConnection(emulator: emulator, deviceSize: largestScreenSize)
         } catch {
             connectionFailed(error, on: nil)
             return
@@ -1008,6 +1119,13 @@ final class PaneModel {
         watchBoot(on: connection)
         startFrames(on: connection)
         startClipboard(on: connection)
+    }
+
+    /// The largest screen the device can show (folded or not), which sizes the connection's
+    /// message limit for its whole life.
+    private var largestScreenSize: PixelSize {
+        [profile.screenSize, liveScreenSize].compactMap { $0 }.max { $0.width * $0.height < $1.width * $1.height }
+            ?? deviceSize
     }
 
     /// Polls `getStatus` until Android has booted, then shows the screen.
@@ -1089,7 +1207,6 @@ final class PaneModel {
         streamFrames = 0
         let generation = streamGeneration
         let size = request.size
-        let screenView = screenView
         log.info("Requesting frames at \(size.description, privacy: .public)")
         let log = log
         framesTask = Task.detached { [weak self] in
@@ -1108,21 +1225,9 @@ final class PaneModel {
                     let recorder: FrameRecorder? = await MainActor.run {
                         guard let self, self.connection === connection else { return nil }
                         if generation == self.streamGeneration { self.streamFrames += 1 }
-                        // Frames in an orientation the stream wasn't asked for are dropped, and
-                        // the stream restarts in the new one (as Android Studio does).
-                        if frame.rotationQuadrants != self.streamRequest?.quadrants {
-                            // While a turn is under way the emulator eases the angle and can
-                            // pass through another orientation (180 to -90 goes via 0); only
-                            // the ones asked for count.
-                            guard self.rotations.follows(frame.rotationQuadrants) else { return nil }
-                            self.orientationChanged(to: frame.rotationQuadrants, on: connection)
-                            return nil
-                        }
-                        screenView.show(frame)
-                        self.hasFrame = true
-                        self.updateLiveStatus()
-                        self.tools.screenChanged()
-                        return self.recorderSlot.current
+                        // Frames of another shape than the stream was asked for are dropped,
+                        // and the stream restarts in the new one (as Android Studio does).
+                        return self.receive(frame, on: connection)
                     }
                     if let recorder {
                         await recorder.append(frame)
@@ -1156,6 +1261,10 @@ final class PaneModel {
         rotationTask?.cancel()
         rotationTask = nil
         rotations.reset()
+        reshape.reset()
+        pendingFrame = nil
+        hidesSideButtons = false
+        screenView.removeVeil()
         connection?.shutdown()
         framesTask = nil
         connectionTask = nil
@@ -1178,6 +1287,8 @@ final class PaneModel {
 
     private func handlePointer(_ phase: ScreenView.PointerPhase, at point: CGPoint) {
         log.debug("Pointer \(String(describing: phase), privacy: .public) at \(point.x), \(point.y)")
+        // Clicks wait while the screen changes shape: what was under them moved.
+        guard reshape.acceptsInput else { return }
         // While a tool is on, the screen's clicks are the tool's and never reach the device.
         if tools.isActive {
             tools.pointer(phase, at: point)
@@ -1210,7 +1321,7 @@ final class PaneModel {
 
     /// Scrolls by dragging a finger on the device's screen (see `ScrollGesture`).
     private func handleScroll(at point: CGPoint, deltaX: CGFloat, deltaY: CGFloat, phase: ScrollGesture.Phase?) {
-        guard let connection, status == .live, pressedAt == nil, !tools.isActive else { return }
+        guard let connection, status == .live, pressedAt == nil, !tools.isActive, reshape.acceptsInput else { return }
         let gesturePhase: ScrollGesture.Phase
         var delta = CGVector(dx: deltaX, dy: deltaY)
         if let phase {
@@ -1464,7 +1575,7 @@ final class PaneModel {
     func setButton(_ button: FrameButton, isDown: Bool) {
         guard let connection else { return }
         if isDown {
-            guard !tools.isActive else { return }
+            guard !tools.isActive, reshape.acceptsInput else { return }
             guard heldButtons.insert(button).inserted else { return }
         } else {
             guard heldButtons.remove(button) != nil else { return }

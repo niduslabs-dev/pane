@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import PaneCore
 import SwiftUI
 
@@ -41,6 +42,9 @@ final class ScreenView: NSView {
         layer?.contentsGravity = .resize
         layer?.magnificationFilter = .linear
         layer?.minificationFilter = .linear
+        layerUsesCoreImageFilters = true
+        veilLayer.opacity = 0
+        layer?.addSublayer(veilLayer)
     }
 
     @available(*, unavailable)
@@ -61,6 +65,113 @@ final class ScreenView: NSView {
         CATransaction.setDisableActions(true)
         layer?.contents = frame?.surface
         CATransaction.commit()
+    }
+
+    // MARK: The reshape's veil (board 27)
+
+    /// The dim over the last frame while the screen changes shape.
+    private let veilLayer = CALayer()
+    private(set) var isVeiled = false
+    private static let blurName = "veilBlur"
+    private static let blurRadiusPath = "filters.\(blurName).\(kCIInputRadiusKey)"
+
+    /// Veils the frame on screen: blurred, dimmed, and filling the screen cropped and centred
+    /// while the screen morphs. Fades in; a second call keeps the veil up.
+    func beginVeil() {
+        guard let layer, !isVeiled else { return }
+        isVeiled = true
+        let radius = Theme.Reshape.blur * layer.contentsScale
+        let blur = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
+        blur?.name = Self.blurName
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.removeAllAnimations()
+        veilLayer.removeAllAnimations()
+        layer.contentsGravity = .resizeAspectFill
+        layer.filters = blur.map { [$0] }
+        veilLayer.backgroundColor = resolved(Theme.Reshape.scrim)
+        veilLayer.opacity = 1
+        CATransaction.commit()
+        fade(layer, keyPath: Self.blurRadiusPath, from: 0, to: radius)
+        fade(veilLayer, keyPath: "opacity", from: 0, to: 1)
+    }
+
+    /// Shows `frame` and clears the veil: the blur and dim ease out, or under Reduce Motion the
+    /// new frame crossfades over the veiled one. `completion` runs once it has cleared.
+    func clearVeil(showing frame: StreamFrame?, crossfade: Bool, completion: @escaping @MainActor () -> Void) {
+        guard let layer, isVeiled else {
+            show(frame)
+            completion()
+            return
+        }
+        isVeiled = false
+        let radius = Theme.Reshape.blur * layer.contentsScale
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
+        if crossfade {
+            let transition = CATransition()
+            transition.type = .fade
+            transition.duration = Theme.Reshape.fadeDuration
+            layer.add(transition, forKey: kCATransition)
+            CATransaction.setDisableActions(true)
+            latestFrame = frame
+            layer.contents = frame?.surface
+            layer.contentsGravity = .resize
+            layer.filters = nil
+            veilLayer.opacity = 0
+        } else {
+            CATransaction.setDisableActions(true)
+            latestFrame = frame
+            layer.contents = frame?.surface
+            layer.contentsGravity = .resize
+            veilLayer.opacity = 0
+            layer.setValue(0, forKeyPath: Self.blurRadiusPath)
+            fade(layer, keyPath: Self.blurRadiusPath, from: radius, to: 0)
+            fade(veilLayer, keyPath: "opacity", from: 1, to: 0)
+        }
+        CATransaction.commit()
+    }
+
+    /// Drops the veil at once (the connection ended).
+    func removeVeil() {
+        guard let layer, isVeiled else { return }
+        isVeiled = false
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.removeAllAnimations()
+        veilLayer.removeAllAnimations()
+        layer.filters = nil
+        layer.contentsGravity = .resize
+        veilLayer.opacity = 0
+        CATransaction.commit()
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        veilLayer.frame = bounds
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        veilLayer.backgroundColor = resolved(Theme.Reshape.scrim)
+    }
+
+    private func resolved(_ colour: NSColor) -> CGColor {
+        var cgColor = colour.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance { cgColor = colour.cgColor }
+        return cgColor
+    }
+
+    private func fade(_ target: CALayer, keyPath: String, from: CGFloat, to: CGFloat) {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = from
+        animation.toValue = to
+        animation.duration = Theme.Reshape.fadeDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        target.add(animation, forKey: keyPath)
     }
 
     /// Clicking the screen of an inactive window presses it, as in the iOS Simulator.

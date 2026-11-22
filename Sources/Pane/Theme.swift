@@ -176,6 +176,25 @@ enum Theme {
         static let cascadeStep: CGFloat = 28
     }
 
+    /// The reshape when the device's screen changes shape: a fold, an unfold or a turn (board
+    /// 27). Every value is an existing token.
+    enum Reshape {
+        /// The window and the device frame morph on the spring `FrameSlide` drives a window with.
+        static let springResponse = T.Motion.Spring.slideIn.response
+        static let springDamping = T.Motion.Spring.slideIn.dampingFraction
+        /// The morph counts as settled once the spring is this close to its target (a fraction
+        /// of the whole move, `Kit.Motion.settleEpsilon`).
+        static let settleEpsilon = Kit.Motion.settleEpsilon
+        /// The last frame's blur under the veil (`motion.distance.revealBlur`, 8 pt; Jatin chose
+        /// it over exitBlur at approval).
+        static let blur = T.Motion.Distance.revealBlur
+        /// The veil's dim (`color.role.scrim`).
+        static let scrim = T.Colour.Role.scrim.nsColor
+        /// The veil goes up, clears (easeOut) and the side buttons fade over this.
+        static let fadeDuration = T.Motion.Duration.fade
+        static var sideButtonFade: Animation { .easeOut(duration: fadeDuration) }
+    }
+
     /// The floating toolbar under the device (Device Hub's): a glass capsule with Home,
     /// Screenshot and Record, and a glass circle with Rotate, centred in their band.
     enum Toolbar {

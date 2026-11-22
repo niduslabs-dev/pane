@@ -62,4 +62,17 @@ import Testing
         try FileManager.default.removeItem(at: file)
         #expect(settings.lastRecording == nil)
     }
+
+    /// Board 27: each AVD's last live shape, so a folded Fold opens folded.
+    @Test func remembersEachAVDsLiveShape() {
+        let (settings, defaults, name) = scratch()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let folded = PixelSize(width: 1080, height: 2424)
+        #expect(settings.liveScreenSize(for: "fold") == nil)
+        settings.setLiveScreenSize(folded, for: "fold")
+        #expect(PaneSettings(defaults: defaults).liveScreenSize(for: "fold") == folded)
+        #expect(settings.liveScreenSize(for: "pixel") == nil)
+        settings.setLiveScreenSize(nil, for: "fold")
+        #expect(PaneSettings(defaults: defaults).liveScreenSize(for: "fold") == nil)
+    }
 }

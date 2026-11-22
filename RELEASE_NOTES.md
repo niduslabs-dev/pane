@@ -6,6 +6,12 @@ them short, one change per line, with no full stop at the end. Add a `## X.Y.Z` 
 before tagging `vX.Y.Z`. Pane also bundles this file: Settings' What's new lists every
 section up to the running version.
 
+## 1.2.0
+
+- Foldables show the folded screen at its real shape
+- Folding and rotating reshape the window smoothly
+- Clicks on a folded screen land where you click
+
 ## 1.1.1
 
 - The camera hole is now the device's own, at its real size and place
