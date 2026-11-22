@@ -11,33 +11,26 @@ public struct FrameStyle {
     public var innerEdge: CGColor
     public var button: CGColor
     public var buttonEdge: CGColor
-    public var punchHole: CGColor
-    public var punchHoleRing: CGColor
     public var edgeWidth: CGFloat
     public var innerEdgeInset: CGFloat
     public var innerEdgeWidth: CGFloat
     public var buttonEdgeWidth: CGFloat
     public var buttonCornerRadius: CGFloat
-    public var punchHoleRingWidth: CGFloat
 
     public init(
-        body: CGColor, edge: CGColor, innerEdge: CGColor, button: CGColor, buttonEdge: CGColor, punchHole: CGColor,
-        punchHoleRing: CGColor, edgeWidth: CGFloat, innerEdgeInset: CGFloat, innerEdgeWidth: CGFloat,
-        buttonEdgeWidth: CGFloat, buttonCornerRadius: CGFloat, punchHoleRingWidth: CGFloat
+        body: CGColor, edge: CGColor, innerEdge: CGColor, button: CGColor, buttonEdge: CGColor, edgeWidth: CGFloat,
+        innerEdgeInset: CGFloat, innerEdgeWidth: CGFloat, buttonEdgeWidth: CGFloat, buttonCornerRadius: CGFloat
     ) {
         self.body = body
         self.edge = edge
         self.innerEdge = innerEdge
         self.button = button
         self.buttonEdge = buttonEdge
-        self.punchHole = punchHole
-        self.punchHoleRing = punchHoleRing
         self.edgeWidth = edgeWidth
         self.innerEdgeInset = innerEdgeInset
         self.innerEdgeWidth = innerEdgeWidth
         self.buttonEdgeWidth = buttonEdgeWidth
         self.buttonCornerRadius = buttonCornerRadius
-        self.punchHoleRingWidth = punchHoleRingWidth
     }
 }
 
@@ -118,14 +111,6 @@ public enum FramedScreenshot {
         context.interpolationQuality = .high
         context.draw(screenshot, in: CGRect(origin: .zero, size: layout.screenRect.size))
         context.restoreGState()
-
-        let hole = layout.punchHoleRect
-        context.setFillColor(style.punchHole)
-        context.fillEllipse(in: hole)
-        let ring = style.punchHoleRingWidth * scale
-        context.setStrokeColor(style.punchHoleRing)
-        context.setLineWidth(ring)
-        context.strokeEllipse(in: hole.insetBy(dx: ring / 2, dy: ring / 2))
         return context.makeImage()
     }
 

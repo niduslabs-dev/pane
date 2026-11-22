@@ -75,16 +75,14 @@ private func solid(width: Int, height: Int, red: CGFloat, green: CGFloat, blue: 
 @Suite struct FramedScreenshotTests {
     private let spec = FrameSpec(
         screenHeight: 700, referenceScreenHeight: 700, bezel: 10, bodyRadius: 46, screenRadius: 36,
-        punchHoleDiameter: 11, punchHoleTop: 12, buttons: [FrameButtonSpec(button: .power, top: 150, length: 56)],
+        buttons: [FrameButtonSpec(button: .power, top: 150, length: 56)],
         buttonDepth: 3, buttonHitDepth: 14, buttonHitOutset: 4, titleRowHeight: 52, contentInset: 24, bottomInset: 54)
 
     private var style: FrameStyle {
         let grey = CGColor(srgbRed: 0.1, green: 0.1, blue: 0.1, alpha: 1)
         return FrameStyle(
-            body: grey, edge: grey, innerEdge: grey, button: grey, buttonEdge: grey,
-            punchHole: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1), punchHoleRing: grey, edgeWidth: 1,
-            innerEdgeInset: 3, innerEdgeWidth: 0.5, buttonEdgeWidth: 0.75, buttonCornerRadius: 2,
-            punchHoleRingWidth: 1.5)
+            body: grey, edge: grey, innerEdge: grey, button: grey, buttonEdge: grey, edgeWidth: 1,
+            innerEdgeInset: 3, innerEdgeWidth: 0.5, buttonEdgeWidth: 0.75, buttonCornerRadius: 2)
     }
 
     @Test func layoutIsTheScreenshotPlusBezelAndButtons() {
@@ -118,12 +116,13 @@ private func solid(width: Int, height: Int, red: CGFloat, green: CGFloat, blue: 
             return (0..<4).map { bytes[offset + $0] }
         }
         // The corner outside the rounded body is clear, the bezel is the body's grey, the
-        // middle of the screen is the screenshot, and the punch hole is black.
+        // middle of the screen is the screenshot, and nothing is drawn over the camera's place:
+        // the emulator's own screenshot holds the cutout.
         #expect(pixel(1, 1)[3] == 0)
         #expect(pixel(341, 10)[3] == 255)
         #expect(pixel(341, 10)[0] < 40)
         #expect(pixel(341, 720) == [255, 0, 0, 255])
-        #expect(pixel(341, 55) == [0, 0, 0, 255])
+        #expect(pixel(341, 55) == [255, 0, 0, 255])
     }
 }
 

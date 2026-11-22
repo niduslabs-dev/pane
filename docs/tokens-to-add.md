@@ -16,7 +16,7 @@ Pane adopted the studio's generated tokens on 2026-11-17: shared values come fro
 | `Theme.CaptureFlash.peakOpacity`, `colour` | 0.5, white (`#FFFFFF`, both modes) | `app.pane.opacity.captureFlash` and `app.pane.color.captureFlash` (`contracts/apps/pane/captureFlash.yaml`, 2026-11-17; colour added 2026-11-18) |
 | `Kit.Motion.roll*` | Drop's values (rise 6, scale 0.8, blur 1.5, spring 0.35/0.4, stagger 0.07/0.15) | shared `motion.roll.*` tokens with Drop (`numericRoll`) |
 | `Theme.Window` title-row extras (`fallbackTitleLeading` 108, `titleRowTrailingPadding` 56, `cascadeStep` 28) | | `app.pane.size.titleRow.*` |
-| `Theme.Frame` geometry (`punchHoleTop`, ring and edge widths, inner edge inset, button edge and corner, hit outset, button positions) and colours (`frameInnerEdge`, `punchHole`, `punchHoleRing`) | | `app.pane.size.frame.*`, `app.pane.color.*` in one assets change |
+| `Theme.Frame` geometry (edge widths, inner edge inset, button edge and corner, hit outset, button positions) and colours (`frameInnerEdge`) | | `app.pane.size.frame.*`, `app.pane.color.*` in one assets change |
 | `Theme.Menu.switcherWidth` 262, `submenuWidth` 150, `switcherSubmenuWidth` 242, `lineSpacing` 1, menu positions (`moreTop`, `switcherTop`, submenu shift and drop) | | `size.menuPanel.*` for the widths; positions stay Pane's |
 | `Theme.Menu.statusDot` 8, `glyphArt` 14 (the switcher's status dot and device glyph, board 20, 2026-11-18) | | `app.pane.size.statusDot` (`contracts/apps/pane/DeviceStatus.yaml`); `glyphArt` stays Pane's |
 | `Theme.InfoPopover` (`width` 280, `paddingH` 14, `leading` 150, `lineSpacing` 5.4) | | `size.infoPopover.*` (Drop's is `Kit.Settings.infoWidth` 260: settle one) |

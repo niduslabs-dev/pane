@@ -39,9 +39,6 @@ public struct FrameSpec: Sendable, Equatable {
     public var bezel: CGFloat
     public var bodyRadius: CGFloat
     public var screenRadius: CGFloat
-    public var punchHoleDiameter: CGFloat
-    /// From the top of the screen to the top of the punch hole.
-    public var punchHoleTop: CGFloat
     public var buttons: [FrameButtonSpec]
     /// How far a button sticks out of the body.
     public var buttonDepth: CGFloat
@@ -57,7 +54,7 @@ public struct FrameSpec: Sendable, Equatable {
 
     public init(
         screenHeight: CGFloat, referenceScreenHeight: CGFloat, bezel: CGFloat, bodyRadius: CGFloat,
-        screenRadius: CGFloat, punchHoleDiameter: CGFloat, punchHoleTop: CGFloat, buttons: [FrameButtonSpec],
+        screenRadius: CGFloat, buttons: [FrameButtonSpec],
         buttonDepth: CGFloat, buttonHitDepth: CGFloat, buttonHitOutset: CGFloat, titleRowHeight: CGFloat,
         contentInset: CGFloat, bottomInset: CGFloat
     ) {
@@ -66,8 +63,6 @@ public struct FrameSpec: Sendable, Equatable {
         self.bezel = bezel
         self.bodyRadius = bodyRadius
         self.screenRadius = screenRadius
-        self.punchHoleDiameter = punchHoleDiameter
-        self.punchHoleTop = punchHoleTop
         self.buttons = buttons
         self.buttonDepth = buttonDepth
         self.buttonHitDepth = buttonHitDepth
@@ -119,7 +114,7 @@ public struct FrameCorners: OptionSet, Sendable, Hashable {
 /// The frame laid out for one device, size and orientation: every rect in the window content's
 /// coordinates (y down), plus the window content size around it.
 ///
-/// The screen's long side is `screenHeight` points; bezel, radii, punch hole and button
+/// The screen's long side is `screenHeight` points; bezel, radii and button
 /// positions scale with it from the spec's reference height, while hairlines, button depth and
 /// hit areas stay put. `quadrants` turns the device counter-clockwise from portrait, as the
 /// emulator's `Rotation` reports it, so the side buttons end up on the top (1), left (2) or
@@ -158,7 +153,6 @@ public struct DeviceFrameLayout: Sendable, Equatable {
     public var screenHeight: CGFloat
     public var bodyRect: CGRect
     public var screenRect: CGRect
-    public var punchHoleRect: CGRect
     public var bodyRadius: CGFloat
     public var screenRadius: CGFloat
     public var buttons: [Button]
@@ -176,10 +170,6 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         let screenSize = CGSize(width: (height * aspect).rounded(), height: height)
         let body = CGRect(x: 0, y: 0, width: screenSize.width + 2 * bezel, height: screenSize.height + 2 * bezel)
         let screen = CGRect(origin: CGPoint(x: bezel, y: bezel), size: screenSize)
-        let holeDiameter = spec.punchHoleDiameter * scale
-        let hole = CGRect(
-            x: screen.midX - holeDiameter / 2, y: screen.minY + spec.punchHoleTop * scale, width: holeDiameter,
-            height: holeDiameter)
         let visible = spec.buttons.map { button in
             CGRect(x: body.maxX, y: button.top * scale, width: spec.buttonDepth, height: button.length * scale)
         }
@@ -205,13 +195,11 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         // Turn counter-clockwise a quarter at a time; the body stays at the origin.
         var bodySize = body.size
         var screenRect = screen
-        var holeRect = hole
         for _ in 0..<turns {
             let turn = { (rect: CGRect) in
                 CGRect(x: rect.minY, y: bodySize.width - rect.maxX, width: rect.height, height: rect.width)
             }
             screenRect = turn(screenRect)
-            holeRect = turn(holeRect)
             portraitButtons = portraitButtons.map { button in
                 Button(
                     button: button.button, visibleRect: turn(button.visibleRect), hitRect: turn(button.hitRect),
@@ -235,7 +223,6 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         self.screenHeight = height
         bodyRect = CGRect(origin: origin, size: bodySize)
         self.screenRect = move(screenRect)
-        punchHoleRect = move(holeRect)
         bodyRadius = spec.bodyRadius * scale
         screenRadius = spec.screenRadius * scale
         buttons = portraitButtons.map { button in

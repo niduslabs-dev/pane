@@ -142,6 +142,15 @@ enum ThemeTokens {
         static let caption = ThemeType(size: 11, weight: .regular, family: .system)
         static let groupLabel = ThemeType(size: 11, weight: .medium, family: .system)
         static let micro = ThemeType(size: 10, weight: .semibold, family: .system)
+        static let reading = ThemeType(size: 17, weight: .regular, family: .system)
+    }
+    enum LineHeight {
+        /// type.reading paragraphs, lists and tables
+        static let reading: Double = 1.5
+        /// headings and page titles in reading text
+        static let heading: Double = 1.25
+        /// chrome: bars, lists, menus, buttons and labels
+        static let interface: Double = 1.4
     }
     enum Radius {
         static let xs: CGFloat = 4
@@ -233,6 +242,8 @@ enum ThemeTokens {
             static let typeahead: TimeInterval = 1
             /// dismissible: a finished panel closes itself after this (Drop's shipped value)
             static let afterDone: TimeInterval = 6
+            /// a confirmation (Copied) stays this long, then the control returns
+            static let confirm: TimeInterval = 1.5
         }
         enum Easing {
             static let easeOut = Animation.timingCurve(0, 0, 0.58, 1, duration: 1)
@@ -296,7 +307,13 @@ enum ThemeTokens {
             static let emptyStateMax: CGFloat = 44
             /// An app or file icon on a list row (Pane's drop card); the notification panel's media is 60
             static let list: CGFloat = 32
+            /// The stroke of a drawn line icon (SVG, at any icon size). SF Symbols bring their own weight.
+            static let stroke: CGFloat = 1.5
         }
+        /// The least height (and width) of anything tapped on a phone: rows, buttons, chips, fields, tabs, sheet rows
+        static let touchTarget: CGFloat = 44
+        /// The longest line of type.reading text, in characters: CSS takes calc(var(--size-reading-measure) * 1ch); a count, so it has no unit
+        static let readingMeasure: Double = 68
         enum Progress {
             static let height: CGFloat = 6
             static let radius: CGFloat = 3
@@ -389,6 +406,8 @@ enum ThemeTokens {
     enum App {
         enum Pane {
             enum Colour {
+                /// Pane's colour: berry, hue 345, the far side of the wheel from moss, so Pane's green icon stands out on it. Like every app.pane token it reaches every output. Moss turned round the colour wheel at moss's own OKLCH lightness and chroma (dark: moss-on-dark turned the same way), so the apps read as one family; 4.5:1 with white on it and on paper. Its tile on the artifacts viewer's Apps home (studio/artifacts/boards/tiles-home.html).
+                static let accent = ThemeColour(light: .init(0x915879), dark: .init(0xD794BA), lightContrast: .init(0x915879), darkContrast: .init(0xD794BA))
                 /// Pane's light window: paper glass. A recorded deviation from solid light surfaces. 93% keeps textSecondary at 4.5:1 with pure black behind the glass (92% measured 4.496:1).
                 static let glassLight = ThemeColour(fixed: .init(0xF4F4F6, alpha: 0.93))
                 static let frameBody = ThemeColour(light: .init(0x1F1E25), dark: .init(0x0E0E12), lightContrast: .init(0x1F1E25), darkContrast: .init(0x0E0E12))
@@ -416,6 +435,8 @@ enum ThemeTokens {
                 }
             }
             enum Size {
+                /// Pane's confirmation sheets, narrower than size.sheet.confirmationWidth (420) to fit its window. A recorded deviation (tools/design/MIGRATION.md row 13).
+                static let confirmationSheetWidth: CGFloat = 355
                 enum TitleRow {
                     static let height: CGFloat = 52
                     /// past the traffic lights
@@ -426,7 +447,6 @@ enum ThemeTokens {
                     static let bezel: CGFloat = 10
                     static let bodyRadius: CGFloat = 46
                     static let screenRadius: CGFloat = 36
-                    static let punchHole: CGFloat = 11
                     static let buttonDepth: CGFloat = 3
                     static let buttonDepthNear: CGFloat = 7
                     static let buttonDepthPressed: CGFloat = 1

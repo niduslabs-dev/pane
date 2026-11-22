@@ -76,7 +76,6 @@ import Testing
     /// The approved board's values (Pane design canvas, live state).
     static let boardSpec = FrameSpec(
         screenHeight: 700, referenceScreenHeight: 700, bezel: 10, bodyRadius: 46, screenRadius: 36,
-        punchHoleDiameter: 11, punchHoleTop: 12,
         buttons: [
             FrameButtonSpec(button: .power, top: 150, length: 56),
             FrameButtonSpec(button: .volumeUp, top: 232, length: 46),
@@ -92,8 +91,6 @@ import Testing
         // Body 335 × 720 below the 52 pt title row, 24 + 3 pt in from the left.
         #expect(layout.bodyRect == CGRect(x: 27, y: 52, width: 335, height: 720))
         #expect(layout.screenRect == CGRect(x: 37, y: 62, width: 315, height: 700))
-        // 11 pt hole, 12 pt from the screen's top, centred.
-        #expect(layout.punchHoleRect == CGRect(x: 189, y: 74, width: 11, height: 11))
         #expect(layout.windowContentSize == CGSize(width: 389, height: 796))
         #expect(layout.bodyRadius == 46)
         #expect(layout.screenRadius == 36)
@@ -187,8 +184,6 @@ import Testing
         // The body turns: 720 × 335, with room for the buttons' depth above it.
         #expect(layout.bodyRect == CGRect(x: 24, y: 55, width: 720, height: 335))
         #expect(layout.screenRect == CGRect(x: 34, y: 65, width: 700, height: 315))
-        // The punch hole sits at the device's top, now on the left, centred vertically.
-        #expect(layout.punchHoleRect == CGRect(x: 46, y: 217, width: 11, height: 11))
         let power = layout.buttons.first { $0.button == .power }
         #expect(power?.edge == .top)
         #expect(power?.visibleRect == CGRect(x: 24 + 150, y: 52, width: 56, height: 3))
@@ -208,7 +203,6 @@ import Testing
                 #expect(button.visibleRect.maxY <= layout.windowContentSize.height)
             }
             #expect(layout.bodyRect.contains(layout.screenRect))
-            #expect(layout.screenRect.contains(layout.punchHoleRect))
         }
         // Upside down: the buttons are on the left, and the hover state grows outwards.
         let flipped = DeviceFrameLayout(spec: Self.boardSpec, deviceSize: Self.pixel8, quadrants: 2)

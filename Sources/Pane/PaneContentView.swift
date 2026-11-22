@@ -37,7 +37,7 @@ struct PaneContentView: View {
     }
 }
 
-/// The drawn device: body with its edge rings, the live screen, the punch hole, and the side
+/// The drawn device: body with its edge rings, the live screen, and the side
 /// buttons with their wider invisible hit areas. Every rect comes from the layout, in window
 /// coordinates, for the current size and orientation.
 struct DeviceFrameView: View {
@@ -52,17 +52,6 @@ struct DeviceFrameView: View {
             }
             bodyShape
             screen
-            if Theme.Frame.drawsPunchHole {
-                Circle()
-                    .fill(Color(nsColor: Theme.Palette.punchHole))
-                    .overlay(
-                        Circle().strokeBorder(
-                            Color(nsColor: Theme.Palette.punchHoleRing), lineWidth: Theme.Frame.punchHoleRingWidth)
-                    )
-                    .frame(width: layout.punchHoleRect.width, height: layout.punchHoleRect.height)
-                    .offset(x: layout.punchHoleRect.minX, y: layout.punchHoleRect.minY)
-                    .allowsHitTesting(false)
-            }
             if model.status == .live {
                 ForEach(layout.buttons, id: \.button) { button in
                     hitArea(button)

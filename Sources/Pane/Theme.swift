@@ -235,7 +235,8 @@ enum Theme {
         static let lightTintOpacity = T.App.Pane.Colour.glassLight.light.alpha
     }
 
-    /// The device frame we draw: body, bezel, screen corners, punch hole and side buttons.
+    /// The device frame we draw: body, bezel, screen corners and side buttons. The camera cutout
+    /// is Android's own, drawn into the frames it streams (board 26).
     enum Frame {
         /// The drawn screen's height; the width follows the device's aspect (1080 × 2400 → 315).
         static let screenHeight: CGFloat = 700
@@ -248,18 +249,6 @@ enum Theme {
         static let bezel = T.App.Pane.Size.Frame.bezel
         static let bodyRadius = T.App.Pane.Size.Frame.bodyRadius
         static let screenRadius = T.App.Pane.Size.Frame.screenRadius
-        static let punchHoleDiameter = T.App.Pane.Size.Frame.punchHole
-        static let punchHoleTop: CGFloat = 12
-        static let punchHoleRingWidth: CGFloat = 1.5
-        /// Whether Pane draws its punch hole over the screen. Debug builds take
-        /// `-PaneHidePunchHole YES`, to see the cutout Android paints into the frames itself.
-        static var drawsPunchHole: Bool {
-            #if DEBUG
-                return !UserDefaults.standard.bool(forKey: "PaneHidePunchHole")
-            #else
-                return true
-            #endif
-        }
         /// The body's outer hairline, then a body-coloured gap, then a faint inner ring.
         static let edgeWidth: CGFloat = 1
         static let innerEdgeInset: CGFloat = 3
@@ -291,8 +280,8 @@ enum Theme {
 
         static let spec = FrameSpec(
             screenHeight: screenHeight, referenceScreenHeight: referenceScreenHeight, bezel: bezel,
-            bodyRadius: bodyRadius, screenRadius: screenRadius, punchHoleDiameter: punchHoleDiameter,
-            punchHoleTop: punchHoleTop, buttons: buttons, buttonDepth: buttonDepth, buttonHitDepth: buttonHitDepth,
+            bodyRadius: bodyRadius, screenRadius: screenRadius, buttons: buttons, buttonDepth: buttonDepth,
+            buttonHitDepth: buttonHitDepth,
             buttonHitOutset: buttonHitOutset, titleRowHeight: Window.titleRowHeight,
             contentInset: Window.contentInset, bottomInset: Toolbar.bandHeight)
     }
@@ -375,8 +364,6 @@ enum Theme {
         /// A button near the pointer or pressed: slightly lighter.
         static let frameButtonNear = T.App.Pane.Colour.frameButtonNear.nsColor
         static let frameButtonEdge = T.App.Pane.Colour.frameButtonEdge.nsColor
-        static let punchHole = NSColor(hex: 0x0B0B0E)
-        static let punchHoleRing = NSColor(hex: 0x1E1E24)
         /// Behind the live picture before its first frame.
         static let screenOff = T.App.Pane.Colour.screenOff.nsColor
         /// The screen with nothing on it: no emulator, starting, booting.
@@ -468,16 +455,11 @@ extension Theme.Frame {
             style = FrameStyle(
                 body: Theme.Palette.frameBody.cgColor, edge: Theme.Palette.frameEdge.cgColor,
                 innerEdge: Theme.Palette.frameInnerEdge.cgColor, button: Theme.Palette.frameButton.cgColor,
-                buttonEdge: Theme.Palette.frameButtonEdge.cgColor, punchHole: Theme.Palette.punchHole.cgColor,
-                punchHoleRing: Theme.Palette.punchHoleRing.cgColor, edgeWidth: edgeWidth,
+                buttonEdge: Theme.Palette.frameButtonEdge.cgColor, edgeWidth: edgeWidth,
                 innerEdgeInset: innerEdgeInset, innerEdgeWidth: innerEdgeWidth, buttonEdgeWidth: buttonEdgeWidth,
-                buttonCornerRadius: buttonCornerRadius, punchHoleRingWidth: punchHoleRingWidth)
+                buttonCornerRadius: buttonCornerRadius)
         }
         // `performAsCurrentDrawingAppearance` runs its block before returning.
-        if !drawsPunchHole {
-            style!.punchHole = NSColor.clear.cgColor
-            style!.punchHoleRing = NSColor.clear.cgColor
-        }
         return ReadOnlyBox(value: style!)
     }
 }
