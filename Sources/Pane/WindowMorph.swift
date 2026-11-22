@@ -109,10 +109,14 @@ final class WindowMorph: NSObject {
 
 extension PaneWindow {
     /// The frame for a new content size with the top edge and horizontal centre of `frame`
-    /// kept, moved only as far as needed to stay on the window's display.
+    /// kept, moved only as far as needed to stay on the window's display. The centre is the one
+    /// the last reshape asked for while the window is within rounding of it (`HeldCentre`);
+    /// callers place the returned frame.
     func frameKeepingTop(forContentSize size: CGSize, from frame: NSRect) -> NSRect {
         let newFrame = frameRect(forContentRect: NSRect(origin: .zero, size: size))
-        var origin = CGPoint(x: frame.midX - newFrame.width / 2, y: frame.maxY - newFrame.height)
+        let centre = heldCentre.centre(for: frame)
+        heldCentre.placed(at: centre)
+        var origin = CGPoint(x: centre - newFrame.width / 2, y: frame.maxY - newFrame.height)
         if let visible = screen?.visibleFrame {
             origin.x = min(max(origin.x, visible.minX), visible.maxX - newFrame.width)
             origin.y = min(max(origin.y, visible.minY), visible.maxY - newFrame.height)

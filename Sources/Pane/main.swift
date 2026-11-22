@@ -469,6 +469,8 @@ final class PaneWindow: NSWindow {
     private let toolbarController: TitlebarToolbar
     private weak var hosting: FirstClickHostingView<PaneContentView>?
     private let model: PaneModel
+    /// The centre reshapes keep, so the window server's rounding never walks the window sideways.
+    var heldCentre = HeldCentre()
 
     init(model: PaneModel, onMore: @escaping () -> Void) {
         toolbarController = TitlebarToolbar(onMore: onMore)
