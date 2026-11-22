@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds Pane.app into build/Pane.app: compiles the Pane product through scripts/swift.sh,
 # compiles the asset catalog (Pane's custom symbols, from scripts/make-symbols.py) with actool,
-# bundles the emulator takeover script, the "Pane Emulator" helper and Sparkle.framework,
+# bundles the old takeover uninstall script, the "Pane Emulator" helper and Sparkle.framework,
 # writes the Info.plists and signs
 # it inside out with the hardened runtime: ad hoc by default (no keychain or identity is
 # used), Developer ID in the release workflow. Not sandboxed: the App Sandbox blocks the

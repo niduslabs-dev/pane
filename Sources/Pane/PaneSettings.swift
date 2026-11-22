@@ -19,6 +19,7 @@ final class PaneSettings {
         selectedAVDName = defaults.string(forKey: Key.selectedAVD)
         startsWithoutSound = defaults.object(forKey: Key.startWithoutSound) as? Bool ?? true
         captureFolderPath = defaults.string(forKey: Key.captureFolderPath)
+        takeoverSDKPath = defaults.string(forKey: Key.takeoverSDK)
         captureDestination = CaptureDestination(
             kind: defaults.string(forKey: Key.captureDestination), path: defaults.string(forKey: Key.captureFolderPath))
     }
@@ -52,6 +53,13 @@ final class PaneSettings {
     /// can offer it again.
     private(set) var captureFolderPath: String? {
         didSet { defaults.set(captureFolderPath, forKey: Key.captureFolderPath) }
+    }
+
+    /// Show all emulators in Pane: the SDK whose launcher Pane wraps, saved when the switch is
+    /// turned on (its real path); nil while it is off. This is the user's choice, not whether
+    /// the wrapper happens to be in place (an emulator update removes it until the repair).
+    var takeoverSDKPath: String? {
+        didSet { defaults.set(takeoverSDKPath, forKey: Key.takeoverSDK) }
     }
 
     /// The AVD the first window shows and Start launches.
@@ -129,5 +137,6 @@ final class PaneSettings {
         static let recentLinks = "recentLinks."
         static let location = "location."
         static let lastRecording = "lastRecording"
+        static let takeoverSDK = "takeoverSDK"
     }
 }

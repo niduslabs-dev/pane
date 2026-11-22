@@ -9,7 +9,10 @@ import PackageDescription
 /// - `Pane` (product `Pane`): the AppKit + SwiftUI app, assembled into `build/Pane.app` by
 ///   `scripts/build-app.sh`.
 /// - `PaneEmulatorHelper` (product `PaneEmulator`): the background-only "Pane Emulator" app in
-///   `Pane.app/Contents/Helpers`, which execs the emulators Pane starts.
+///   `Pane.app/Contents/Helpers`, which execs the emulators Pane starts and, as the takeover's
+///   launch agent, repairs the wrapper after emulator updates.
+/// - `PaneTakeover`: the takeover's wrapper script, repair routine and launch agent plist
+///   (Foundation only), shared by PaneCore and the helper.
 ///
 /// Updates come through Sparkle with Pane's own surfaces (`Sources/Pane/Updates`).
 ///
@@ -37,9 +40,13 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
+        // The takeover's wrapper, repair and launch agent, with no dependencies, so the helper
+        // can run a repair without linking PaneCore.
+        .target(name: "PaneTakeover"),
         .target(
             name: "PaneCore",
             dependencies: [
+                "PaneTakeover",
                 .product(name: "GRPCCore", package: "grpc-swift-2"),
                 .product(name: "GRPCNIOTransportHTTP2Posix", package: "grpc-swift-nio-transport"),
                 .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
@@ -48,15 +55,16 @@ let package = Package(
         ),
         .executableTarget(
             name: "Pane",
-            dependencies: ["PaneCore", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["PaneCore", "PaneTakeover", .product(name: "Sparkle", package: "Sparkle")],
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("SwiftUI")]
         ),
-        // No dependencies: it only redirects its output and execs the emulator.
-        .executableTarget(name: "PaneEmulatorHelper"),
+        // Redirects its output and execs the emulator; `--repair` runs the takeover repair.
+        .executableTarget(name: "PaneEmulatorHelper", dependencies: ["PaneTakeover"]),
         .testTarget(
             name: "PaneCoreTests",
             dependencies: [
                 "PaneCore",
+                "PaneTakeover",
                 // A fake emulator on loopback, for the stream tests.
                 .product(name: "GRPCCore", package: "grpc-swift-2"),
                 .product(name: "GRPCNIOTransportHTTP2Posix", package: "grpc-swift-nio-transport"),
@@ -66,6 +74,6 @@ let package = Package(
             resources: [.copy("Fixtures")]
         ),
         // The app's theme-driven layout, tested through `@testable import` of the executable target.
-        .testTarget(name: "PaneTests", dependencies: ["Pane", "PaneCore"]),
+        .testTarget(name: "PaneTests", dependencies: ["Pane", "PaneCore", "PaneTakeover"]),
     ]
 )

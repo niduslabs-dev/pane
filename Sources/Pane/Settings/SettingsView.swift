@@ -38,7 +38,7 @@ struct SettingsView: View {
                     GeometryReader { proxy in
                         // A click anywhere else closes it and is swallowed, as with a popover.
                         Color.clear.contentShape(Rectangle()).onTapGesture { info.isShown = false }
-                        TakeoverInfoPopover()
+                        TakeoverInfoPopover(sdk: takeover.sdk ?? takeover.candidate)
                             .offset(
                                 x: proxy[anchor].minX + Theme.InfoPopover.leading,
                                 y: proxy[anchor].maxY + Theme.InfoPopover.gap)
@@ -155,13 +155,16 @@ struct SettingsView: View {
         .frame(width: Kit.Settings.width, alignment: .leading)
     }
 
-    /// "Show all emulators in Pane" with its ⓘ. While the script runs the switch dims and the
-    /// caption says "Changing…"; a failure puts the switch back and says so in the error colour.
+    /// "Show all emulators in Pane" with its ⓘ (boards 23 and 25). While a change runs the
+    /// switch dims and the caption says "Changing…"; a failure puts the switch back and says why
+    /// in the error colour. With no SDK the switch is disabled in place. Each new caption is
+    /// announced once.
     private var takeoverRow: some View {
-        HStack(spacing: Kit.Row.labelControlGap) {
+        let caption = takeover.caption
+        return HStack(spacing: Kit.Row.labelControlGap) {
             VStack(alignment: .leading, spacing: Kit.Row.captionGap) {
                 HStack(spacing: Kit.Row.titleInfoGap) {
-                    Text("Show all emulators in Pane").font(Kit.Font.body)
+                    Text("Show all emulators in Pane").font(Kit.Font.body).fixedSize()
                     Button {
                         info?.isShown.toggle()
                     } label: {
@@ -171,25 +174,28 @@ struct SettingsView: View {
                     .buttonStyle(.nidusPlain)
                     .accessibilityLabel("More info")
                 }
-                StatusSwap(key: takeover.caption) {
-                    Text(takeover.caption).font(Kit.Font.caption)
-                        .foregroundStyle(takeover.state == .failed ? Kit.Colour.error : Kit.Colour.secondaryText)
-                        .lineLimit(1)
-                }
+                StatusSwap(key: caption) { TakeoverCaption(caption: caption) }
             }
+            .layoutPriority(1)
             Spacer(minLength: 0)
+            if takeover.showsOpenLoginItems {
+                Button("Open Login Items") { TakeoverSwitch.openLoginItems() }
+                    .buttonStyle(NidusButtonStyle(kind: .secondary, size: .small))
+                    .fixedSize()
+            }
             // The label is the text on the left, so the ⓘ stays its own button; the switch
             // carries the name for VoiceOver.
             Toggle("Show all emulators in Pane", isOn: Binding(get: { takeover.isOn }, set: { takeover.set($0) }))
                 .toggleStyle(.nidusSwitch)
                 .labelsHidden()
-                .disabled(takeover.state == .changing)
+                .disabled(takeover.phase == .changing || takeover.hasNoSDK)
                 .accessibilityLabel("Show all emulators in Pane")
                 .accessibilityIdentifier("settings-takeover-switch")
-                .accessibilityHint(takeover.caption)
+                .accessibilityHint(caption.spoken)
         }
         .padding(.horizontal, Kit.Row.horizontalPadding)
         .padding(.vertical, Kit.Row.verticalPadding)
+        .onChange(of: caption) { _, new in StatusAnnouncer.announce(new.spoken) }
     }
 
     /// A group label (11 medium, inset 4) 6 above its card.
@@ -229,30 +235,58 @@ final class SettingsInfo {
     #endif
 }
 
+/// The switch's caption: words, with the path (if any) monospaced and cut in the middle, so
+/// the words around it always show. VoiceOver reads `spoken` through the switch's hint.
+private struct TakeoverCaption: View {
+    let caption: TakeoverSwitch.Caption
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if !caption.before.isEmpty { Text(caption.before).fixedSize() }
+            if let path = caption.path {
+                Text(FolderDisplay.path(path, home: FileManager.default.homeDirectoryForCurrentUser))
+                    .font(Theme.Settings.pathFont(Kit.Font.caption))
+                    .truncationMode(.middle)
+                if !caption.after.isEmpty { Text(caption.after).fixedSize() }
+            }
+        }
+        .font(Kit.Font.caption)
+        .foregroundStyle(caption.isError ? Kit.Colour.error : Kit.Colour.secondaryText)
+        .lineLimit(1)
+        .accessibilityHidden(true)
+    }
+}
+
 /// The ⓘ popover (board 14): 280 wide, 12 pt text, `surfaceMenu` with a hairline and a
 /// shadow, 6 pt under the card so the row's own caption stays readable.
 private struct TakeoverInfoPopover: View {
+    /// The SDK the switch applies to; "your Android SDK" when there's none.
+    let sdk: URL?
+
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Theme.InfoPopover.radius, style: .continuous)
-        Text(
-            "Pane adds a small launcher to your shell setup, so an emulator started anywhere opens in Pane without its own window. It applies to new terminal windows. Turning this off removes it."
-        )
-        .font(Kit.Font.small)
-        .lineSpacing(Theme.InfoPopover.lineSpacing)
-        .foregroundStyle(Kit.Colour.bodyText)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, Theme.InfoPopover.paddingH)
-        .padding(.vertical, Theme.InfoPopover.paddingV)
-        .frame(width: Theme.InfoPopover.width, alignment: .leading)
-        .background(
-            MenuSurface(shape: shape)
-                .shadow(
-                    color: .black.opacity(Theme.Menu.shadowOpacity), radius: Theme.Menu.shadowRadius,
-                    y: Theme.Menu.shadowY)
-        )
-        .overlay(Hairline(shape: shape))
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isStaticText)
+        let path = sdk.map { FolderDisplay.path($0, home: FileManager.default.homeDirectoryForCurrentUser) }
+        (Text("Pane wraps the emulator launcher in ")
+            + (path.map { Text($0).font(Theme.Settings.pathFont(Kit.Font.small)) } ?? Text("your Android SDK"))
+            + Text(
+                ", so Expo and the terminal open emulators here. A small background item puts it back after emulator updates. Turning this off restores the original."
+            ))
+            .font(Kit.Font.small)
+            .lineSpacing(Theme.InfoPopover.lineSpacing)
+            .foregroundStyle(Kit.Colour.bodyText)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Theme.InfoPopover.paddingH)
+            .padding(.vertical, Theme.InfoPopover.paddingV)
+            .frame(width: Theme.InfoPopover.width, alignment: .leading)
+            .background(
+                MenuSurface(shape: shape)
+                    .shadow(
+                        color: .black.opacity(Theme.Menu.shadowOpacity), radius: Theme.Menu.shadowRadius,
+                        y: Theme.Menu.shadowY)
+            )
+            .overlay(Hairline(shape: shape))
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isStaticText)
     }
 }
 
@@ -385,6 +419,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// (`UpdateModel.settingsDidClose`).
     func windowWillClose(_ notification: Notification) {
         updates.settingsDidClose()
+        takeover.settingsDidClose()
         info.isShown = false
         info.showsNotes = false
     }

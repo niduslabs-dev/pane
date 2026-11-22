@@ -526,6 +526,12 @@ extension Theme {
     }
 
     /// Settings' ⓘ popover (board 14).
+    enum Settings {
+        /// Paths inside running text (the takeover caption and its ⓘ): the same size as the
+        /// text around them, monospaced, as Select shows paths. A deviation recorded in AGENTS.md.
+        static func pathFont(_ font: Font) -> Font { font.monospaced() }
+    }
+
     enum InfoPopover {
         static let width: CGFloat = 280
         static let paddingH: CGFloat = 14
@@ -803,8 +809,8 @@ extension Theme {
     /// Timings for starting, watching and stopping emulators. Not drawn, but named here so the
     /// model holds no raw numbers.
     enum Timing {
-        /// How long `-PaneTakeoverCheck changing` holds the switch in its changing state.
-        static let takeoverCheckHold: Duration = .seconds(120)
+        /// How long the login shell may take to say its `ANDROID_HOME` when the takeover turns on.
+        static let loginShell: Duration = .seconds(5)
         /// How long ago `pane://check-update` says the last check was.
         static let updateCheckDemoAge: TimeInterval = 3 * 3600
         /// How often to check a booting emulator's `getStatus`.

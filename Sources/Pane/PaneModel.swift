@@ -350,7 +350,7 @@ final class PaneModel {
     }
 
     private func launch(avdName: String, profile: DeviceProfile) {
-        guard let executable = AndroidSDK.emulatorExecutable() else {
+        guard let executable = AndroidSDK.emulatorExecutable().map({ AndroidSDK.launchable(emulator: $0) }) else {
             startProblem = "Android SDK not found."
             status = .noEmulator
             return

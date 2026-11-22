@@ -1,5 +1,6 @@
 import Foundation
 import PaneCore
+import PaneTakeover
 import Testing
 
 @testable import Pane
@@ -7,81 +8,168 @@ import Testing
 /// The Settings window's own state: the takeover switch, Save to and the sound setting.
 @MainActor
 @Suite struct SettingsWindowTests {
-    private struct Refused: Error {}
-
-    /// A stand-in for the takeover script and the state it leaves on disk.
+    /// A stand-in for the takeover's disk and launchd work.
     @MainActor
     private final class FakeTakeover {
-        var installed = false
-        var fails = false
-        var actions: [EmulatorTakeover.Action] = []
-        /// Holds a run open until resumed, so the changing state can be looked at.
+        var wrapped = false
+        var failure: EmulatorTakeover.Failure?
+        var actions: [String] = []
+        var agent = EmulatorTakeover.AgentStatus.present
+        var exists = true
+        var found: URL? = URL(filePath: "/Users/me/Library/Android/sdk", directoryHint: .isDirectory)
+        /// Holds a change open until resumed, so the changing state can be looked at.
         var gate: CheckedContinuation<Void, Never>?
         var holds = false
 
-        func run(_ action: EmulatorTakeover.Action) async throws {
-            actions.append(action)
+        func step(_ name: String) async throws(EmulatorTakeover.Failure) {
+            actions.append(name)
             if holds { await withCheckedContinuation { gate = $0 } }
-            if fails { throw Refused() }
-            installed = action == .install
+            if let failure { throw failure }
+        }
+
+        var backend: TakeoverSwitch.Backend {
+            TakeoverSwitch.Backend(
+                resolveSDK: { self.found }, candidateSDK: { self.found },
+                install: { _ throws(EmulatorTakeover.Failure) in
+                    try await self.step("install")
+                    self.wrapped = true
+                },
+                uninstall: { _ throws(EmulatorTakeover.Failure) in
+                    try await self.step("uninstall")
+                    self.wrapped = false
+                },
+                ensure: { _ throws(EmulatorTakeover.Failure) in
+                    try await self.step("ensure")
+                    self.wrapped = true
+                    return .wrapped
+                },
+                isWrapped: { _ in self.wrapped }, agentStatus: { self.agent }, sdkExists: { _ in self.exists })
         }
     }
 
-    private func makeSwitch(_ fake: FakeTakeover) -> TakeoverSwitch {
-        TakeoverSwitch(isInstalled: { fake.installed }, run: { try await fake.run($0) })
+    private func makeSettings() -> PaneSettings {
+        let name = "pane-takeover-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return PaneSettings(defaults: defaults)
     }
 
-    @Test func turningOnRunsInstallAndShowsChangingMeanwhile() async {
+    private func text(_ caption: TakeoverSwitch.Caption) -> String { caption.spoken }
+
+    @Test func turningOnSavesTheSdkAndShowsChangingThenDone() async {
         let fake = FakeTakeover()
         fake.holds = true
-        let toggle = makeSwitch(fake)
+        let settings = makeSettings()
+        let toggle = TakeoverSwitch(settings: settings, backend: fake.backend)
         #expect(!toggle.isOn)
-        #expect(toggle.caption == "Emulators started from Expo or a terminal open here.")
+        #expect(text(toggle.caption) == "Emulators started with /Users/me/Library/Android/sdk open here.")
         toggle.set(true)
         #expect(toggle.isOn)
-        #expect(toggle.state == .changing)
-        #expect(toggle.caption == "Changing\u{2026}")
-        // A second flip while the script runs is ignored.
+        #expect(toggle.phase == .changing)
+        #expect(text(toggle.caption) == "Changing\u{2026}")
+        // A second flip while it runs is ignored.
         toggle.set(false)
         while fake.gate == nil { await Task.yield() }
         fake.gate?.resume()
         await toggle.settle()
-        #expect(fake.actions == [.install])
+        #expect(fake.actions == ["install"])
         #expect(toggle.isOn)
-        #expect(toggle.state == .idle)
+        #expect(settings.takeoverSDKPath == "/Users/me/Library/Android/sdk")
+        #expect(text(toggle.caption) == TakeoverSwitch.turnedOnCaption)
+        toggle.settingsDidClose()
+        #expect(text(toggle.caption) == "Emulators started with /Users/me/Library/Android/sdk open here.")
     }
 
-    @Test func failurePutsTheSwitchBackAndSaysSo() async {
-        let fake = FakeTakeover()
-        fake.fails = true
-        let toggle = makeSwitch(fake)
-        toggle.set(true)
-        await toggle.settle()
-        #expect(!toggle.isOn)
-        #expect(toggle.state == .failed)
-        #expect(toggle.caption == "Couldn't change where emulators open.")
-        // Opening Settings again forgets the old failure.
-        toggle.refresh()
-        #expect(toggle.state == .idle)
+    @Test func eachFailureHasItsOwnCaptionAndPutsTheSwitchBack() async {
+        let cases: [(EmulatorTakeover.Failure, String, Bool)] = [
+            (.notWritable(URL(filePath: "/s/emulator")), "Couldn't write to /s/emulator.", true),
+            (.updateRunning, TakeoverSwitch.updateRunningCaption, true),
+            (.agentRefused("x"), TakeoverSwitch.helperBlockedCaption, true),
+        ]
+        for (failure, caption, isError) in cases {
+            let fake = FakeTakeover()
+            fake.failure = failure
+            let toggle = TakeoverSwitch(settings: makeSettings(), backend: fake.backend)
+            toggle.set(true)
+            await toggle.settle()
+            #expect(!toggle.isOn)
+            #expect(text(toggle.caption) == caption)
+            #expect(toggle.caption.isError == isError)
+            toggle.refresh()
+            #expect(toggle.phase == .idle)
+        }
     }
 
-    @Test func turningOffRunsUninstall() async {
+    @Test func turningOffRestoresAndSaysOff() async {
         let fake = FakeTakeover()
-        fake.installed = true
-        let toggle = makeSwitch(fake)
+        fake.wrapped = true
+        let settings = makeSettings()
+        settings.takeoverSDKPath = "/Users/me/Library/Android/sdk"
+        let toggle = TakeoverSwitch(settings: settings, backend: fake.backend)
         #expect(toggle.isOn)
         toggle.set(false)
         await toggle.settle()
-        #expect(fake.actions == [.uninstall])
+        #expect(fake.actions == ["uninstall"])
         #expect(!toggle.isOn)
+        #expect(settings.takeoverSDKPath == nil)
+        #expect(text(toggle.caption) == TakeoverSwitch.turnedOffCaption)
     }
 
-    @Test func refreshFollowsAChangeMadeOutsidePane() {
+    /// On is the user's choice: an update removing the wrapper never turns the switch off.
+    @Test func staysOnWhileRepairingAndSaysWhatsWrong() async {
         let fake = FakeTakeover()
-        let toggle = makeSwitch(fake)
-        fake.installed = true
+        let settings = makeSettings()
+        settings.takeoverSDKPath = "/Users/me/Library/Android/sdk"
+        let toggle = TakeoverSwitch(settings: settings, backend: fake.backend)
+        fake.holds = true
+        toggle.folderChanged()
+        #expect(toggle.isOn)
+        #expect(text(toggle.caption) == TakeoverSwitch.repairingCaption)
+        while fake.gate == nil { await Task.yield() }
+        fake.gate?.resume()
+        await toggle.settle()
+        #expect(toggle.health == .ok)
+        fake.holds = false
+        fake.agent = .disabled
         toggle.refresh()
         #expect(toggle.isOn)
+        #expect(text(toggle.caption) == TakeoverSwitch.repairsOffCaption)
+        #expect(toggle.showsOpenLoginItems)
+        #expect(!toggle.caption.isError)
+        fake.exists = false
+        toggle.refresh()
+        #expect(toggle.isOn)
+        #expect(text(toggle.caption) == "/Users/me/Library/Android/sdk is missing.")
+        #expect(toggle.caption.isError)
+    }
+
+    @Test func noSdkDisablesTheSwitch() {
+        let fake = FakeTakeover()
+        fake.found = nil
+        let toggle = TakeoverSwitch(settings: makeSettings(), backend: fake.backend)
+        #expect(toggle.hasNoSDK)
+        #expect(text(toggle.caption) == TakeoverSwitch.noSDKCaption)
+    }
+
+    @Test func migrationTurnsTheNewSwitchOnOrShowsWhyNot() async {
+        let fake = FakeTakeover()
+        let toggle = TakeoverSwitch(settings: makeSettings(), backend: fake.backend)
+        toggle.migrate(wasOn: true) {}
+        await toggle.settle()
+        #expect(toggle.isOn)
+        #expect(fake.actions == ["install"])
+
+        struct Refused: Error {}
+        let failing = TakeoverSwitch(settings: makeSettings(), backend: FakeTakeover().backend)
+        failing.migrate(wasOn: true) { throw Refused() }
+        await failing.settle()
+        #expect(!failing.isOn)
+        #expect(text(failing.caption) == TakeoverSwitch.migrationCaption)
+        // It stays for the next time Settings opens, then goes once Settings closes.
+        failing.refresh()
+        #expect(text(failing.caption) == TakeoverSwitch.migrationCaption)
+        failing.settingsDidClose()
+        #expect(failing.phase == .idle)
     }
 
     @Test func soundAndSaveToRoundTrip() {

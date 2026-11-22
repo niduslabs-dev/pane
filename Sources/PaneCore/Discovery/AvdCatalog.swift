@@ -85,6 +85,16 @@ public enum AndroidSDK {
             .map { $0.appending(path: "emulator/emulator") }.first(where: isExecutable)
     }
 
+    /// What Pane runs to start an emulator itself: `emulator-real` beside `emulator` when Show
+    /// all emulators in Pane has wrapped the launcher, else the launcher. Pane's own launches
+    /// skip the wrapper, which would ask Pane to attach to an emulator it is already starting.
+    public static func launchable(
+        emulator: URL, isExecutable: (URL) -> Bool = { FileManager.default.isExecutableFile(atPath: $0.path) }
+    ) -> URL {
+        let real = emulator.deletingLastPathComponent().appending(path: "emulator-real")
+        return isExecutable(real) ? real : emulator
+    }
+
     /// The real SDK's `adb`, found the same way (never through the shadow SDK).
     public static func adbExecutable(
         environment: [String: String] = ProcessInfo.processInfo.environment,

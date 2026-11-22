@@ -1,5 +1,6 @@
 import AppKit
 import PaneCore
+import PaneTakeover
 import SwiftUI
 import os
 
@@ -14,32 +15,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// An attach request (`pane://attach?avd=`) that arrived before the first window opened.
     private var pendingAttach: String?
     private var started = false
-    /// Settings' "Show all emulators in Pane": runs the bundled takeover script.
-    private lazy var takeover = TakeoverSwitch(
-        isInstalled: {
-            #if DEBUG
-                if TakeoverCheck.isActive { return TakeoverCheck.installed }
-            #endif
-            return EmulatorTakeover.isInstalled()
-        },
-        run: { action in
-            #if DEBUG
-                // `-PaneTakeoverCheck changing|failed|ok` stands in for the script, so a check can
-                // flip the switch without touching the real shell setup.
-                if let check = UserDefaults.standard.string(forKey: "PaneTakeoverCheck") {
-                    if check == "changing" { try await Task.sleep(for: Theme.Timing.takeoverCheckHold) }
-                    if check == "failed" { throw CocoaError(.fileWriteUnknown) }
-                    TakeoverCheck.installed = action == .install
-                    return
-                }
-            #endif
-            guard let script = Bundle.main.url(forResource: "emulator-takeover", withExtension: "sh") else {
-                throw CocoaError(.fileNoSuchFile)
-            }
-            let output = try await EmulatorTakeover.run(action, script: script, app: Bundle.main.bundleURL)
-            Logger(subsystem: "dev.niduslabs.pane", category: "takeover").info(
-                "Takeover output: \(output, privacy: .public)")
-        })
+    /// Settings' "Show all emulators in Pane" (`TakeoverSwitch`, `EmulatorTakeover`).
+    private lazy var takeover = TakeoverSwitch(settings: .shared, backend: Self.takeoverBackend())
+    /// Repairs the wrapper when the SDK's folder changes while Pane runs.
+    private lazy var sdkWatcher = SDKFolderWatcher { [weak self] in
+        Task { @MainActor in self?.takeover.folderChanged() }
+    }
     private lazy var settingsWindow = SettingsWindowController(
         settings: .shared, takeover: takeover, updates: updates)
     /// The state every update surface and Check for Updates… read; fed by `updateDriver`
@@ -65,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             first.model.requestAttach(avdName: name)
         }
         startUpdates()
+        startTakeover()
         #if DEBUG
             // Shows whether mouse events reach the app at all, for scripted background checks.
             NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .scrollWheel, .keyDown]) {
@@ -176,6 +158,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    /// The takeover's real work, on this Mac's SDK and launchd. A debug build refuses it unless
+    /// a check points it at scratch folders (`PANE_REAL_SDK` and `PANE_LAUNCH_AGENTS`), so a
+    /// debug copy never wraps the real SDK.
+    private static func takeoverBackend() -> TakeoverSwitch.Backend {
+        let environment = ProcessInfo.processInfo.environment
+        let bundleID = Bundle.main.bundleIdentifier ?? "dev.niduslabs.pane"
+        let helper = EmulatorLauncher.helperURL().map { $0.appending(path: "Contents/MacOS/PaneEmulator") }
+        let setup = EmulatorTakeover.Setup(bundleID: bundleID, helperExecutable: helper, environment: environment)
+        #if DEBUG
+            let allowed = environment["PANE_REAL_SDK"] != nil && environment["PANE_LAUNCH_AGENTS"] != nil
+        #else
+            let allowed = true
+        #endif
+        func guarded() throws(EmulatorTakeover.Failure) {
+            if !allowed { throw .agentRefused("debug build without PANE_REAL_SDK and PANE_LAUNCH_AGENTS") }
+        }
+        return TakeoverSwitch.Backend(
+            resolveSDK: { await EmulatorTakeover.resolveSDK(shellTimeout: Theme.Timing.loginShell) },
+            candidateSDK: {
+                if let override = environment["PANE_REAL_SDK"] {
+                    return EmulatorTakeover.sdkRoot(URL(filePath: override, directoryHint: .isDirectory))
+                }
+                return AndroidSDK.emulatorExecutable().flatMap {
+                    EmulatorTakeover.sdkRoot($0.deletingLastPathComponent().deletingLastPathComponent())
+                }
+            },
+            install: { sdk throws(EmulatorTakeover.Failure) in
+                try guarded()
+                try await EmulatorTakeover.install(sdk: sdk, setup: setup)
+            },
+            uninstall: { sdk throws(EmulatorTakeover.Failure) in
+                try guarded()
+                try await EmulatorTakeover.uninstall(sdk: sdk, setup: setup)
+            },
+            ensure: { sdk throws(EmulatorTakeover.Failure) in
+                try guarded()
+                return try await EmulatorTakeover.ensure(sdk: sdk, setup: setup)
+            },
+            isWrapped: { sdk in TakeoverRepair.launcherState(sdk: sdk, script: setup.script) == .wrapped(current: true)
+            },
+            agentStatus: { EmulatorTakeover.agentStatus(setup: setup) },
+            sdkExists: { FileManager.default.fileExists(atPath: $0.appending(path: "emulator").path) })
+    }
+
+    /// On launch: undo the old shadow SDK if it's there (turning the new switch on when the old
+    /// one was), then repair the wrapper and watch the SDK while Pane runs.
+    private func startTakeover() {
+        #if DEBUG
+            let migrates = ProcessInfo.processInfo.environment["PANE_SHADOW_SDK"] != nil
+        #else
+            let migrates = true
+        #endif
+        let legacy = migrates ? EmulatorTakeover.legacyState() : .none
+        if legacy != .none, let script = Bundle.main.url(forResource: "emulator-takeover", withExtension: "sh") {
+            log.info("Found the shadow SDK setup (\(String(describing: legacy), privacy: .public)); removing it")
+            takeover.migrate(wasOn: legacy == .on) {
+                let output = try await EmulatorTakeover.runLegacyUninstall(script: script)
+                Logger(subsystem: "dev.niduslabs.pane", category: "takeover").info(
+                    "Shadow SDK uninstall: \(output, privacy: .public)")
+            }
+        }
+        takeover.onSDKChange = { [weak self] sdk in self?.watchTakeoverSDK(sdk) }
+        takeover.launched()
+        watchTakeoverSDK(takeover.isOn ? takeover.sdk : nil)
+    }
+
+    private func watchTakeoverSDK(_ sdk: URL?) {
+        if let sdk {
+            sdkWatcher.start(sdk: sdk)
+        } else {
+            sdkWatcher.stop()
+        }
+    }
+
     private func attach(_ avd: String) {
         let idle = controllers.filter { $0.model.emulator == nil && $0.model.status != .starting }
         switch roster.placement(for: avd, idle: idle.map { ObjectIdentifier($0) }) {
@@ -220,6 +276,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     menu.hover(row)
                     menu.isButtonHovered = value("button") == "1"
                 }
+            case "check-takeover":
+                takeover.demo(
+                    value("state") ?? "on", sdk: URL(filePath: value("sdk") ?? "/", directoryHint: .isDirectory))
             case "check-settings":
                 // scroll=pane: opens at the Pane group, as Check for Updates… does.
                 if value("scroll") == "pane" { settingsWindow.show(scrollTo: .paneGroup) } else { showSettings(nil) }
@@ -637,13 +696,3 @@ final class TitlebarToolbar: NSObject, NSToolbarDelegate {
         return event.locationInWindow.x > window.frame.width - Theme.Window.titleRowTrailingPadding
     }
 }
-
-#if DEBUG
-    /// The stand-in's shell setup under `-PaneTakeoverCheck`: off at launch (or on with
-    /// `-PaneTakeoverInstalled YES`), so a check turns the switch on as the board draws it, and
-    /// the real setup is never read or changed.
-    enum TakeoverCheck {
-        static var isActive: Bool { UserDefaults.standard.string(forKey: "PaneTakeoverCheck") != nil }
-        nonisolated(unsafe) static var installed = UserDefaults.standard.bool(forKey: "PaneTakeoverInstalled")
-    }
-#endif
