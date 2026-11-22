@@ -557,8 +557,7 @@ private final class RecordingSurface: UpdateSurface {
     // MARK: Updated to X
 
     @Test func updatedToShowsAfterAnUpdateUntilSettingsCloses() throws {
-        let suite = "dev.niduslabs.pane.tests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let (defaults, suite) = ScratchDefaults.named("dev.niduslabs.pane.tests")
         defer { defaults.removePersistentDomain(forName: suite) }
 
         let first = UpdateModel(currentVersion: "1.0.2")

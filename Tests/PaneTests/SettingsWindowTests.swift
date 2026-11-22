@@ -48,10 +48,7 @@ import Testing
     }
 
     private func makeSettings() -> PaneSettings {
-        let name = "pane-takeover-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
-        return PaneSettings(defaults: defaults)
+        PaneSettings(defaults: ScratchDefaults.make("pane-takeover-tests"))
     }
 
     private func text(_ caption: TakeoverSwitch.Caption) -> String { caption.spoken }
@@ -173,8 +170,7 @@ import Testing
     }
 
     @Test func soundAndSaveToRoundTrip() {
-        let name = "pane-settings-window-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let (defaults, name) = ScratchDefaults.named("pane-settings-window-tests")
         defer { defaults.removePersistentDomain(forName: name) }
         let settings = PaneSettings(defaults: defaults)
         #expect(settings.startsWithoutSound)

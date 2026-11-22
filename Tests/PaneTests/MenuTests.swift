@@ -229,7 +229,7 @@ import Testing
 
     /// A window controller on its own preferences, its switcher listing `entries`.
     private func controller(entries: [SwitcherEntry]) -> PaneWindowController {
-        let defaults = UserDefaults(suiteName: "PaneMenuTests.\(UUID().uuidString)")!
+        let defaults = ScratchDefaults.make("PaneMenuTests")
         let controller = PaneWindowController(settings: PaneSettings(defaults: defaults))
         controller.switcherEntriesOverride = { entries }
         return controller

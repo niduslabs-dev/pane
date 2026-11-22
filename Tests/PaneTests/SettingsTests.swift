@@ -9,8 +9,7 @@ import Testing
 @MainActor
 @Suite struct SettingsTests {
     private func scratch() -> (PaneSettings, UserDefaults, String) {
-        let name = "pane-settings-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let (defaults, name) = ScratchDefaults.named("pane-settings-tests")
         return (PaneSettings(defaults: defaults), defaults, name)
     }
 
