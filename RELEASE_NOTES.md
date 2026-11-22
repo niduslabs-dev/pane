@@ -11,6 +11,8 @@ section up to the running version.
 - Foldables show the folded screen at its real shape
 - Folding and rotating reshape the window smoothly
 - Clicks on a folded screen land where you click
+- Fold, unfold and change posture from More or with Shift-Command-F
+- Tablets show their buttons on the top edge
 
 ## 1.1.1
 

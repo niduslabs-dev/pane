@@ -17,6 +17,21 @@ import Testing
         // inset plus the buttons' depth on both sides, a point wider.
         #expect(layout.windowContentSize.width == 389)
     }
+
+    /// Board 28: one set of points; a tablet's on the top edge from the right end, the rest on
+    /// the right edge from the top.
+    @Test func buttonsPerKind() {
+        let points = Theme.Frame.buttons.map { [$0.offset, $0.length] }
+        #expect(points == [[150, 56], [232, 46], [278, 46]])
+        for kind in [DeviceKind.phone, .foldable] {
+            #expect(Theme.Frame.buttons(for: kind).allSatisfy { $0.edge == .right && $0.end == .top })
+            #expect(Theme.Frame.spec(for: kind) == Theme.Frame.spec)
+        }
+        let tablet = Theme.Frame.buttons(for: .tablet)
+        #expect(tablet.allSatisfy { $0.edge == .top && $0.end == .right })
+        #expect(tablet.map { [$0.offset, $0.length] } == points)
+        #expect(tablet.map(\.button) == [.power, .volumeUp, .volumeDown])
+    }
 }
 
 @Suite struct GlassTests {

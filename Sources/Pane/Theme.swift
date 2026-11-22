@@ -287,11 +287,29 @@ enum Theme {
         static let buttonCornerRadius: CGFloat = 2
         static let buttonHitDepth = T.App.Pane.Size.Frame.buttonHitDepth
         static let buttonHitOutset: CGFloat = 4
+        /// The one set of buttons (board 2), on the right edge from the top end. Every kind
+        /// uses these offsets and lengths; only the edge and the end change (board 28).
         static let buttons = [
-            FrameButtonSpec(button: .power, top: 150, length: 56),
-            FrameButtonSpec(button: .volumeUp, top: 232, length: 46),
-            FrameButtonSpec(button: .volumeDown, top: 278, length: 46),
+            FrameButtonSpec(button: .power, edge: .right, end: .top, offset: 150, length: 56),
+            FrameButtonSpec(button: .volumeUp, edge: .right, end: .top, offset: 232, length: 46),
+            FrameButtonSpec(button: .volumeDown, edge: .right, end: .top, offset: 278, length: 46),
         ]
+
+        /// Where each kind's buttons go in its natural orientation (board 28): a phone, a
+        /// foldable (the cover half's free edge, open and closed) and any fallback on the right
+        /// edge from the top; a tablet on the top edge of its landscape body, from the right end.
+        static func buttons(for kind: DeviceKind) -> [FrameButtonSpec] {
+            switch kind {
+            case .phone, .foldable: buttons
+            case .tablet: buttons.map { $0.placed(on: .top, from: .right) }
+            }
+        }
+
+        static func spec(for kind: DeviceKind) -> FrameSpec {
+            var spec = spec
+            spec.buttons = buttons(for: kind)
+            return spec
+        }
         /// Used until the AVD's `config.ini` or the first frame says otherwise.
         static let fallbackDeviceSize = PixelSize(width: 1080, height: 2400)
         /// Used when the AVD doesn't say (`hw.lcd.density`): a Pixel 8's.

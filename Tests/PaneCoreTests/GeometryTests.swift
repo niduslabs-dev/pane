@@ -77,9 +77,9 @@ import Testing
     static let boardSpec = FrameSpec(
         screenHeight: 700, referenceScreenHeight: 700, bezel: 10, bodyRadius: 46, screenRadius: 36,
         buttons: [
-            FrameButtonSpec(button: .power, top: 150, length: 56),
-            FrameButtonSpec(button: .volumeUp, top: 232, length: 46),
-            FrameButtonSpec(button: .volumeDown, top: 278, length: 46),
+            FrameButtonSpec(button: .power, offset: 150, length: 56),
+            FrameButtonSpec(button: .volumeUp, offset: 232, length: 46),
+            FrameButtonSpec(button: .volumeDown, offset: 278, length: 46),
         ],
         buttonDepth: 3, buttonHitDepth: 14, buttonHitOutset: 4, titleRowHeight: 52, contentInset: 24,
         bottomInset: 24)

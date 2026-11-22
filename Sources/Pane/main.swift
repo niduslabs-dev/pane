@@ -64,6 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: Windows
 
+    /// The model of the window the menu bar's commands go to, for menus that change shape with
+    /// it (the Device menu's fold group).
+    var activeModel: PaneModel? { activeController?.model }
+
     /// The window the menu bar's commands go to: the key or main one, else the last one used.
     private var activeController: PaneWindowController? {
         let front = NSApp.keyWindow ?? NSApp.mainWindow
@@ -252,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// `check-settings`, `check-update?state=…`, `check-drop-hover?on=1|0` (the pointer over the
         /// drop card, which holds a finished card open), `check-restart` and `check-shutdown` (their sheets),
         /// `check-export-gif?file=…` (the Export GIF sheet for that recording), `check-more` (More's
-        /// menu), `check-save-folder?path=…` (Save to, as the folder picker would
+        /// menu), `check-posture?n=…` (asks for a posture by number), `check-save-folder?path=…` (Save to, as the folder picker would
         /// set it) and `check-select?label=…` (opens a select's menu).
         private func handleCheckURL(_ url: URL) -> Bool {
             guard let controller = activeController else { return false }
@@ -299,6 +303,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if let file = files.first { model.settings.lastRecording = file }
                 controller.chooseRecordingToExport()
             case "check-more": controller.toggleMoreMenu()
+            case "check-posture":
+                // A posture by number, also one the AVD doesn't list (the refusal's pill).
+                if let posture = value("n").flatMap(Int.init).flatMap(DevicePosture.init(rawValue:)) {
+                    model.setPosture(posture)
+                }
             case "check-update": showUpdateCheck(value("state") ?? "")
             case "check-save-folder": if let path = value("path") { settingsWindow.checkChooseFolder(path) }
             case "check-select":

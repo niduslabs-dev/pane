@@ -142,6 +142,8 @@ final class PaneWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         case .textSize(let size): model.setTextSize(size)
         case .locationNone: model.setCustomLocation(nil)
         case .locationCustom: showCustomLocation(latitude: nil, longitude: nil)
+        case .fold: model.toggleFold()
+        case .posture(let posture): model.setPosture(posture)
         case .tool(let tool): model.tools.toggle(tool)
         case .restart: restart()
         case .shutDown: shutDown()

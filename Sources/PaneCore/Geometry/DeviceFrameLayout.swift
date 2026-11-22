@@ -16,17 +16,32 @@ public enum FrameButton: String, Sendable, CaseIterable {
     }
 }
 
-/// Where one button sits on the right edge, in design points for the reference screen height.
+/// Where one button sits on the body in the device's natural orientation: on `edge`, `offset`
+/// design points from its `end` (a neighbouring side), `length` long. Points are at the
+/// reference screen height and scale with the frame.
 public struct FrameButtonSpec: Sendable, Equatable {
     public var button: FrameButton
-    /// Distance from the top of the frame body to the top of the visible button.
-    public var top: CGFloat
+    /// The side of the body the button sticks out of.
+    public var edge: FrameEdge
+    /// The end of that edge the offset is measured from: `.top` or `.bottom` for a side edge,
+    /// `.left` or `.right` for the top or bottom edge.
+    public var end: FrameEdge
+    /// Distance from that end of the body to the near end of the visible button.
+    public var offset: CGFloat
     public var length: CGFloat
 
-    public init(button: FrameButton, top: CGFloat, length: CGFloat) {
+    public init(button: FrameButton, edge: FrameEdge = .right, end: FrameEdge = .top, offset: CGFloat, length: CGFloat)
+    {
         self.button = button
-        self.top = top
+        self.edge = edge
+        self.end = end
+        self.offset = offset
         self.length = length
+    }
+
+    /// The same button on another edge, measured from another end.
+    public func placed(on edge: FrameEdge, from end: FrameEdge) -> FrameButtonSpec {
+        FrameButtonSpec(button: button, edge: edge, end: end, offset: offset, length: length)
     }
 }
 
@@ -101,6 +116,19 @@ public struct FrameCorners: OptionSet, Sendable, Hashable {
     public static let bottomLeft = FrameCorners(rawValue: 1 << 2)
     public static let bottomRight = FrameCorners(rawValue: 1 << 3)
 
+    /// A button's two outer corners on `edge`: the one towards `end`, then the far one.
+    static func outer(of edge: FrameEdge, from end: FrameEdge) -> (near: FrameCorners, far: FrameCorners) {
+        let corners: (FrameCorners, FrameCorners) =
+            switch edge {
+            case .right: (.topRight, .bottomRight)
+            case .left: (.topLeft, .bottomLeft)
+            case .top: (.topLeft, .topRight)
+            case .bottom: (.bottomLeft, .bottomRight)
+            }
+        let startsFromFirst = end == .top || end == .left
+        return startsFromFirst ? (corners.0, corners.1) : (corners.1, corners.0)
+    }
+
     var turnedCounterClockwise: FrameCorners {
         var turned: FrameCorners = []
         if contains(.topRight) { turned.insert(.topLeft) }
@@ -114,11 +142,12 @@ public struct FrameCorners: OptionSet, Sendable, Hashable {
 /// The frame laid out for one device, size and orientation: every rect in the window content's
 /// coordinates (y down), plus the window content size around it.
 ///
-/// The screen's long side is `screenHeight` points; bezel, radii and button
-/// positions scale with it from the spec's reference height, while hairlines, button depth and
-/// hit areas stay put. `quadrants` turns the device counter-clockwise from portrait, as the
-/// emulator's `Rotation` reports it, so the side buttons end up on the top (1), left (2) or
-/// bottom (3) edge.
+/// The screen's height in the device's natural orientation is `screenHeight` points; bezel,
+/// radii and button positions scale with it from the spec's reference height, while hairlines,
+/// button depth and hit areas stay put. Each button sits on its spec's edge, measured from its
+/// end (board 28: a phone's on the right from the top, a tablet's on the top from the right).
+/// `quadrants` turns the device counter-clockwise from its natural orientation, as the
+/// emulator's `Rotation` reports it, and the buttons turn with the body.
 public struct DeviceFrameLayout: Sendable, Equatable {
     public struct Button: Sendable, Equatable {
         public var button: FrameButton
@@ -170,37 +199,18 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         let screenSize = CGSize(width: (height * aspect).rounded(), height: height)
         let body = CGRect(x: 0, y: 0, width: screenSize.width + 2 * bezel, height: screenSize.height + 2 * bezel)
         let screen = CGRect(origin: CGPoint(x: bezel, y: bezel), size: screenSize)
-        let visible = spec.buttons.map { button in
-            CGRect(x: body.maxX, y: button.top * scale, width: spec.buttonDepth, height: button.length * scale)
-        }
-        var portraitButtons = spec.buttons.enumerated().map { index, button in
-            var top = visible[index].minY - spec.buttonHitOutset
-            var bottom = visible[index].maxY + spec.buttonHitOutset
-            var corners: FrameCorners = [.topRight, .bottomRight]
-            for (other, rect) in visible.enumerated() where other != index {
-                if rect.maxY <= visible[index].minY, rect.maxY + spec.buttonHitOutset > top {
-                    top = max(top, (rect.maxY + visible[index].minY) / 2)
-                }
-                if rect.minY >= visible[index].maxY, rect.minY - spec.buttonHitOutset < bottom {
-                    bottom = min(bottom, (rect.minY + visible[index].maxY) / 2)
-                }
-                if rect.maxY == visible[index].minY { corners.remove(.topRight) }
-                if rect.minY == visible[index].maxY { corners.remove(.bottomRight) }
-            }
-            let hit = CGRect(x: body.maxX, y: top, width: spec.buttonHitDepth, height: bottom - top)
-            return Button(
-                button: button.button, visibleRect: visible[index], hitRect: hit, edge: .right, roundedCorners: corners)
-        }
+        let portraitButtons = Self.placeButtons(spec.buttons, on: body, scale: scale, spec: spec)
 
         // Turn counter-clockwise a quarter at a time; the body stays at the origin.
         var bodySize = body.size
         var screenRect = screen
+        var turnedButtons = portraitButtons
         for _ in 0..<turns {
             let turn = { (rect: CGRect) in
                 CGRect(x: rect.minY, y: bodySize.width - rect.maxX, width: rect.height, height: rect.width)
             }
             screenRect = turn(screenRect)
-            portraitButtons = portraitButtons.map { button in
+            turnedButtons = turnedButtons.map { button in
                 Button(
                     button: button.button, visibleRect: turn(button.visibleRect), hitRect: turn(button.hitRect),
                     edge: button.edge.turnedCounterClockwise,
@@ -212,7 +222,7 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         // Margins: the inset on the sides, the title row on top, the toolbar's band below, plus
         // the buttons' depth on
         // their side (both sides horizontally, so the body stays centred).
-        let edge = portraitButtons.first?.edge ?? .right
+        let edge = turnedButtons.first?.edge ?? .right
         let horizontal = spec.contentInset + (edge == .left || edge == .right ? spec.buttonDepth : 0)
         let top = spec.titleRowHeight + (edge == .top ? spec.buttonDepth : 0)
         let bottom = spec.bottomInset + (edge == .bottom ? spec.buttonDepth : 0)
@@ -225,12 +235,66 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         self.screenRect = move(screenRect)
         bodyRadius = spec.bodyRadius * scale
         screenRadius = spec.screenRadius * scale
-        buttons = portraitButtons.map { button in
+        buttons = turnedButtons.map { button in
             Button(
                 button: button.button, visibleRect: move(button.visibleRect), hitRect: move(button.hitRect),
                 edge: button.edge, roundedCorners: button.roundedCorners)
         }
         windowContentSize = CGSize(width: bodySize.width + 2 * horizontal, height: top + bodySize.height + bottom)
+    }
+
+    /// Lays the buttons out on the untouched body (origin at zero). Along each edge, the hit areas
+    /// reach `buttonHitOutset` past each end, split evenly where neighbours are closer; a button
+    /// touching a neighbour loses its rounded corner there (the volume rocker's seam).
+    static func placeButtons(_ specs: [FrameButtonSpec], on body: CGRect, scale: CGFloat, spec: FrameSpec) -> [Button] {
+        // Along the edge, measured from each button's own end.
+        let along = specs.map { button in (start: button.offset * scale, end: (button.offset + button.length) * scale) }
+        return specs.enumerated().map { index, button in
+            let mine = along[index]
+            var start = mine.start - spec.buttonHitOutset
+            var end = mine.end + spec.buttonHitOutset
+            var nearCorner = true
+            var farCorner = true
+            for (other, theirs) in along.enumerated()
+            where other != index && specs[other].edge == button.edge && specs[other].end == button.end {
+                if theirs.end <= mine.start, theirs.end + spec.buttonHitOutset > start {
+                    start = max(start, (theirs.end + mine.start) / 2)
+                }
+                if theirs.start >= mine.end, theirs.start - spec.buttonHitOutset < end {
+                    end = min(end, (theirs.start + mine.end) / 2)
+                }
+                if theirs.end == mine.start { nearCorner = false }
+                if theirs.start == mine.end { farCorner = false }
+            }
+            let corners = FrameCorners.outer(of: button.edge, from: button.end)
+            var rounded: FrameCorners = []
+            if nearCorner { rounded.insert(corners.near) }
+            if farCorner { rounded.insert(corners.far) }
+            return Button(
+                button: button.button,
+                visibleRect: rect(
+                    on: body, edge: button.edge, end: button.end, from: mine.start, to: mine.end,
+                    depth: spec.buttonDepth),
+                hitRect: rect(
+                    on: body, edge: button.edge, end: button.end, from: start, to: end,
+                    depth: spec.buttonHitDepth),
+                edge: button.edge, roundedCorners: rounded)
+        }
+    }
+
+    /// A strip `depth` deep outside `edge`, from `start` to `end` measured along it from `end`.
+    private static func rect(
+        on body: CGRect, edge: FrameEdge, end: FrameEdge, from start: CGFloat, to stop: CGFloat, depth: CGFloat
+    ) -> CGRect {
+        let length = stop - start
+        let x = end == .right ? body.maxX - stop : body.minX + start
+        let y = end == .bottom ? body.maxY - stop : body.minY + start
+        switch edge {
+        case .right: return CGRect(x: body.maxX, y: y, width: depth, height: length)
+        case .left: return CGRect(x: body.minX - depth, y: y, width: depth, height: length)
+        case .top: return CGRect(x: x, y: body.minY - depth, width: length, height: depth)
+        case .bottom: return CGRect(x: x, y: body.maxY, width: length, height: depth)
+        }
     }
 
     /// The largest whole-point screen height whose layout fits `contentSize`, within
@@ -294,6 +358,14 @@ public struct DeviceFrameLayout: Sendable, Equatable {
         }
         guard let nearest = distances.min(by: { $0.1 < $1.1 }), nearest.1 <= distance else { return nil }
         return nearest.0
+    }
+
+    /// The buttons in VoiceOver's reading order: top to bottom on a side edge, left to right on
+    /// the top or bottom edge (board 28).
+    public var buttonsInReadingOrder: [Button] {
+        buttons.sorted { a, b in
+            (a.visibleRect.minY, a.visibleRect.minX) < (b.visibleRect.minY, b.visibleRect.minX)
+        }
     }
 
     /// The button whose hit area contains a point in window coordinates.

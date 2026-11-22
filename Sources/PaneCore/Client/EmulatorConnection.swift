@@ -221,6 +221,43 @@ public final class EmulatorConnection: Sendable {
         _ = try await controller.setPhysicalModel(value, options: callOptions)
     }
 
+    /// Asks the emulator for a foldable posture. It refuses (`FAILED_PRECONDITION`) when the
+    /// hinge isn't enabled or the posture isn't in the AVD's list. The window follows the frames
+    /// (`foldedDisplay`), and the menus follow `postureUpdates`, not this call.
+    public func setPosture(_ posture: DevicePosture) async throws {
+        var value = Android_Emulation_Control_Posture()
+        value.value = Self.postureValue(posture)
+        _ = try await controller.setPosture(value, options: callOptions)
+    }
+
+    static func postureValue(_ posture: DevicePosture) -> Android_Emulation_Control_Posture.PostureValue {
+        Android_Emulation_Control_Posture.PostureValue(rawValue: posture.rawValue) ?? .postureUnknown
+    }
+
+    /// The device's posture: its current one first (the emulator sends it on subscribing), then
+    /// each change, whoever made it (Pane, adb or a script). Nil for an unknown posture.
+    /// Cancelling the iteration ends the RPC.
+    public func postureUpdates() -> AsyncThrowingStream<DevicePosture?, any Error> {
+        let controller = controller
+        let options = callOptions
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await controller.streamNotification(Google_Protobuf_Empty(), options: options) { response in
+                        for try await note in response.messages {
+                            guard case .posture(let posture) = note.type else { continue }
+                            continuation.yield(DevicePosture(rawValue: posture.value.rawValue))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// The z angle for an orientation, in the proto's −180…180 range: 0, 90, 180, −90.
     public static func zRotationDegrees(quadrants: Int) -> Float {
         let degreesPerQuadrant: Float = 90

@@ -75,7 +75,7 @@ private func solid(width: Int, height: Int, red: CGFloat, green: CGFloat, blue: 
 @Suite struct FramedScreenshotTests {
     private let spec = FrameSpec(
         screenHeight: 700, referenceScreenHeight: 700, bezel: 10, bodyRadius: 46, screenRadius: 36,
-        buttons: [FrameButtonSpec(button: .power, top: 150, length: 56)],
+        buttons: [FrameButtonSpec(button: .power, offset: 150, length: 56)],
         buttonDepth: 3, buttonHitDepth: 14, buttonHitOutset: 4, titleRowHeight: 52, contentInset: 24, bottomInset: 54)
 
     private var style: FrameStyle {
@@ -170,12 +170,10 @@ private func solid(width: Int, height: Int, red: CGFloat, green: CGFloat, blue: 
         #expect(elsewhere[1].accessibilityText == "pixel9_api35, Pixel 9 Pro, Android 15, in another window, running")
     }
 
-    @Test func deviceKindFromTheDeviceName() {
-        #expect(DeviceKind(deviceName: "pixel_8") == .phone)
-        #expect(DeviceKind(deviceName: "pixel_tablet") == .tablet)
-        #expect(DeviceKind(deviceName: "pixel_9_pro_fold") == .foldable)
-        #expect(DeviceKind(deviceName: "7.6in Foldable") == .foldable)
-        #expect(DeviceProfile.parse(configIni: "hw.device.name=pixel_tablet\n").kind == .tablet)
+    @Test func deviceKindIsNotReadFromTheName() {
+        // Board 28: the kind comes from the config's keys; a name alone says nothing.
+        #expect(DeviceProfile.parse(configIni: "hw.device.name=pixel_tablet\n").kind == .phone)
+        #expect(DeviceProfile.parse(configIni: "hw.device.name=pixel_9_pro_fold\n").kind == .phone)
         #expect(DeviceProfile.parse(configIni: "").kind == .phone)
     }
 

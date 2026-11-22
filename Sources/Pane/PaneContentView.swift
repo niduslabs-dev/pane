@@ -54,7 +54,7 @@ struct DeviceFrameView: View {
             bodyShape
             screen
             if model.status == .live, !model.hidesSideButtons {
-                ForEach(layout.buttons, id: \.button) { button in
+                ForEach(layout.buttonsInReadingOrder, id: \.button) { button in
                     hitArea(button)
                 }
             }

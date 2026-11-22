@@ -288,3 +288,90 @@ import Testing
         #expect(!DeviceMenu.validate(item, model: nil))
     }
 }
+
+/// Board 28's fold group: More's rows, the menu bar's items and ⇧⌘F.
+@MainActor
+@Suite struct FoldMenuTests {
+    private let fold = FoldProfile(postures: [.closed, .halfOpen, .open], foldPosture: .closed)
+    private let target = NSObject()
+
+    private func menuBarItems() -> (fold: NSMenuItem, postures: [NSMenuItem]) {
+        let items = DeviceMenu.foldItems(target: target, action: #selector(NSObject.description))
+        return (items[0], items[1].submenu?.items ?? [])
+    }
+
+    @Test func moreHasNoFoldGroupForOtherDevices() {
+        #expect(DeviceMenu.foldPanelItems(fold: nil, posture: nil, live: true).isEmpty)
+    }
+
+    @Test func moreListsOnlyTheDevicesPosturesWithATick() {
+        let rows = DeviceMenu.foldPanelItems(fold: fold, posture: .halfOpen, live: true)
+        #expect(rows.map(\.id) == ["fold", "posture", "d4"])
+        // Half open isn't folded: the item reads Fold.
+        #expect(rows[0].title == "Fold" && rows[0].shortcut == "⇧⌘F" && rows[0].command == .fold)
+        let postures = rows[1].submenu ?? []
+        #expect(postures.map(\.title) == ["Closed", "Half-open", "Open"])
+        #expect(postures.map(\.isChecked) == [false, true, false])
+        #expect(postures.map(\.command) == [.posture(.closed), .posture(.halfOpen), .posture(.open)])
+    }
+
+    @Test func moreReadsUnfoldWhenClosedAndFoldWithNoTickWhenUnknown() {
+        let closed = DeviceMenu.foldPanelItems(fold: fold, posture: .closed, live: true)
+        #expect(closed[0].title == "Unfold")
+        #expect((closed[1].submenu ?? []).map(\.isChecked) == [true, false, false])
+        let unknown = DeviceMenu.foldPanelItems(fold: fold, posture: nil, live: true)
+        #expect(unknown[0].title == "Fold")
+        #expect((unknown[1].submenu ?? []).allSatisfy { $0.isChecked == false })
+    }
+
+    @Test func moreDimsTheGroupWhenTheFoldableIsntRunning() {
+        let rows = DeviceMenu.foldPanelItems(fold: fold, posture: .closed, live: false)
+        #expect(rows[0].isEnabled == false && rows[1].isEnabled == false)
+        #expect(rows[0].title == "Fold")
+    }
+
+    @Test func theMenuBarUsesTitleCaseAndShiftCommandF() {
+        let (foldItem, postures) = menuBarItems()
+        #expect(foldItem.keyEquivalent == "f")
+        #expect(foldItem.keyEquivalentModifierMask == [.command, .shift])
+        #expect(postures.map(\.title) == ["Closed", "Half-Open", "Open", "Flipped", "Tent"])
+    }
+
+    @Test func theMenuBarHidesTheGroupForOtherDevices() {
+        let (foldItem, postures) = menuBarItems()
+        #expect(!DeviceMenu.validateFold(foldItem, command: .fold, fold: nil, posture: nil, live: true))
+        #expect(foldItem.isHidden)
+        for item in postures {
+            #expect(!DeviceMenu.validateFold(item, command: item.deviceCommand!, fold: nil, posture: nil, live: true))
+            #expect(item.isHidden)
+        }
+        // No window at all: hidden too.
+        #expect(!DeviceMenu.validate(foldItem, model: nil))
+        #expect(foldItem.isHidden)
+    }
+
+    @Test func theMenuBarShowsOnlyTheDevicesPosturesAndTicksTheCurrentOne() {
+        let (foldItem, postures) = menuBarItems()
+        #expect(DeviceMenu.validateFold(foldItem, command: .fold, fold: fold, posture: .closed, live: true))
+        #expect(!foldItem.isHidden && foldItem.title == "Unfold")
+        let shown = postures.map { item in
+            (
+                DeviceMenu.validateFold(item, command: item.deviceCommand!, fold: fold, posture: .closed, live: true),
+                item.isHidden, item.state
+            )
+        }
+        #expect(shown.map(\.0) == [true, true, true, false, false])
+        #expect(shown.map(\.1) == [false, false, false, true, true])
+        #expect(shown.map(\.2) == [.on, .off, .off, .off, .off])
+        // A stopped foldable: shown, dimmed, no tick.
+        #expect(!DeviceMenu.validateFold(foldItem, command: .fold, fold: fold, posture: .closed, live: false))
+        #expect(!foldItem.isHidden && foldItem.title == "Fold")
+    }
+
+    @Test func shiftCommandFIsTheFoldShortcutAndNothingElse() {
+        #expect(DeviceMenu.isFoldShortcut(keyCode: kVK_ANSI_F, modifiers: [.command, .shift]))
+        #expect(!DeviceMenu.isFoldShortcut(keyCode: kVK_ANSI_F, modifiers: [.command]))
+        #expect(!DeviceMenu.isFoldShortcut(keyCode: kVK_ANSI_F, modifiers: [.command, .control]))
+        #expect(!DeviceMenu.isFoldShortcut(keyCode: kVK_ANSI_G, modifiers: [.command, .shift]))
+    }
+}

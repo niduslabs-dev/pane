@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import PaneCore
 
 /// Everything the More menu, the menu bar and the emulator switcher can ask a window to do.
@@ -11,6 +12,10 @@ enum DeviceCommand: Equatable {
     case textSize(DeviceTextSize)
     case locationNone
     case locationCustom
+    /// Fold or Unfold (⇧⌘F, board 28): to the fold posture, or back to Open from it.
+    case fold
+    /// One of a foldable's postures, from the Posture submenu.
+    case posture(DevicePosture)
     case tool(PaneTool)
     case restart
     case shutDown
@@ -25,6 +30,16 @@ enum DeviceCommand: Equatable {
     case chooseAVD(String)
     /// Opens the Settings window.
     case settings
+}
+
+extension DeviceCommand {
+    /// Fold and the postures: shown only for a foldable.
+    var isFoldGroup: Bool {
+        switch self {
+        case .fold, .posture: true
+        default: false
+        }
+    }
 }
 
 /// Carries a `DeviceCommand` on a menu item.
@@ -71,6 +86,30 @@ enum DeviceMenu {
                 item("Custom…", .locationCustom, target: target, action: action),
             ])
         return [appearance, textSize, location]
+    }
+
+    /// The fold group (board 28): Fold (⇧⌘F) and Posture with every posture. `validate` hides
+    /// the postures this device doesn't have, and Fold on anything that isn't a foldable;
+    /// `FoldGroupVisibility` hides the Posture item and the group's separator.
+    static func foldItems(target: AnyObject, action: Selector) -> [NSMenuItem] {
+        let fold = item(foldTitle, .fold, key: foldKey, modifiers: [.command, .shift], target: target, action: action)
+        let posture = NSMenuItem(title: postureTitle, action: nil, keyEquivalent: "")
+        posture.submenu = submenu(
+            postureTitle,
+            DevicePosture.allCases.map { item($0.menuBarTitle, .posture($0), target: target, action: action) })
+        return [fold, posture]
+    }
+
+    static let foldTitle = "Fold"
+    static let postureTitle = "Posture"
+    /// ⇧⌘F: free in Pane and macOS (⌃⌘F is full screen, ⌘F is kept for a future Find).
+    static let foldKey = "f"
+    static let foldShortcut = "⇧⌘F"
+
+    /// True for ⇧⌘F. The window keeps it when the menu bar doesn't take it (no foldable in
+    /// front), so it does nothing and doesn't beep.
+    static func isFoldShortcut(keyCode: Int, modifiers: NSEvent.ModifierFlags) -> Bool {
+        keyCode == kVK_ANSI_F && modifiers.intersection([.command, .shift, .option, .control]) == [.command, .shift]
     }
 
     static func toolItems(target: AnyObject, action: Selector) -> [NSMenuItem] {
@@ -134,6 +173,7 @@ enum DeviceMenu {
                 })
         }
         let hasLocation = model.customLocation != nil
+        let foldGroup = foldPanelItems(fold: model.fold, posture: model.posture, live: live)
         return [
             action("link", "Open link…", .openLink, shortcut: "⌘L", enabled: live),
             action("copy", "Copy screenshot", .copyScreenshot, shortcut: "⇧⌘C", enabled: live),
@@ -152,9 +192,32 @@ enum DeviceMenu {
                 "location", "Location", [("Default", false, .locationNone), ("Custom…", true, .locationCustom)],
                 current: hasLocation),
             .divider("d3"),
+        ] + foldGroup + [
             action("restart", "Restart emulator", .restart, enabled: model.emulator != nil),
             action("shutdown", "Shut down emulator", .shutDown, enabled: model.emulator != nil),
             action("settings", "Settings…", .settings, shortcut: "⌘,", enabled: true),
+        ]
+    }
+
+    /// More's fold group (board 28), under Location: Fold (Unfold at the fold posture) and
+    /// Posture with only this device's postures, the current one ticked, then a divider. Before
+    /// the first posture notification there's no tick and the item reads Fold. None for a
+    /// device that isn't a foldable; dimmed with the other device rows when it isn't running.
+    static func foldPanelItems(fold: FoldProfile?, posture: DevicePosture?, live: Bool) -> [PaneMenuItem] {
+        guard let fold else { return [] }
+        let current = live ? posture : nil
+        return [
+            PaneMenuItem(
+                id: "fold", title: fold.foldTitle(current: current), shortcut: foldShortcut, isEnabled: live,
+                command: .fold),
+            PaneMenuItem(
+                id: "posture", title: postureTitle, isEnabled: live,
+                submenu: fold.postures.map { posture in
+                    PaneMenuItem(
+                        id: "posture.\(posture.rawValue)", title: posture.title, isChecked: posture == current,
+                        command: .posture(posture))
+                }),
+            .divider("d4"),
         ]
     }
 
@@ -212,16 +275,40 @@ enum DeviceMenu {
         ]
     }
 
+    /// The menu bar's fold group for the window in front: hidden unless it shows a foldable
+    /// (and each posture unless the device has it), so ⇧⌘F does nothing elsewhere.
+    static func validateFold(
+        _ item: NSMenuItem, command: DeviceCommand, fold: FoldProfile?, posture: DevicePosture?, live: Bool
+    ) -> Bool {
+        let current = live ? posture : nil
+        switch command {
+        case .fold:
+            item.isHidden = fold == nil
+            item.title = fold?.foldTitle(current: current) ?? foldTitle
+            return live && fold != nil
+        case .posture(let value):
+            let listed = fold?.postures.contains(value) ?? false
+            item.isHidden = !listed
+            item.state = listed && current == value ? .on : .off
+            return live && listed
+        default:
+            return false
+        }
+    }
+
     /// Sets an item's tick from the window's state and says whether it can be chosen now.
     /// With no window, nothing can.
     static func validate(_ item: NSMenuItem, model: PaneModel?) -> Bool {
         guard let command = item.deviceCommand else { return true }
         guard let model else {
             item.state = .off
+            if command.isFoldGroup { item.isHidden = true }
             return false
         }
         let live = model.status == .live
         switch command {
+        case .fold, .posture:
+            return validateFold(item, command: command, fold: model.fold, posture: model.posture, live: live)
         case .openLink, .copyScreenshot, .saveScreenshot:
             return live
         case .exportGIF:

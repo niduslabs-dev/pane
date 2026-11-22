@@ -89,6 +89,9 @@ final class PaneModel {
     /// The device's theme and text size as last read, for the menus' ticks; nil when unknown.
     var deviceAppearance: DeviceAppearance?
     var deviceTextSize: DeviceTextSize?
+    /// A foldable's posture from the emulator's notifications (board 28), for the Fold item's
+    /// title and the Posture tick; nil until the first one arrives, and on other devices.
+    private(set) var posture: DevicePosture?
 
     /// What Pane remembers between launches.
     @ObservationIgnored let settings: PaneSettings
@@ -187,6 +190,7 @@ final class PaneModel {
 
     @ObservationIgnored private var clipboardSync = ClipboardSync()
     @ObservationIgnored private var clipboardTask: Task<Void, Never>?
+    @ObservationIgnored private var postureTask: Task<Void, Never>?
     @ObservationIgnored private var pasteboardPollTask: Task<Void, Never>?
     /// The Mac clipboard's change count last seen, so only later changes are sent.
     @ObservationIgnored private var pasteboardChangeCount = PaneModel.pasteboard.changeCount
@@ -645,20 +649,24 @@ final class PaneModel {
     private func setProfile(_ profile: DeviceProfile, avd: String?) {
         let oldSize = deviceSize
         let oldDensity = self.profile.density
+        let oldKind = self.profile.kind
         self.profile = profile
         liveScreenSize = LiveScreen.remembered(
             liveSize: avd.flatMap(settings.liveScreenSize(for:)), configured: profile.screenSize)
-        if deviceSize != oldSize || profile.density != oldDensity {
+        if deviceSize != oldSize || profile.density != oldDensity || profile.kind != oldKind {
             relayout(resizeWindow: true)
             if screenView.window != nil { applyRememberedSize() }
         }
     }
 
+    /// The frame for this device's kind: where its buttons go (board 28).
+    var frameSpec: FrameSpec { Theme.Frame.spec(for: profile.kind) }
+
     /// The smallest screen height for this device and orientation: the theme's floor, raised
     /// until the window is wide enough for the widest panel drawn inside it (the switcher).
     var minScreenHeight: CGFloat {
         DeviceFrameLayout.smallestScreenHeight(
-            forWindowWidth: Theme.Window.minWidth, spec: Theme.Frame.spec, deviceSize: deviceSize,
+            forWindowWidth: Theme.Window.minWidth, spec: frameSpec, deviceSize: deviceSize,
             quadrants: quadrants, floor: Theme.Frame.minScreenHeight)
     }
 
@@ -675,7 +683,7 @@ final class PaneModel {
         screenHeight = ScreenHeightRule.shown(
             chosen: chosenScreenHeight, minimum: minScreenHeight, displayFit: sizeMode == nil ? displayFitHeight : nil)
         let next = DeviceFrameLayout(
-            spec: Theme.Frame.spec, deviceSize: deviceSize, screenHeight: screenHeight, quadrants: quadrants)
+            spec: frameSpec, deviceSize: deviceSize, screenHeight: screenHeight, quadrants: quadrants)
         guard next != layout else { return false }
         layout = next
         return true
@@ -690,7 +698,7 @@ final class PaneModel {
     /// The screen height whose layout fits a proposed window content size, kept between the
     /// theme's minimum and what fits in `available` (the screen's visible area).
     func screenHeight(fitting contentSize: CGSize, available: CGSize) -> CGFloat {
-        let spec = Theme.Frame.spec
+        let spec = frameSpec
         let largest = DeviceFrameLayout.screenHeight(
             fitting: available, spec: spec, deviceSize: deviceSize, quadrants: quadrants,
             range: minScreenHeight...Theme.Frame.maxScreenHeight)
@@ -702,7 +710,7 @@ final class PaneModel {
     /// The window content size for a screen height, at the current device and orientation.
     func windowContentSize(screenHeight: CGFloat) -> CGSize {
         DeviceFrameLayout(
-            spec: Theme.Frame.spec, deviceSize: deviceSize, screenHeight: screenHeight, quadrants: quadrants
+            spec: frameSpec, deviceSize: deviceSize, screenHeight: screenHeight, quadrants: quadrants
         ).windowContentSize
     }
 
@@ -1119,6 +1127,7 @@ final class PaneModel {
         watchBoot(on: connection)
         startFrames(on: connection)
         startClipboard(on: connection)
+        startPostures(on: connection)
     }
 
     /// The largest screen the device can show (folded or not), which sizes the connection's
@@ -1252,6 +1261,9 @@ final class PaneModel {
         deviceTextSize = nil
         clipboardTask?.cancel()
         clipboardTask = nil
+        postureTask?.cancel()
+        postureTask = nil
+        posture = nil
         drop.reset()
         framesTask?.cancel()
         connectionTask?.cancel()
@@ -1353,6 +1365,9 @@ final class PaneModel {
 
     /// Sends a key while the window is key. Command shortcuts stay with the Mac's menus.
     func handleKey(_ event: NSEvent, isDown: Bool) -> Bool {
+        // ⇧⌘F reaches the window only when the menu bar didn't take it (no foldable here):
+        // nothing happens, with no beep, and it never goes to the device.
+        if DeviceMenu.isFoldShortcut(keyCode: Int(event.keyCode), modifiers: event.modifierFlags) { return true }
         if let menu {
             // An open menu takes the keys: arrows, Return, Esc and letters. None reach the device.
             let command = event.modifierFlags.contains(.command)
@@ -1483,6 +1498,56 @@ final class PaneModel {
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.log.error("Clipboard stream ended: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    // MARK: Fold (board 28)
+
+    /// The hinge of the device on screen or starting; nil on anything that isn't a foldable.
+    var fold: FoldProfile? { profile.fold }
+
+    /// Follows a foldable's posture for as long as the connection lasts. The tick and the Fold
+    /// item read this, so a fold from adb moves them too. Nothing is announced (board 28).
+    private func startPostures(on connection: EmulatorConnection) {
+        postureTask?.cancel()
+        posture = nil
+        guard fold != nil else { return }
+        postureTask = Task { [weak self] in
+            do {
+                for try await posture in connection.postureUpdates() {
+                    guard let self, self.connection === connection else { return }
+                    self.log.info("Posture: \(posture?.title ?? "unknown", privacy: .public)")
+                    self.posture = posture
+                }
+            } catch is CancellationError {
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.log.error("Posture stream ended: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// Fold (⇧⌘F): to the fold posture, or back to Open from it. Does nothing on a device
+    /// that isn't a foldable.
+    func toggleFold() {
+        guard let fold else { return }
+        setPosture(fold.toggled(from: posture))
+    }
+
+    /// Asks the emulator for a posture; it alone decides whether the device has it. The window
+    /// reshapes from the frames (board 27) and the tick moves with the notification; a refusal
+    /// leaves the tick and says so in the pill.
+    func setPosture(_ target: DevicePosture) {
+        guard let connection, status == .live, fold != nil else { return }
+        log.info("Posture: asking for \(target.title, privacy: .public)")
+        Task { [weak self] in
+            do {
+                try await connection.setPosture(target)
+            } catch {
+                guard let self, self.connection === connection else { return }
+                self.log.error("Posture refused: \(String(describing: error), privacy: .public)")
+                self.showProblem(FoldProfile.refusal)
             }
         }
     }

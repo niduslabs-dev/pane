@@ -79,6 +79,7 @@ extension PaneModel {
         guard let connection, status == .live, captureGate.begin() else { return }
         let framed = settings.includesDeviceFrame
         let quadrants = quadrants
+        let spec = frameSpec
         let style = Theme.Frame.exportStyle(appearance: screenView.effectiveAppearance)
         Task { [weak self] in
             var arrived = false
@@ -93,7 +94,7 @@ extension PaneModel {
                 arrived = true
                 self?.captureGate.finish()
                 self?.captureFlashes += 1
-                let png = framed ? try await Self.framedPNG(shot, quadrants: quadrants, style: style) : shot
+                let png = framed ? try await Self.framedPNG(shot, spec: spec, quadrants: quadrants, style: style) : shot
                 if let line = try use(png) { self?.showNotice(line) }
             } catch {
                 self?.log.error("Screenshot failed: \(String(describing: error), privacy: .public)")
@@ -105,11 +106,11 @@ extension PaneModel {
 
     /// Draws the frame around a screenshot, off the main actor.
     private nonisolated static func framedPNG(
-        _ png: Data, quadrants: Int, style: ReadOnlyBox<FrameStyle>
+        _ png: Data, spec: FrameSpec, quadrants: Int, style: ReadOnlyBox<FrameStyle>
     ) async throws -> Data {
         guard let shot = FramedScreenshot.image(fromPNG: png),
             let image = FramedScreenshot.render(
-                screenshot: shot, spec: Theme.Frame.spec, quadrants: quadrants, style: style.value),
+                screenshot: shot, spec: spec, quadrants: quadrants, style: style.value),
             let data = FramedScreenshot.png(from: image)
         else { throw CaptureProblem.cannotDrawFrame }
         return data

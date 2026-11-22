@@ -15,6 +15,9 @@ enum MainMenu {
 
     static let checkForUpdatesTitle = "Check for Updates\u{2026}"
 
+    /// Keeps the Device menu's delegate alive (`NSMenu.delegate` is weak).
+    private static let foldVisibility = FoldGroupVisibility()
+
     static func make(target: AppDelegate) -> NSMenu {
         let main = NSMenu()
 
@@ -82,15 +85,25 @@ enum MainMenu {
 
         let deviceItem = NSMenuItem()
         let deviceMenu = NSMenu(title: "Device")
+        let foldItems = DeviceMenu.foldItems(target: target, action: command)
         let groups = [
             DeviceMenu.deviceItems(target: target, action: command),
+            foldItems,
             DeviceMenu.toolItems(target: target, action: command),
             DeviceMenu.emulatorItems(target: target, action: command),
         ]
+        var foldSeparator: NSMenuItem?
         for (index, group) in groups.enumerated() {
-            if index > 0 { deviceMenu.addItem(.separator()) }
+            if index > 0 {
+                let separator = NSMenuItem.separator()
+                if group == foldItems { foldSeparator = separator }
+                deviceMenu.addItem(separator)
+            }
             for item in group { deviceMenu.addItem(item) }
         }
+        foldVisibility.items = [foldSeparator, foldItems.last].compactMap { $0 }
+        foldVisibility.isFoldable = { [weak target] in target?.activeModel?.fold != nil }
+        deviceMenu.delegate = foldVisibility
         deviceItem.submenu = deviceMenu
         main.addItem(deviceItem)
 
@@ -118,5 +131,19 @@ enum MainMenu {
         main.addItem(windowItem)
         NSApp.windowsMenu = windowMenu
         return main
+    }
+}
+
+/// Shows the Device menu's fold group only when a foldable's window is in front (board 28).
+/// `DeviceMenu.validate` hides Fold and the postures; the Posture item and the separator above
+/// the group have no command, so they are hidden here, each time the menu opens.
+@MainActor
+final class FoldGroupVisibility: NSObject, NSMenuDelegate {
+    var items: [NSMenuItem] = []
+    var isFoldable: () -> Bool = { false }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let hidden = !isFoldable()
+        for item in items { item.isHidden = hidden }
     }
 }
