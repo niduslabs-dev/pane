@@ -251,6 +251,15 @@ enum Theme {
         static let punchHoleDiameter = T.App.Pane.Size.Frame.punchHole
         static let punchHoleTop: CGFloat = 12
         static let punchHoleRingWidth: CGFloat = 1.5
+        /// Whether Pane draws its punch hole over the screen. Debug builds take
+        /// `-PaneHidePunchHole YES`, to see the cutout Android paints into the frames itself.
+        static var drawsPunchHole: Bool {
+            #if DEBUG
+                return !UserDefaults.standard.bool(forKey: "PaneHidePunchHole")
+            #else
+                return true
+            #endif
+        }
         /// The body's outer hairline, then a body-coloured gap, then a faint inner ring.
         static let edgeWidth: CGFloat = 1
         static let innerEdgeInset: CGFloat = 3
@@ -465,6 +474,10 @@ extension Theme.Frame {
                 buttonCornerRadius: buttonCornerRadius, punchHoleRingWidth: punchHoleRingWidth)
         }
         // `performAsCurrentDrawingAppearance` runs its block before returning.
+        if !drawsPunchHole {
+            style!.punchHole = NSColor.clear.cgColor
+            style!.punchHoleRing = NSColor.clear.cgColor
+        }
         return ReadOnlyBox(value: style!)
     }
 }

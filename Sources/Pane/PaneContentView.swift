@@ -52,15 +52,17 @@ struct DeviceFrameView: View {
             }
             bodyShape
             screen
-            Circle()
-                .fill(Color(nsColor: Theme.Palette.punchHole))
-                .overlay(
-                    Circle().strokeBorder(
-                        Color(nsColor: Theme.Palette.punchHoleRing), lineWidth: Theme.Frame.punchHoleRingWidth)
-                )
-                .frame(width: layout.punchHoleRect.width, height: layout.punchHoleRect.height)
-                .offset(x: layout.punchHoleRect.minX, y: layout.punchHoleRect.minY)
-                .allowsHitTesting(false)
+            if Theme.Frame.drawsPunchHole {
+                Circle()
+                    .fill(Color(nsColor: Theme.Palette.punchHole))
+                    .overlay(
+                        Circle().strokeBorder(
+                            Color(nsColor: Theme.Palette.punchHoleRing), lineWidth: Theme.Frame.punchHoleRingWidth)
+                    )
+                    .frame(width: layout.punchHoleRect.width, height: layout.punchHoleRect.height)
+                    .offset(x: layout.punchHoleRect.minX, y: layout.punchHoleRect.minY)
+                    .allowsHitTesting(false)
+            }
             if model.status == .live {
                 ForEach(layout.buttons, id: \.button) { button in
                     hitArea(button)
