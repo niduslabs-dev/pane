@@ -180,7 +180,7 @@ extension UpdateModel {
     }
 
     /// A check this recent reads "just now".
-    static let justNow: TimeInterval = 60
+    static let justNow: TimeInterval = 60  // design-ok: copy threshold, not motion
 
     /// The popup's title: "Pane 1.1 is ready", "Pane 1.1 is available" before the download,
     /// "Downloading Pane 1.1" during it.

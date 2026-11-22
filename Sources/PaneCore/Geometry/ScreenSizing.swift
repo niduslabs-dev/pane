@@ -31,8 +31,8 @@ public struct DisplayMetrics: Sendable, Equatable {
 
 public enum ScreenSizing {
     /// Android's baseline density: one dp is one pixel at 160 dpi.
-    public static let baselineDensity: CGFloat = 160
-    public static let millimetresPerInch: CGFloat = 25.4
+    public static let baselineDensity: CGFloat = 160  // design-ok: Android's dp definition
+    public static let millimetresPerInch: CGFloat = 25.4  // design-ok: unit conversion
 
     /// The screen's long side in points for a mode; nil for `fit` (the caller fits it to the
     /// window's screen) and for `physical` on a display with no physical size.
@@ -61,7 +61,7 @@ public enum ScreenSizing {
     /// The next size up (or down) from `current` among `sizes`, for Zoom In and Zoom Out.
     /// Sizes within half a point of `current` count as the same.
     public static func step(from current: CGFloat, among sizes: [CGFloat], up: Bool) -> CGFloat? {
-        let tolerance: CGFloat = 0.5
+        let tolerance: CGFloat = 0.5  // design-ok: rounding tolerance, not a drawn size
         let sorted = Set(sizes.map { ($0 / tolerance).rounded() * tolerance }).sorted()
         return up ? sorted.first { $0 > current + tolerance } : sorted.last { $0 < current - tolerance }
     }

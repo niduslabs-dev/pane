@@ -151,7 +151,7 @@ public struct Adb: Sendable {
     }
 
     /// How long a general adb call may run before it is stopped.
-    public static let defaultTimeout: Duration = .seconds(20)
+    public static let defaultTimeout: Duration = .seconds(20)  // design-ok: engine timing
 
     /// The last line adb printed that says something, without its "adb: error:" lead-ins, cut
     /// to one short line. Empty when adb printed nothing.

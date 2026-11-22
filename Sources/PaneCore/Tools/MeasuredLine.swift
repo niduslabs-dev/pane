@@ -33,7 +33,7 @@ public struct MeasuredLine: Sendable, Equatable {
         guard dx != 0 || dy != 0 else { return point }
         let degreesPerRadian = 180 / CGFloat.pi
         let angle = atan2(abs(dy), abs(dx)) * degreesPerRadian
-        let rightAngle: CGFloat = 90
+        let rightAngle: CGFloat = 90  // design-ok: degrees
         if angle <= axisDegrees || (forceAxis && angle <= rightAngle / 2) {
             point.y = start.y
         } else if angle >= rightAngle - axisDegrees || forceAxis {

@@ -161,16 +161,13 @@ public struct LayoutTree: Sendable, Equatable {
 
 /// Device pixels to Android's density-independent pixels: `dp = px × 160 / density`.
 public struct DensityScale: Sendable, Equatable {
-    /// Android's baseline density, where 1 dp is 1 px.
-    public static let baseline: CGFloat = 160
-
     public var density: CGFloat
 
     public init(density: Int) {
         self.density = CGFloat(max(density, 1))
     }
 
-    public func dp(_ pixels: CGFloat) -> CGFloat { pixels * Self.baseline / density }
+    public func dp(_ pixels: CGFloat) -> CGFloat { pixels * ScreenSizing.baselineDensity / density }
 
     /// Whole dp, rounded half away from zero, as layout tools show them.
     public func wholeDp(_ pixels: CGFloat) -> Int { Int(dp(pixels).rounded()) }

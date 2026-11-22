@@ -336,7 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         /// example update, so every state can be captured without a feed.
         private func showUpdateCheck(_ state: String) {
             let update = AvailableUpdate(
-                version: Self.demoUpdateVersion, size: 6_000_000,
+                version: Self.demoUpdateVersion, size: 6_000_000,  // design-ok: debug demo data
                 notes: ["Settings shows an update in the version row", "What's new opens from Settings"],
                 releaseNotesURL: URL(string: "https://github.com/niduslabs-dev/pane/releases"))
             let checked = Date.now.addingTimeInterval(-Theme.Timing.updateCheckDemoAge)
